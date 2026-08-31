@@ -128,6 +128,28 @@ proc ::mdance::abs_frame {results subset_idx} {
     return $af
 }
 
+# _frame_coords - Position $sel on absolute frame $f and return its {x y z} rows,
+# refusing to proceed if the selection's atom count changed.
+#
+# `$sel update` re-evaluates the selection TEXT for the new frame, so a
+# coordinate-based selection ("within 5 of resname LIG", "x > 0", ...) gains and
+# loses atoms as the trajectory moves. The extracted matrix has one fixed-width
+# row per frame and the backend is handed a single natoms, so a varying count
+# silently corrupts every row after the first -- the clustering still "succeeds"
+# and returns labels computed from misaligned coordinates. A static selection
+# (the normal case, e.g. "protein and name CA") never trips this.
+proc ::mdance::_frame_coords {sel seltext f natoms} {
+    $sel frame $f
+    $sel update
+    set n [$sel num]
+    if {$n != $natoms} {
+        error "Atom selection '$seltext' is frame-dependent: it matches $n atoms\
+at frame $f but $natoms at the start. Clustering needs a selection whose atom\
+set is the same in every frame (e.g. \"protein and name CA\")."
+    }
+    return [$sel get {x y z}]
+}
+
 # extract_coordinates - Extract atomic coordinates from VMD molecule to CSV.
 # Optionally restricted to a first:last:stride frame range.
 # CSV row order == frame_list order; this alignment is load-bearing: the
@@ -153,11 +175,8 @@ proc ::mdance::extract_coordinates {molid sel_text {first 0} {last -1} {stride 1
     # loop throws (e.g. the molecule is deleted mid-run, or a write fails).
     set rc [catch {
         foreach f $frames {
-            $sel frame $f
-            $sel update
-            set coords [$sel get {x y z}]
             set row {}
-            foreach atom $coords {
+            foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                 lappend row [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
             }
             puts $fp [join $row ","]
@@ -196,10 +215,7 @@ proc ::mdance::extract_coordinates_flat {molid sel_text {first 0} {last -1} {str
     set flat_coords {}
     set rc [catch {
         foreach f $frames {
-            $sel frame $f
-            $sel update
-            set coords [$sel get {x y z}]
-            foreach atom $coords {
+            foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                 lappend flat_coords [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
             }
         }
@@ -745,10 +761,8 @@ proc ::mdance::extract_csv_for_frames {molid sel_text frames} {
     set fp [open $csv w]
     set rc [catch {
         foreach f $frames {
-            $sel frame $f
-            $sel update
             set row {}
-            foreach atom [$sel get {x y z}] {
+            foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                 lappend row [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
             }
             puts $fp [join $row ","]
@@ -780,9 +794,7 @@ proc ::mdance::run_analysis {molid sel_text frames labels metric} {
         set flat {}
         set rc [catch {
             foreach f $frames {
-                $sel frame $f
-                $sel update
-                foreach atom [$sel get {x y z}] {
+                foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                     lappend flat [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
                 }
             }
@@ -826,9 +838,7 @@ proc ::mdance::run_prime {molid sel_text frames labels metric trimFrac weighted}
         set flat {}
         set rc [catch {
             foreach f $frames {
-                $sel frame $f
-                $sel update
-                foreach atom [$sel get {x y z}] {
+                foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                     lappend flat [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
                 }
             }
@@ -874,9 +884,7 @@ proc ::mdance::run_select {molid sel_text frames method metric param nbins} {
         set flat {}
         set rc [catch {
             foreach f $frames {
-                $sel frame $f
-                $sel update
-                foreach atom [$sel get {x y z}] {
+                foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                     lappend flat [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
                 }
             }
