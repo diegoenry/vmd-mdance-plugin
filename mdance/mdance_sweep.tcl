@@ -382,6 +382,9 @@ proc ::mdance::gui::sweep_sort_by {col} {
 
 proc ::mdance::gui::sweep_load_selected {} {
     variable sweep_full
+    # Publishes a sweep row into ::mdance::results, so it must not fire while a
+    # run (or the sweep itself) is mid-flight and about to write that same dict.
+    if {![_busy_guard]} return
     set tv .mdance.nb.sweep.res.tv
     set sel [$tv selection]
     if {$sel eq ""} {

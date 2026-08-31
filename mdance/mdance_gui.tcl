@@ -178,6 +178,10 @@ proc ::mdance::gui::run_guarded {algorithm params} {
         }
         return
     }
+    # In CLI mode the run sits in a live event loop, so the user can close the
+    # plugin window while it is still going. The results are safely stored in
+    # ::mdance::results either way; there is just no longer a tab to show them in.
+    if {![winfo exists .mdance.nb]} return
     .mdance.nb select .mdance.nb.results
     if {[catch {update_results_tab} e]} {
         tk_messageBox -icon error -title "MDANCE Error" -message "Could not display results: $e"
@@ -336,15 +340,23 @@ proc ::mdance::gui::apply_app_font {} {
     font configure TkDefaultFont -size $app_font_size
 }
 
-# add_range - Inject the Setup-tab first/last/stride selection into a params dict
+# add_range - Inject the Setup-tab first/last/stride selection into a params
+# dict. Returns 0 (having shown a message) when one of the three fields is not a
+# whole number, so the caller aborts before starting a run. frame_list rejects
+# these too, but naming the offending field here beats a mid-run error dialog --
+# and the spinboxes accept arbitrary typed text, so this is reachable.
 proc ::mdance::gui::add_range {paramsVar} {
     upvar 1 $paramsVar params
     variable frame_first
     variable frame_last
     variable frame_stride
+    if {![_chknum $frame_first  "First frame" int 0]}  { return 0 }
+    if {![_chknum $frame_last   "Last frame"  int -1]} { return 0 }
+    if {![_chknum $frame_stride "Stride"      int 1]}  { return 0 }
     dict set params first $frame_first
     dict set params last $frame_last
     dict set params stride $frame_stride
+    return 1
 }
 
 proc ::mdance::gui::preview_selection {} {
@@ -459,6 +471,12 @@ proc ::mdance::gui::run_kmeans {} {
     variable km_kinit
     variable km_percentage
 
+    # These reach the CLI command line verbatim. Besides catching typos, a
+    # validated number can never begin with a redirection token like ">f", which
+    # Tcl's exec/open-| would otherwise treat as a file redirection.
+    if {![_chknum $km_nclusters "Number of clusters" int 2]} return
+    if {![_chknum $km_percentage "Sampling %" int 1]} return
+
     set molid $mol_selection
     if {$molid eq "top"} {
         set molid [molinfo top]
@@ -471,7 +489,7 @@ proc ::mdance::gui::run_kmeans {} {
         metric $km_metric \
         kinit $km_kinit \
         percentage $km_percentage]
-    add_range params
+    if {![add_range params]} return
 
     run_guarded kmeans $params
 }
@@ -542,6 +560,8 @@ proc ::mdance::gui::run_divine {} {
     variable div_end_mode
     variable div_percentage
 
+    if {![_chknum $div_nclusters "Number of clusters" int 2]} return
+    if {![_chknum $div_percentage "Sampling %" int 1]} return
     if {![_chknum $div_threshold "DIVINE threshold" double 0]} return
 
     set molid $mol_selection
@@ -561,7 +581,7 @@ proc ::mdance::gui::run_divine {} {
         threshold $div_threshold \
         end-mode $div_end_mode \
         percentage $div_percentage]
-    add_range params
+    if {![add_range params]} return
 
     run_guarded divine $params
 }
@@ -685,7 +705,7 @@ proc ::mdance::gui::run_helm {} {
         min-samples $helm_min_samples \
         trim-val $helm_trim_val \
         trim-k $helm_trim_k]
-    add_range params
+    if {![add_range params]} return
 
     if {$helm_trim_start} {
         dict set params trim-start 1
@@ -714,11 +734,12 @@ proc ::mdance::gui::run_helm {} {
     } else {
         if {![_chknum $helm_nclusters "Number of clusters" int 2]} return
     }
-    if {$helm_trim_start} {
-        if {![_chknum $helm_min_samples "Min samples" double 0]} return
-        if {![_chknum $helm_trim_val "Trim value" double]} return
-        if {![_chknum $helm_trim_k "Trim K" int 0]} return
-    }
+    # Unconditional: min-samples / trim-val / trim-k are put into $params above
+    # on every run, not only when "trim start" is checked, so they reach the
+    # backend command line either way and must be validated either way.
+    if {![_chknum $helm_min_samples "Min samples" double 0]} return
+    if {![_chknum $helm_trim_val "Trim value" double]} return
+    if {![_chknum $helm_trim_k "Trim K" int 0]} return
     if {$helm_labels_source ne "file" || $helm_labels_file eq ""} {
         if {![_chknum $helm_pre_k "Pre-cluster K" int 2]} return
     }
@@ -815,7 +836,7 @@ proc ::mdance::gui::run_equal {} {
         align $eq_align]
     if {$eq_reject_lowd} { dict set params reject-lowd 1 }
     if {$eq_check_sim}   { dict set params check-sim 1 }
-    add_range params
+    if {![add_range params]} return
 
     run_guarded equal $params
 }
@@ -1115,6 +1136,8 @@ proc ::mdance::gui::run_prime_analysis {} {
     variable prime_results
 
     if {![_busy_guard]} return
+    # prime_trim is passed straight through to the backend as --trim-frac.
+    if {![_chknum $prime_trim "Trim fraction" double 0]} return
     set results $::mdance::results
     if {$results eq ""} {
         tk_messageBox -icon info -title "MDANCE" -message "Run a clustering algorithm first."
@@ -1390,6 +1413,9 @@ proc ::mdance::gui::frame_tools_export {} {
 }
 
 proc ::mdance::gui::save_session_dialog {} {
+    # In CLI mode a run parks in a live event loop, so these menu items stay
+    # clickable mid-run; saving would then serialize a half-updated results dict.
+    if {![_busy_guard]} return
     if {$::mdance::results eq ""} {
         tk_messageBox -icon info -title "MDANCE" -message "Run clustering first."
         return
@@ -1406,6 +1432,10 @@ proc ::mdance::gui::save_session_dialog {} {
 }
 
 proc ::mdance::gui::load_session_dialog {} {
+    # Loading overwrites ::mdance::results, which an in-flight run is about to
+    # write to as well -- the loaded session would be silently clobbered (or
+    # worse, half-replaced) when the run finishes.
+    if {![_busy_guard]} return
     set f [tk_getOpenFile \
         -filetypes {{"MDANCE session" ".mdance"} {"All files" "*"}} \
         -title "Load Session"]

@@ -75,4 +75,47 @@ th::test "the trap it exists for: NaN makes plain expr and format throw" {
     th::throws {format %.2f NaN}
 }
 
+th::section "add_range - Setup-tab frame fields are checked before a run starts"
+proc set_range {first last stride} {
+    set ::mdance::gui::frame_first  $first
+    set ::mdance::gui::frame_last   $last
+    set ::mdance::gui::frame_stride $stride
+}
+th::test "valid fields populate the params dict and return 1" {
+    set_range 2 40 3
+    set p [dict create]
+    th::true [::mdance::gui::add_range p]
+    th::eq 2  [dict get $p first]
+    th::eq 40 [dict get $p last]
+    th::eq 3  [dict get $p stride]
+}
+th::test "last = -1 (the 'all frames' default) is accepted" {
+    set_range 0 -1 1
+    set p [dict create]
+    th::true [::mdance::gui::add_range p]
+    th::eq -1 [dict get $p last]
+}
+th::test "a non-numeric Last field aborts, leaving params untouched" {
+    # The "1o"-for-10 typo: frame_list rejects it too, but catching it here names
+    # the offending field instead of failing mid-run.
+    set_range 0 1o 1
+    set p [dict create]
+    th::false [::mdance::gui::add_range p]
+    th::false [dict exists $p last]
+}
+th::test "a non-numeric First field aborts" {
+    set_range x -1 1
+    set p [dict create]
+    th::false [::mdance::gui::add_range p]
+}
+th::test "a zero or negative stride aborts" {
+    set_range 0 -1 0
+    set p [dict create]
+    th::false [::mdance::gui::add_range p]
+    set_range 0 -1 -2
+    set p [dict create]
+    th::false [::mdance::gui::add_range p]
+}
+set_range 0 -1 1
+
 exit [th::done "unit:validation"]
