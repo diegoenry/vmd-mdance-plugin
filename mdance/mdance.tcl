@@ -23,6 +23,9 @@ namespace eval ::mdance {
     variable async_pid ""
     variable async_done 0
     variable async_err ""
+    # Last few lines the child printed, kept so a failure can say what the
+    # backend actually complained about (see _async_read).
+    variable async_tail {}
 }
 
 # Source companion files from same directory
@@ -416,6 +419,7 @@ proc ::mdance::run_cli_capture {cmd status_cb} {
     set async_done 0
     set async_err ""
     set cancel_requested 0
+    set ::mdance::async_tail {}
 
     # "2>@1" merges the child's stderr (where the CLI prints progress) into the
     # readable pipe. Paths here live under the temp dir and contain no spaces.
@@ -460,13 +464,28 @@ proc ::mdance::_async_read {status_cb} {
             # status, so a failed CLI would otherwise slip through as a cryptic
             # "couldn't open <output>" error downstream instead of a clean failure.
             catch {fconfigure $async_fh -blocking 1}
-            if {[catch {close $async_fh} ce]} { set async_err $ce }
+            if {[catch {close $async_fh} ce]} {
+                # Tcl reports a non-zero exit as "child process exited
+                # abnormally", which tells the user nothing. The CLI's own last
+                # words came through this merged stream, so attach them.
+                variable async_tail
+                set tail [join $async_tail " | "]
+                set async_err [expr {$tail eq "" ? $ce : "$ce -- backend output: $tail"}]
+            }
             set async_done 1
         }
         return
     }
-    if {$status_cb ne "" && [string trim $line] ne ""} {
-        uplevel #0 [list {*}$status_cb $line]
+    if {[string trim $line] ne ""} {
+        variable async_tail
+        lappend async_tail [string trim $line]
+        # Keep only the tail; a long run streams thousands of progress lines.
+        if {[llength $async_tail] > 5} {
+            set async_tail [lrange $async_tail end-4 end]
+        }
+        if {$status_cb ne ""} {
+            uplevel #0 [list {*}$status_cb $line]
+        }
     }
 }
 
@@ -486,6 +505,34 @@ proc ::mdance::request_cancel {} {
             }
         }
     }
+}
+
+# _exec_cli - Run a CLI command list synchronously, capturing stderr so a failure
+# reports what the backend actually said. `exec -ignorestderr` (what these call
+# sites used to do) stops stderr from being treated as an error, but also throws
+# it away -- leaving only Tcl's "child process exited abnormally" for the user.
+# Redirecting stderr to a file has the same don't-treat-stderr-as-error effect
+# while keeping the text.
+proc ::mdance::_exec_cli {cmd} {
+    set errfile [::mdance::utils::mktmp "_err.txt"]
+    set rc [catch {exec {*}$cmd 2> $errfile} out opts]
+    set detail ""
+    if {![catch {open $errfile r} efp]} {
+        catch {set detail [string trim [read $efp]]}
+        catch {close $efp}
+    }
+    catch {file delete $errfile}
+    if {$rc} {
+        if {$detail ne ""} {
+            # Cap it: a crashing backend can emit a great deal of text.
+            if {[string length $detail] > 500} {
+                set detail "...[string range $detail end-499 end]"
+            }
+            return -code error "$out -- backend output: $detail"
+        }
+        return -options $opts $out
+    }
+    return $out
 }
 
 # _cli_progress - default progress sink: surface the CLI's status lines
@@ -815,7 +862,7 @@ proc ::mdance::run_analysis {molid sel_text frames labels metric} {
     set cmd [list $cli_path --analysis --input $csv --output $out \
         --natoms $natoms --metric $metric --labels $lcsv]
     # Wrap exec+parse so a non-zero CLI exit (which exec raises) still deletes temps.
-    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    set rc [catch {_exec_cli $cmd; ::mdance::utils::parse_json $out} result opts]
     catch {file delete $out}
     catch {file delete $csv}
     catch {file delete $lcsv}
@@ -862,7 +909,7 @@ proc ::mdance::run_prime {molid sel_text frames labels metric trimFrac weighted}
     set cmd [list $cli_path --prime --input $csv --output $out \
         --natoms $natoms --metric $metric --labels $lcsv --trim-frac $trimFrac]
     if {$weighted} { lappend cmd --weighted }
-    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    set rc [catch {_exec_cli $cmd; ::mdance::utils::parse_json $out} result opts]
     catch {file delete $out}
     catch {file delete $csv}
     catch {file delete $lcsv}
@@ -900,7 +947,7 @@ proc ::mdance::run_select {molid sel_text frames method metric param nbins} {
     set out [::mdance::utils::mktmp ".json"]
     set cmd [list $cli_path --select --input $csv --output $out \
         --natoms $natoms --metric $metric --method $method --param $param --nbins $nbins]
-    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    set rc [catch {_exec_cli $cmd; ::mdance::utils::parse_json $out} result opts]
     catch {file delete $out}
     catch {file delete $csv}
     if {$rc} { return -options $opts $result }
@@ -1107,7 +1154,7 @@ proc ::mdance::run_one_config {extract config} {
         kmeans { lappend cmd --kinit $kinit --percentage $pct }
         divine { lappend cmd --kinit $kinit }
     }
-    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    set rc [catch {_exec_cli $cmd; ::mdance::utils::parse_json $out} result opts]
     catch {file delete $out}
     if {$rc} { return -options $opts $result }
     return $result
@@ -1121,9 +1168,23 @@ proc ::mdance::save_session {filename} {
     if {$results eq ""} {
         error "No clustering results to save."
     }
+    # Record enough to RECOGNIZE the molecule later. A molid on its own is just a
+    # slot number, and VMD hands the same number to whatever is loaded next, so
+    # without this a session reloaded into a different session's molecule looks
+    # perfectly live while its frame indices point into another trajectory.
+    set molSig [dict create]
+    if {[dict exists $results molid]} {
+        set mid [dict get $results molid]
+        if {[lsearch -exact [molinfo list] $mid] >= 0} {
+            catch {dict set molSig molName [molinfo $mid get name]}
+            catch {dict set molSig molFrames [molinfo $mid get numframes]}
+        }
+    }
+
     set session [dict create \
         mdanceSession 1 \
         savedAt [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"] \
+        molSignature $molSig \
         results $results]
 
     # Write to a sibling temp file and rename into place. Writing directly would
@@ -1172,7 +1233,29 @@ proc ::mdance::load_session {filename} {
     set results $res
 
     set molid [expr {[dict exists $res molid] ? [dict get $res molid] : ""}]
-    return [expr {$molid ne "" && [lsearch -exact [molinfo list] $molid] >= 0}]
+    if {$molid eq "" || [lsearch -exact [molinfo list] $molid] < 0} {
+        return 0
+    }
+
+    # The slot is occupied, but is it the same molecule? If the name or frame
+    # count disagrees with what was saved, the stored frame indices address a
+    # different trajectory -- report "not live" so the caller shows its caution
+    # dialog instead of silently colouring and exporting the wrong molecule.
+    # Sessions written before molSignature existed simply skip this check.
+    if {[dict exists $content molSignature]} {
+        set sig [dict get $content molSignature]
+        if {[dict exists $sig molName]} {
+            if {[catch {molinfo $molid get name} nm] || $nm ne [dict get $sig molName]} {
+                return 0
+            }
+        }
+        if {[dict exists $sig molFrames]} {
+            if {[catch {molinfo $molid get numframes} nf] || $nf != [dict get $sig molFrames]} {
+                return 0
+            }
+        }
+    }
+    return 1
 }
 
 # run_single_k - Run clustering for a single K value (used by the elbow plot).

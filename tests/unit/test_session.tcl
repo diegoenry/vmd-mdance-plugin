@@ -59,6 +59,36 @@ th::test "loading a session missing a required key is rejected" {
     catch {file delete $f}
 }
 
+th::section "load_session - the saved molecule must still BE that molecule"
+th::test "a changed frame count marks the session not-live" {
+    # A molid is just a slot number and VMD reuses it, so "molid 0 exists" is not
+    # evidence that it holds the trajectory this session was computed from --
+    # its frame indices would address a different molecule entirely.
+    set ::mdance::results $sample
+    set f [tmpfile]
+    ::mdance::save_session $f
+    set saved $::vmdstub::numframes
+    set ::vmdstub::numframes [expr {$saved + 7}]
+    set live [::mdance::load_session $f]
+    set ::vmdstub::numframes $saved
+    th::false $live "a different frame count means a different molecule"
+    catch {file delete $f}
+}
+th::test "an unchanged molecule is still reported live" {
+    set ::mdance::results $sample
+    set f [tmpfile]
+    ::mdance::save_session $f
+    th::true [::mdance::load_session $f]
+    catch {file delete $f}
+}
+th::test "a pre-molSignature session file still loads (backward compatible)" {
+    set f [tmpfile]
+    set old [dict create mdanceSession 1 savedAt "2026-01-01 00:00:00" results $sample]
+    set fp [open $f w]; puts $fp $old; close $fp
+    th::true [::mdance::load_session $f] "no signature -> fall back to the molid check"
+    catch {file delete $f}
+}
+
 th::section "save_session - atomic replace protects the previous session"
 proc slurp {path} {
     set fp [open $path r]

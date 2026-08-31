@@ -58,6 +58,17 @@ th::test "a non-zero backend exit surfaces an error" {
     th::match "*failed*" $err
     catch {unset ::env(MDANCE_FAKE_FAIL)}
 }
+th::test "the backend's own message survives into the error" {
+    # Tcl reports a non-zero exit as "child process exited abnormally", which
+    # tells the user nothing about what the backend objected to. The last lines
+    # the CLI printed are kept and appended instead.
+    set ::env(MDANCE_FAKE_FAIL) 1
+    set rc [catch {::mdance::run_clustering kmeans $params} err]
+    catch {unset ::env(MDANCE_FAKE_FAIL)}
+    th::true $rc "the run must fail"
+    th::match "*simulated backend failure*" $err \
+        "the CLI's own stderr text must reach the user"
+}
 th::test "running flag is cleared after a failure" {
     th::eq 0 $::mdance::running
 }
