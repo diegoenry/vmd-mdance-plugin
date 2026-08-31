@@ -1739,6 +1739,15 @@ proc ::mdance::plots::representative_rmsd_matrix {results {use_cache 0}} {
         set reps [dict get $results representatives]
         set nclusters [dict get $results nClusters]
 
+        # This view re-reads coordinates, so it needs the original molecule. A
+        # session loaded without it (load_session says so explicitly) would
+        # otherwise fail inside atomselect as a raw Tk background error.
+        if {[lsearch -exact [molinfo list] $molid] < 0} {
+            tk_messageBox -icon error -title "MDANCE" \
+                -message "Source molecule $molid is no longer loaded."
+            return
+        }
+
         set sel [atomselect $molid $sel_text]
         set natoms [$sel num]
         if {$natoms == 0} {
@@ -1757,11 +1766,8 @@ proc ::mdance::plots::representative_rmsd_matrix {results {use_cache 0}} {
                     continue
                 }
                 set rep_valid($i) 1
-                $sel frame $frame_idx
-                $sel update
-                set coords [$sel get {x y z}]
                 set flat {}
-                foreach atom $coords {
+                foreach atom [::mdance::_frame_coords $sel $sel_text $frame_idx $natoms] {
                     foreach v $atom { lappend flat $v }
                 }
                 set rep_coords($i) $flat
@@ -1880,6 +1886,13 @@ proc ::mdance::plots::msd_vs_population {results} {
     set sizes [dict get $results clusterSizes]
     set msds [dict get $results clusterMSD]
     set nclusters [dict get $results nClusters]
+    # Sibling plots all carry this guard; without it a 0-cluster result (every
+    # frame rejected as noise) reaches the median computation below, where
+    # lindex on an empty list yields "" and the expr raises an uncaught error.
+    if {$nclusters < 1} {
+        tk_messageBox -icon warning -title "MDANCE" -message "No clusters to plot."
+        return
+    }
 
     # Find ranges
     set x_min 1e30; set x_max 0; set y_min 1e30; set y_max 0

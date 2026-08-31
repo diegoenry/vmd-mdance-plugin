@@ -125,4 +125,19 @@ th::test "find_library rejects a directory (isfile guard)" {
     th::ne $res [::mdance::utils::tmpdir] "a directory must never be accepted as the library"
 }
 
+th::test "plugin_dir is captured at source time, not derived when the search runs" {
+    # Regression: find_cli/find_library used [info script] at CALL time, which is
+    # empty once sourcing is done -- [file dirname {}] is ".", so the backend
+    # search silently looked in the process's current working directory.
+    th::eq [file join $repo mdance] $::mdance::utils::plugin_dir
+    th::true [file isfile [file join $::mdance::utils::plugin_dir mdance.tcl]]
+}
+th::test "the backend search does not depend on the current directory" {
+    set here [pwd]
+    cd [::mdance::utils::tmpdir]
+    set dir_after $::mdance::utils::plugin_dir
+    cd $here
+    th::eq [file join $repo mdance] $dir_after
+}
+
 exit [th::done "unit:utils"]

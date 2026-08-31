@@ -450,19 +450,36 @@ proc ::mdance::gui::sweep_heatmap {} {
     # Collect ok rows into a cell map combo,K -> score
     set combos {}; set ks {}
     array unset cell
+    set nvals 0
     foreach it $items {
         if {![info exists sweep_rows($it)]} continue
         set r $sweep_rows($it)
         if {[dict get $r status] ne "ok"} continue
         set combo "[dict get $r algo]|[dict get $r metric]|[dict get $r kinit]"
         set k [dict get $r K]
-        set val [expr {$sweep_score eq "DB" ? [dict get $r db] : [dict get $r ch]}]
-        set cell($combo,$k) $val
+        if {$sweep_score eq "DB"} {
+            set val [dict get $r db]
+        } else {
+            set val [dict get $r ch]
+        }
+        # A run can succeed yet have no usable value for THIS score (the backend
+        # omitted it, or returned NaN/Infinity). Leaving the cell unset renders
+        # it as the "missing" gray; storing it would drag the colour scale to a
+        # non-numeric bound and make the drawing arithmetic raise.
+        if {[::mdance::utils::is_finite $val]} {
+            set cell($combo,$k) $val
+            incr nvals
+        }
         if {[lsearch -exact $combos $combo] < 0} { lappend combos $combo }
         if {[lsearch -exact $ks $k] < 0} { lappend ks $k }
     }
     if {[llength $combos] == 0} {
         tk_messageBox -icon info -title "MDANCE" -message "No successful runs to plot."
+        return
+    }
+    if {$nvals == 0} {
+        tk_messageBox -icon info -title "MDANCE" \
+            -message "No numeric $sweep_score scores in this sweep, so there is nothing to shade."
         return
     }
     set ks [lsort -integer $ks]

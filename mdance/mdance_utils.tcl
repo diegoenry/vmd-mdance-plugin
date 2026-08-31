@@ -6,6 +6,13 @@ namespace eval ::mdance {}
 namespace eval ::mdance::utils {
     variable tmpfiles {}
     variable tmpseq 0
+
+    # The directory holding the plugin's .tcl files, resolved HERE at source
+    # time. find_cli/find_library used to derive it from [info script] when they
+    # ran, but they run long after sourcing -- at which point [info script] is
+    # empty, [file dirname {}] is ".", and the backend search silently looked in
+    # whatever the process's current working directory happened to be.
+    variable plugin_dir [file dirname [file normalize [info script]]]
 }
 
 # is_finite - True when $v is a real number safe to do arithmetic and formatting
@@ -106,12 +113,16 @@ proc ::mdance::utils::find_cli {} {
         return $::env(MDANCE_CLI)
     }
 
-    # 2. Check relative to plugin directory
-    set pluginDir [file dirname [file dirname [info script]]]
+    # 2. Check relative to plugin directory. install.sh copies mdance-cli in
+    # beside the .tcl files, so that is the first place to look; the rest keep
+    # the previous build-tree candidates, now anchored correctly.
+    variable plugin_dir
+    set parentDir [file dirname $plugin_dir]
     set candidates [list \
-        [file join $pluginDir mdance-cli] \
-        [file join $pluginDir .. .. build cli mdance-cli] \
-        [file join $pluginDir .. .. .. build cli mdance-cli] \
+        [file join $plugin_dir mdance-cli] \
+        [file join $parentDir mdance-cli] \
+        [file join $parentDir .. .. build cli mdance-cli] \
+        [file join $parentDir .. .. .. build cli mdance-cli] \
     ]
     foreach candidate $candidates {
         set candidate [file normalize $candidate]
@@ -142,13 +153,16 @@ proc ::mdance::utils::find_library {} {
         return $::env(MDANCE_LIB)
     }
 
-    # 2. Check relative to plugin directory
-    set pluginDir [file dirname [file dirname [info script]]]
+    # 2. Check relative to plugin directory (see find_cli: resolved at source
+    # time, because [info script] is empty by the time this runs).
+    variable plugin_dir
+    set parentDir [file dirname $plugin_dir]
     set candidates [list \
-        [file join $pluginDir $libname] \
-        [file join $pluginDir .. .. build tcl $libname] \
-        [file join $pluginDir .. .. .. build tcl $libname] \
-        [file join $pluginDir .. .. build capi libmdance$ext] \
+        [file join $plugin_dir $libname] \
+        [file join $parentDir $libname] \
+        [file join $parentDir .. .. build tcl $libname] \
+        [file join $parentDir .. .. .. build tcl $libname] \
+        [file join $parentDir .. .. build capi libmdance$ext] \
     ]
     foreach candidate $candidates {
         set candidate [file normalize $candidate]
