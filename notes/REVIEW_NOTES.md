@@ -152,10 +152,12 @@ Mat groupB = data(splinterGroup, Eigen::placeholders::all);
 - **C-API export**: `nm -gU build/capi/libmdance.dylib | grep mdance_` should list
   the `mdance_*` symbols (visibility fix). The Tcl extension only links when these
   are exported.
-- **VMD plugin (Tcl)**: verified by loading under headless VMD
-  (`vmd -dispdev text -eofexit -e script.tcl`) — the window builds and the run
-  paths execute. The plots have **not** been eyeballed on a real display, and
-  there is no automated test of the Tcl layer.
+- **VMD plugin (Tcl)**: covered by an automated suite — `./tests/run_tests.sh`
+  runs 162 checks (87 unit under plain `tclsh` with VMD/Tk stubbed, 75 runtime
+  scenarios inside headless VMD against `tests/fake_mdance_cli`). See
+  `tests/README.md` for the layout. Trust that suite for verification status,
+  not this file. The plots are exercised for "renders without error", but have
+  still **not** been eyeballed on a real display for visual correctness.
 - **Upstream cross-check**: the installed `mdance` Python is only an empty
   namespace stub (no submodules), so there is no upstream comparison; the NumPy
   reference above stands in for it. If you install the real upstream MDANCE, add a

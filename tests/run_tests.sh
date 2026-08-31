@@ -63,7 +63,10 @@ run_vmd() {
         echo "  !! VMD exited $rc (timeout/crash) -- last VMD log lines:"
         tail -15 "$vmdlog" | sed 's/^/     /'
         fail=1
-    elif ! grep -q '0 failed' "$resfile"; then
+    # Anchor on the field separators: a bare '0 failed' is also a substring of
+    # '10 failed', '20 failed', ... so the unanchored form silently accepted a
+    # scenario with 10+ failures as clean.
+    elif ! grep -qE '\| 0 failed \|' "$resfile"; then
         echo "  !! no clean summary line found (scenario aborted early?) -- last VMD log lines:"
         tail -15 "$vmdlog" | sed 's/^/     /'
         fail=1
