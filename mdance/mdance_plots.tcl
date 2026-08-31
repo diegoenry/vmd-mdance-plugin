@@ -915,11 +915,30 @@ proc ::mdance::plots::dendrogram {results {use_cache 0}} {
         set node_is_leaf($new_id) 0
     }
 
-    set root_id [expr {$nLeaves + $nMerges - 1}]
+    # HELM stops merging once it has nClusters groups, so its Z-matrix describes
+    # a FOREST of nClusters trees, not a single tree -- only when nClusters == 1
+    # is the last merge the one root. Treating node (nLeaves + nMerges - 1) as
+    # THE root laid out just that tree, leaving every other tree's leaves without
+    # an x position, and the leaf-label loop below then died on node_x(0).
+    # A root is any node that is never a child of a merge (an unmerged leaf is
+    # its own single-node tree).
+    array set is_child {}
+    for {set i 0} {$i < $nMerges} {incr i} {
+        set row [lindex $zMatrix $i]
+        set is_child([expr {int([lindex $row 0])}]) 1
+        set is_child([expr {int([lindex $row 1])}]) 1
+    }
+    set roots {}
+    for {set id 0} {$id < $nLeaves + $nMerges} {incr id} {
+        if {![info exists is_child($id)]} { lappend roots $id }
+    }
 
-    # Recursive layout: assign x-positions to leaves via in-order traversal
+    # Recursive layout: assign x-positions to leaves via in-order traversal,
+    # carrying the leaf counter across trees so they sit side by side.
     set leaf_counter 0
-    dendro_layout node_left node_right node_x node_is_leaf leaf_counter $root_id
+    foreach root_id $roots {
+        dendro_layout node_left node_right node_x node_is_leaf leaf_counter $root_id
+    }
 
     # Find max height for y-axis scaling
     set max_height 0
@@ -965,9 +984,11 @@ proc ::mdance::plots::dendrogram {results {use_cache 0}} {
     set x_scale [expr {$nLeaves > 1 ? double($plot_w) / ($nLeaves - 1) : $plot_w}]
     set leaf_margin [expr {$x_scale * 0.5}]
 
-    # Draw U-shaped links by traversing the tree
-    dendro_draw $c node_left node_right node_height node_x node_is_leaf \
-        $root_id $x0 $y0 $y1 $x_scale $max_height $plot_h $leaf_margin $nLeaves
+    # Draw U-shaped links by traversing each tree in the forest
+    foreach root_id $roots {
+        dendro_draw $c node_left node_right node_height node_x node_is_leaf \
+            $root_id $x0 $y0 $y1 $x_scale $max_height $plot_h $leaf_margin $nLeaves
+    }
 
     # Draw leaf labels
     for {set i 0} {$i < $nLeaves} {incr i} {
