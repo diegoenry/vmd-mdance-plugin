@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MDANCE Quick Start Guide</title>
+<style>
+  :root {
+    --bg: #fafbfc;
+    --surface: #ffffff;
+    --primary: #1a6bb5;
+    --primary-light: #e8f2fb;
+    --accent-km: #2e86de;
+    --accent-div: #8854d0;
+    --accent-helm: #20bf6b;
+    --text: #24292e;
+    --text-muted: #586069;
+    --border: #e1e4e8;
+    --code-bg: #f0f2f5;
+    --tag-bg: #eef5fc;
+    --tag-text: #0c5da5;
+    --warn-bg: #fff8e1;
+    --warn-border: #ffc107;
+    --good-bg: #e8f5e9;
+    --good-text: #2e7d32;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    --shadow-lg: 0 4px 16px rgba(0,0,0,.1);
+    --radius: 8px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* ---- Hero ---- */
+  .hero {
+    background: linear-gradient(135deg, #0d4a8a 0%, #1a6bb5 40%, #2e86de 100%);
+    color: #fff;
+    padding: 56px 24px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: -2px; left: 0; right: 0;
+    height: 40px;
+    background: var(--bg);
+    clip-path: ellipse(55% 100% at 50% 100%);
+  }
+  .hero h1 { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.5px; }
+  .hero p { margin-top: 10px; font-size: 1.1rem; opacity: .9; max-width: 640px; margin-inline: auto; }
+  .hero .badges { margin-top: 18px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+  .hero .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 14px; border-radius: 20px; font-size: .82rem; font-weight: 600;
+    backdrop-filter: blur(4px);
+  }
+  .badge-km  { background: rgba(46,134,222,.35); }
+  .badge-div { background: rgba(136,84,208,.35); }
+  .badge-hlm { background: rgba(32,191,107,.35); }
+
+  /* ---- Layout ---- */
+  .container { max-width: 920px; margin: 0 auto; padding: 0 20px 80px; }
+
+  /* ---- TOC ---- */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    margin: -20px auto 36px;
+    position: relative;
+    z-index: 1;
+    box-shadow: var(--shadow-lg);
+    max-width: 560px;
+  }
+  .toc h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); margin-bottom: 10px; }
+  .toc ol { list-style: none; counter-reset: toc; columns: 2; column-gap: 24px; }
+  .toc li { counter-increment: toc; margin-bottom: 4px; break-inside: avoid; }
+  .toc li::before { content: counter(toc) ". "; color: var(--primary); font-weight: 600; font-size: .85rem; }
+  .toc a { color: var(--text); text-decoration: none; font-size: .92rem; }
+  .toc a:hover { color: var(--primary); text-decoration: underline; }
+
+  /* ---- Sections ---- */
+  section { margin-top: 48px; }
+  section > h2 {
+    font-size: 1.6rem; font-weight: 700; margin-bottom: 16px;
+    padding-bottom: 8px; border-bottom: 2px solid var(--border);
+    scroll-margin-top: 24px;
+  }
+  h3 { font-size: 1.15rem; margin: 24px 0 10px; }
+  h4 { font-size: 1rem; margin: 18px 0 8px; color: var(--text-muted); }
+  p, ul, ol { margin-bottom: 14px; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 4px; }
+
+  /* ---- Cards ---- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 26px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+  .card-header {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+  }
+  .card-header .icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .card-header h3 { margin: 0; font-size: 1.15rem; }
+  .card-header .type-tag {
+    font-size: .75rem; font-weight: 600; padding: 2px 8px;
+    border-radius: 4px; margin-left: auto;
+  }
+
+  .km-accent { border-left: 4px solid var(--accent-km); }
+  .km-accent .icon { background: var(--accent-km); }
+  .km-accent .type-tag { background: #e8f2fb; color: var(--accent-km); }
+
+  .div-accent { border-left: 4px solid var(--accent-div); }
+  .div-accent .icon { background: var(--accent-div); }
+  .div-accent .type-tag { background: #f3edfa; color: var(--accent-div); }
+
+  .hlm-accent { border-left: 4px solid var(--accent-helm); }
+  .hlm-accent .icon { background: var(--accent-helm); }
+  .hlm-accent .type-tag { background: #e6f9ef; color: #17854a; }
+
+  .how-it-works {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    font-size: .93rem;
+    color: var(--text-muted);
+  }
+  .when-to-use {
+    background: var(--good-bg);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: .93rem;
+    color: var(--good-text);
+  }
+  .when-to-use strong { color: inherit; }
+
+  /* ---- Tables ---- */
+  .table-wrap { overflow-x: auto; margin-bottom: 18px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+  }
+  thead th {
+    background: var(--code-bg);
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    border-bottom: 2px solid var(--border);
+  }
+  tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f6f8fa; }
+
+  .rec {
+    background: var(--primary-light);
+    font-weight: 600;
+  }
+
+  /* ---- Code ---- */
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: .88em;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    overflow-x: auto;
+    margin-bottom: 18px;
+    font-size: .88rem;
+    line-height: 1.6;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+  }
+  .kw { color: #7dd3fc; }
+  .flag { color: #86efac; }
+  .val { color: #fbbf24; }
+  .cmt { color: #94a3b8; font-style: italic; }
+
+  /* ---- Callouts ---- */
+  .callout {
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    font-size: .93rem;
+  }
+  .callout-info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+  .callout-warn { background: var(--warn-bg); border-left: 4px solid var(--warn-border); }
+  .callout-tip  { background: var(--good-bg); border-left: 4px solid #4caf50; }
+  .callout strong { display: block; margin-bottom: 4px; }
+
+  /* ---- Steps ---- */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 42px;
+    margin-bottom: 12px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 1px;
+    width: 28px; height: 28px;
+    background: var(--primary);
+    color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .82rem; font-weight: 700;
+  }
+
+  /* ---- Viz grid ---- */
+  .viz-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .viz-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+  }
+  .viz-card h4 { margin: 0 0 6px; font-size: .95rem; color: var(--text); }
+  .viz-card p { font-size: .85rem; color: var(--text-muted); margin: 0; }
+  .viz-card .avail { font-size: .75rem; color: var(--primary); font-weight: 600; margin-top: 8px; }
+
+  /* ---- Sizing guide ---- */
+  .size-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+  @media (max-width: 700px) { .size-grid { grid-template-columns: 1fr; } .toc ol { columns: 1; } }
+  .size-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .size-card h4 { margin: 0 0 4px; font-size: .95rem; }
+  .size-card .range { font-size: .8rem; color: var(--text-muted); margin-bottom: 10px; }
+  .size-card pre { font-size: .78rem; padding: 12px; margin: 0; }
+
+  /* ---- Footer ---- */
+  footer { text-align: center; padding: 32px 20px; color: var(--text-muted); font-size: .85rem; border-top: 1px solid var(--border); margin-top: 48px; }
+  footer a { color: var(--primary); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>MDANCE Quick Start Guide</h1>
+  <p>Molecular Dynamics Adaptive N-ary Clustering Engine &mdash; clustering MD trajectories in VMD and from the command line.</p>
+  <div class="badges">
+    <span class="badge badge-km">K KMeans NANI</span>
+    <span class="badge badge-div">D DIVINE</span>
+    <span class="badge badge-hlm">H HELM</span>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ==================== TOC ==================== -->
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#input-output">Input &amp; Output Formats</a></li>
+    <li><a href="#kmeans">KMeans NANI</a></li>
+    <li><a href="#divine">DIVINE</a></li>
+    <li><a href="#helm">HELM</a></li>
+    <li><a href="#metrics">Distance Metrics</a></li>
+    <li><a href="#scores">Quality Scores</a></li>
+    <li><a href="#visualizations">Visualizations</a></li>
+    <li><a href="#selection-guide">Algorithm Selection Guide</a></li>
+    <li><a href="#sizing">Parameters by Dataset Size</a></li>
+  </ol>
+</nav>
+
+<!-- ==================== GETTING STARTED ==================== -->
+<section id="getting-started">
+  <h2>Getting Started</h2>
+
+  <h3>VMD Plugin</h3>
+  <p>Open VMD, then go to <strong>Extensions &gt; Analysis &gt; MDANCE Clustering</strong>, or type in the VMD console:</p>
+  <pre><code><span class="kw">package require</span> mdance
+mdance::gui</code></pre>
+
+  <ol class="steps">
+    <li>Load a molecule with a trajectory in VMD.</li>
+    <li>In the <strong>Setup</strong> tab, set the molecule ID (<code>top</code> for current) and an atom selection (e.g.&nbsp;<code>protein and name CA</code>).</li>
+    <li>Click <strong>Preview</strong> to verify atom count and frame count.</li>
+    <li>(Optional) Adjust <strong>Display Settings</strong>: set the app font size and the default plot font size.</li>
+    <li>Select an algorithm tab, configure parameters, and click <strong>Run</strong>.</li>
+    <li>Inspect results in the <strong>Results</strong> tab.</li>
+  </ol>
+
+  <h3>Command-Line Tool</h3>
+  <pre><code><span class="kw">mdance-cli</span> <span class="flag">--algorithm</span> <span class="val">{kmeans|divine|helm}</span> \
+            <span class="flag">--input</span> <span class="val">coordinates.csv</span> \
+            <span class="flag">--output</span> <span class="val">results.json</span> \
+            <span class="flag">--natoms</span> <span class="val">&lt;int&gt;</span> \
+            <span class="flag">--nclusters</span> <span class="val">&lt;int&gt;</span> \
+            <span class="flag">--metric</span> <span class="val">MSD</span> \
+            <span class="cmt">[algorithm-specific options...]</span></code></pre>
+
+  <div class="callout callout-info">
+    <strong>The <code>--natoms</code> parameter</strong>
+    Number of atoms per frame. Normalizes MSD so results are comparable across systems of different sizes. For general (non-MD) data, set <code>--natoms 1</code>.
+  </div>
+</section>
+
+<!-- ==================== INPUT / OUTPUT ==================== -->
+<section id="input-output">
+  <h2>Input &amp; Output Formats</h2>
+
+  <h3>Coordinate CSV (Input)</h3>
+  <p>Each row is one frame. Each column is a coordinate value. For N atoms, each row has 3N columns (<em>x<sub>1</sub>, y<sub>1</sub>, z<sub>1</sub>, x<sub>2</sub>, y<sub>2</sub>, z<sub>2</sub>, &hellip;</em>). No header row. The VMD plugin generates this automatically.</p>
+  <pre><code>1.234,5.678,9.012,3.456,...
+1.240,5.690,9.001,3.461,...</code></pre>
+
+  <h3>Result JSON (Output)</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Field</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>algorithm</code></td><td>Algorithm name (<code>kmeans</code>, <code>divine</code>, or <code>helm</code>)</td></tr>
+      <tr><td><code>nFrames</code></td><td>Total frames processed</td></tr>
+      <tr><td><code>nClusters</code></td><td>Final cluster count</td></tr>
+      <tr><td><code>labels</code></td><td>Cluster assignment for each frame (array of integers)</td></tr>
+      <tr><td><code>clusterSizes</code></td><td>Number of frames in each cluster</td></tr>
+      <tr><td><code>representatives</code></td><td>Medoid (most central) frame index per cluster</td></tr>
+      <tr><td><code>clusterMSD</code></td><td>Within-cluster mean square deviation (compactness)</td></tr>
+      <tr><td><code>scores</code></td><td>Calinski-Harabasz and Davies-Bouldin indices</td></tr>
+      <tr><td><code>zMatrix</code></td><td>Dendrogram linkage matrix (HELM only)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ==================== KMEANS ==================== -->
+<section id="kmeans">
+  <h2>KMeans NANI</h2>
+
+  <div class="card km-accent">
+    <div class="card-header">
+      <div class="icon">K</div>
+      <h3>KMeans with NANI Initialization</h3>
+      <span class="type-tag">Partitional</span>
+    </div>
+    <div class="how-it-works">
+      <strong>How it works:</strong> Assigns every frame to the nearest of K cluster centers, recomputes centers as the mean of assigned frames, and repeats until convergence. NANI provides intelligent initialization strategies that consistently outperform random seeding.
+    </div>
+    <div class="when-to-use">
+      <strong>When to use:</strong> When you know (or want to specify) the number of clusters and need fast results. Best for an initial exploratory pass.
+    </div>
+  </div>
+
+  <h3>Parameters</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Number of clusters</td><td><code>--nclusters</code></td><td>2 &ndash; 200</td><td><em>required</em></td><td>How many clusters to create. Start with the expected number of conformational states.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function. MSD is standard for atomic coordinates.</td></tr>
+      <tr><td>Initialization</td><td><code>--kinit</code></td><td>See below</td><td><code>StratAll</code></td><td>How initial cluster centers are chosen. Strongly affects quality and reproducibility.</td></tr>
+      <tr><td>Sampling %</td><td><code>--percentage</code></td><td>1 &ndash; 100</td><td><code>10</code></td><td>Fraction of data used during initialization. Higher = more robust but slower.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Initialization Strategies (<code>--kinit</code>)</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Strategy</th><th>Description</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr class="rec"><td><code>CompSim</code></td><td>Identifies high-density regions via complementary similarity, then selects diverse centers.</td><td><strong>Recommended.</strong> Most robust for MD trajectories.</td></tr>
+      <tr><td><code>StratAll</code></td><td>Stratified sampling across the full dataset; first K points become centers.</td><td>Good general-purpose choice. Fast.</td></tr>
+      <tr><td><code>StratReduced</code></td><td>Stratified sampling on the high-density subset only.</td><td>When data has many outlier frames.</td></tr>
+      <tr><td><code>DivSelect</code></td><td>Pure diversity selection. Maximizes spread of initial centers.</td><td>When clusters are expected to be well-separated.</td></tr>
+      <tr><td><code>KmeansPP</code></td><td>Greedy K-means++ (Arthur &amp; Vassilvitskii).</td><td>Industry-standard. Slightly slower than Strat methods.</td></tr>
+      <tr><td><code>VanillaKmeansPP</code></td><td>Standard (non-greedy) K-means++.</td><td>When <code>KmeansPP</code> is too aggressive.</td></tr>
+      <tr><td><code>Random</code></td><td>Random center selection.</td><td>Baseline comparison only.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Example</h3>
+  <pre><code><span class="kw">mdance-cli</span> <span class="flag">--algorithm</span> <span class="val">kmeans</span> \
+    <span class="flag">--input</span> <span class="val">trajectory.csv</span> \
+    <span class="flag">--output</span> <span class="val">kmeans_result.json</span> \
+    <span class="flag">--natoms</span> <span class="val">352</span> \
+    <span class="flag">--nclusters</span> <span class="val">10</span> \
+    <span class="flag">--metric</span> <span class="val">MSD</span> \
+    <span class="flag">--kinit</span> <span class="val">CompSim</span> \
+    <span class="flag">--percentage</span> <span class="val">10</span></code></pre>
+</section>
+
+<!-- ==================== DIVINE ==================== -->
+<section id="divine">
+  <h2>DIVINE</h2>
+
+  <div class="card div-accent">
+    <div class="card-header">
+      <div class="icon">D</div>
+      <h3>Divisive Hierarchical Clustering</h3>
+      <span class="type-tag">Top-Down Hierarchical</span>
+    </div>
+    <div class="how-it-works">
+      <strong>How it works:</strong> Starts with all frames in one cluster. At each step, selects the cluster with the highest internal variance (by split criterion), splits it into two sub-clusters using anchor points, and repeats until the target count is reached. Optionally refines with KMeans.
+    </div>
+    <div class="when-to-use">
+      <strong>When to use:</strong> When you want a hierarchical decomposition of the trajectory, or when the natural number of clusters is unknown and you want to observe how data splits.
+    </div>
+  </div>
+
+  <h3>Parameters</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Number of clusters</td><td><code>--nclusters</code></td><td>2 &ndash; 200</td><td><em>required</em></td><td>Target number of clusters.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function.</td></tr>
+      <tr><td>Split criterion</td><td><code>--split</code></td><td>See below</td><td><code>WeightedMSD</code></td><td>How to score clusters for splitting (which one to split next).</td></tr>
+      <tr><td>Anchor method</td><td><code>--anchors</code></td><td>See below</td><td><code>NANI</code></td><td>How to choose the two seed points when splitting.</td></tr>
+      <tr><td>Initialization</td><td><code>--kinit</code></td><td>Same as KMeans</td><td><code>StratAll</code></td><td>Used for refinement step only (when <code>--refine</code> is set).</td></tr>
+      <tr><td>Refine</td><td><code>--refine</code></td><td><em>flag</em></td><td>off</td><td>Apply KMeans refinement after splitting. Produces cleaner boundaries. Recommended.</td></tr>
+      <tr><td>Threshold</td><td><code>--threshold</code></td><td>0.0 &ndash; 1.0</td><td><code>0</code></td><td>Minimum cluster size as fraction of total. 0.2 = won't split clusters below 20%.</td></tr>
+      <tr><td>End mode</td><td><code>--end-mode</code></td><td><code>k</code>, <code>points</code></td><td><code>k</code></td><td><code>k</code>: stop at K clusters. <code>points</code>: keep splitting to individual frames.</td></tr>
+      <tr><td>Sampling %</td><td><code>--percentage</code></td><td>1 &ndash; 100</td><td><code>10</code></td><td>Fraction of data used during anchor selection and initialization.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Split Criteria (<code>--split</code>)</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Criterion</th><th>Description</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr class="rec"><td><code>WeightedMSD</code></td><td>MSD weighted by cluster size. Balances splitting large and high-variance clusters.</td><td><strong>Recommended.</strong> Most stable across datasets.</td></tr>
+      <tr><td><code>MSD</code></td><td>Raw mean square deviation. Always splits the highest-variance cluster.</td><td>When variance is the primary concern.</td></tr>
+      <tr><td><code>Radius</code></td><td>Maximum distance from center to any member.</td><td>When spatial extent matters more than variance.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Anchor Methods (<code>--anchors</code>)</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method</th><th>Description</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr class="rec"><td><code>NANI</code></td><td>Uses complementary similarity and diversity selection for two representative anchors.</td><td><strong>Recommended.</strong> Most robust; avoids outlier-driven splits.</td></tr>
+      <tr><td><code>OutlierPair</code></td><td>Selects the two most dissimilar points as anchors.</td><td>When clusters are well-separated and outliers are informative.</td></tr>
+      <tr><td><code>SplinterPair</code></td><td>Selects points at the cluster periphery.</td><td>Alternative when OutlierPair produces uneven splits.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Example</h3>
+  <pre><code><span class="kw">mdance-cli</span> <span class="flag">--algorithm</span> <span class="val">divine</span> \
+    <span class="flag">--input</span> <span class="val">trajectory.csv</span> \
+    <span class="flag">--output</span> <span class="val">divine_result.json</span> \
+    <span class="flag">--natoms</span> <span class="val">352</span> \
+    <span class="flag">--nclusters</span> <span class="val">5</span> \
+    <span class="flag">--metric</span> <span class="val">MSD</span> \
+    <span class="flag">--split</span> <span class="val">WeightedMSD</span> \
+    <span class="flag">--anchors</span> <span class="val">NANI</span> \
+    <span class="flag">--refine</span> \
+    <span class="flag">--threshold</span> <span class="val">0.1</span> \
+    <span class="flag">--end-mode</span> <span class="val">k</span> \
+    <span class="flag">--percentage</span> <span class="val">10</span></code></pre>
+</section>
+
+<!-- ==================== HELM ==================== -->
+<section id="helm">
+  <h2>HELM</h2>
+
+  <div class="card hlm-accent">
+    <div class="card-header">
+      <div class="icon">H</div>
+      <h3>Hierarchical Agglomerative Linkage Merging</h3>
+      <span class="type-tag">Bottom-Up Hierarchical</span>
+    </div>
+    <div class="how-it-works">
+      <strong>How it works:</strong> Starts from initial clusters (typically from KMeans pre-clustering) and iteratively merges the two most similar clusters until a stopping criterion is met. Produces a dendrogram showing the full merge history. Includes trimming options.
+    </div>
+    <div class="when-to-use">
+      <strong>When to use:</strong> When you want to merge an existing partition into coarser clusters, need a dendrogram, or when the dataset has outlier frames that need trimming.
+    </div>
+  </div>
+
+  <h3>Parameters</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Number of clusters</td><td><code>--nclusters</code></td><td>0 &ndash; 200</td><td><code>10</code></td><td>Target cluster count. Set to 0 to use epsilon-based stopping.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function.</td></tr>
+      <tr><td>Merge scheme</td><td><code>--merge-scheme</code></td><td>See below</td><td><code>Inter</code></td><td>Linkage criterion for deciding which clusters to merge.</td></tr>
+      <tr><td>Epsilon</td><td><code>--eps</code></td><td>&gt; 0 or -1</td><td><code>-1</code></td><td>Distance threshold. Merging stops when all distances exceed this. -1 = disabled.</td></tr>
+      <tr><td>Initial labels</td><td><code>--initial-labels</code></td><td>CSV path</td><td><em>auto</em></td><td>Pre-computed cluster labels. If omitted in VMD, KMeans pre-clustering runs automatically.</td></tr>
+      <tr><td>Trim start</td><td><code>--trim-start</code></td><td><em>flag</em></td><td>off</td><td>Enable trimming of initial clusters before merging.</td></tr>
+      <tr><td>Min samples</td><td><code>--min-samples</code></td><td>0.0 &ndash; 1.0</td><td><code>0.01</code></td><td>Minimum population fraction. 0.01 = clusters below 1% of frames are removed.</td></tr>
+      <tr><td>Trim value</td><td><code>--trim-val</code></td><td>&ge; 0</td><td><code>0</code></td><td>Maximum allowed within-cluster MSD. 0 = disabled.</td></tr>
+      <tr><td>Trim K</td><td><code>--trim-k</code></td><td>&ge; 0</td><td><code>0</code></td><td>Remove the K most diffuse initial clusters. 0 = disabled.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Merge Schemes (<code>--merge-scheme</code>)</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Scheme</th><th>Description</th><th>When to use</th></tr></thead>
+    <tbody>
+      <tr class="rec"><td><code>Inter</code></td><td>Merges clusters with smallest between-cluster distance (single-linkage style).</td><td><strong>Recommended.</strong> Finds well-separated clusters.</td></tr>
+      <tr><td><code>Intra</code></td><td>Merges clusters producing smallest within-cluster variance increase (Ward-like).</td><td>When you want compact, equally-sized clusters.</td></tr>
+      <tr><td><code>Half</code></td><td>Hybrid of Intra and Inter.</td><td>When neither pure approach works well.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Stopping Criteria</h3>
+  <p>Two mutually exclusive modes:</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Mode</th><th>Settings</th><th>Behavior</th></tr></thead>
+    <tbody>
+      <tr><td><strong>K-based</strong></td><td><code>--nclusters N --eps -1</code></td><td>Merge until exactly N clusters remain.</td></tr>
+      <tr><td><strong>Distance-based</strong></td><td><code>--nclusters 0 --eps VALUE</code></td><td>Merge until all pairwise distances exceed VALUE.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Trimming</h3>
+  <p>Trimming removes problematic initial clusters <em>before</em> the main merging phase. Enable with <code>--trim-start</code> and configure with:</p>
+  <ul>
+    <li><code>--min-samples 0.025</code> &mdash; Remove clusters with &lt; 2.5% of total frames (noise clusters).</li>
+    <li><code>--trim-val 5.0</code> &mdash; Remove clusters with internal MSD &gt; 5.0 (diffuse clusters).</li>
+    <li><code>--trim-k 3</code> &mdash; Remove the 3 most diffuse clusters (simple, size-independent).</li>
+  </ul>
+  <div class="callout callout-tip">
+    <strong>Tip</strong>
+    These options can be combined. Trimming is especially useful when pre-clustering produces many tiny or scattered clusters.
+  </div>
+
+  <h3>Pre-Clustering</h3>
+  <p>HELM requires an initial partition. Two approaches:</p>
+  <ul>
+    <li><strong>Automatic</strong> (VMD plugin default): Runs KMeans with K=50. Configurable via the &ldquo;Pre-cluster K&rdquo; spinbox.</li>
+    <li><strong>Manual</strong>: Provide a labels CSV via <code>--initial-labels</code>. One label per line, or two columns (frame index, label).</li>
+  </ul>
+
+  <h3>Example: K-based stopping</h3>
+  <pre><code><span class="kw">mdance-cli</span> <span class="flag">--algorithm</span> <span class="val">helm</span> \
+    <span class="flag">--input</span> <span class="val">trajectory.csv</span> \
+    <span class="flag">--output</span> <span class="val">helm_result.json</span> \
+    <span class="flag">--natoms</span> <span class="val">352</span> \
+    <span class="flag">--nclusters</span> <span class="val">8</span> \
+    <span class="flag">--metric</span> <span class="val">MSD</span> \
+    <span class="flag">--merge-scheme</span> <span class="val">Inter</span> \
+    <span class="flag">--initial-labels</span> <span class="val">kmeans_labels.csv</span></code></pre>
+
+  <h3>Example: Epsilon stopping with trimming</h3>
+  <pre><code><span class="kw">mdance-cli</span> <span class="flag">--algorithm</span> <span class="val">helm</span> \
+    <span class="flag">--input</span> <span class="val">trajectory.csv</span> \
+    <span class="flag">--output</span> <span class="val">helm_result.json</span> \
+    <span class="flag">--natoms</span> <span class="val">352</span> \
+    <span class="flag">--nclusters</span> <span class="val">0</span> \
+    <span class="flag">--eps</span> <span class="val">15.0</span> \
+    <span class="flag">--metric</span> <span class="val">MSD</span> \
+    <span class="flag">--merge-scheme</span> <span class="val">Inter</span> \
+    <span class="flag">--trim-start</span> \
+    <span class="flag">--min-samples</span> <span class="val">0.025</span> \
+    <span class="flag">--trim-k</span> <span class="val">2</span> \
+    <span class="flag">--initial-labels</span> <span class="val">kmeans_labels.csv</span></code></pre>
+</section>
+
+<!-- ==================== METRICS ==================== -->
+<section id="metrics">
+  <h2>Distance Metrics</h2>
+  <p>All three algorithms accept a <code>--metric</code> parameter. The choice depends on data type.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Metric</th><th>Full Name</th><th>Best For</th></tr></thead>
+    <tbody>
+      <tr class="rec"><td><code>MSD</code></td><td>Mean Square Deviation</td><td><strong>Atomic coordinates (default).</strong> Euclidean-family, normalized by atom count. Use this for MD.</td></tr>
+      <tr><td><code>BUB</code></td><td>Baroni-Urbani-Buser</td><td>Binary fingerprint data.</td></tr>
+      <tr><td><code>Fai</code></td><td>Faith</td><td>Binary fingerprint data.</td></tr>
+      <tr><td><code>Gle</code></td><td>Gleason</td><td>Extended similarity for mixed data.</td></tr>
+      <tr><td><code>Ja</code></td><td>Jaccard</td><td>Binary presence/absence data. Ignores joint absences.</td></tr>
+      <tr><td><code>JT</code></td><td>Jaccard-Tanimoto</td><td>Chemical fingerprint similarity. Standard in cheminformatics.</td></tr>
+      <tr><td><code>RT</code></td><td>Rogers-Tanimoto</td><td>Binary data. Penalizes mismatches more than Jaccard.</td></tr>
+      <tr><td><code>RR</code></td><td>Russel-Rao</td><td>Binary data. Considers only joint presences.</td></tr>
+      <tr><td><code>SM</code></td><td>Sokal-Michener</td><td>Binary data. Treats presences and absences symmetrically.</td></tr>
+      <tr><td><code>SS1</code></td><td>Sokal-Sneath 1</td><td>Binary data. Variant of Jaccard.</td></tr>
+      <tr><td><code>SS2</code></td><td>Sokal-Sneath 2</td><td>Binary data. Variant of SM.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout-info">
+    <strong>For MD trajectory clustering, use <code>MSD</code>.</strong> The other metrics are designed for binary or fingerprint-based data representations.
+  </div>
+</section>
+
+<!-- ==================== SCORES ==================== -->
+<section id="scores">
+  <h2>Quality Scores</h2>
+  <p>Every clustering run reports two quality metrics.</p>
+
+  <div class="card" style="border-left: 4px solid #2196f3;">
+    <h3>Calinski-Harabasz Index (CH)</h3>
+    <p>Ratio of between-cluster dispersion to within-cluster dispersion.</p>
+    <ul>
+      <li><strong>Higher is better.</strong> Dense clusters that are well-separated from each other.</li>
+      <li>Useful for comparing different K values on the same dataset.</li>
+      <li>Not comparable across different datasets.</li>
+    </ul>
+  </div>
+
+  <div class="card" style="border-left: 4px solid #ff9800;">
+    <h3>Davies-Bouldin Index (DB)</h3>
+    <p>Average similarity ratio between each cluster and its most similar neighbor.</p>
+    <ul>
+      <li><strong>Lower is better.</strong> Compact clusters far from each other.</li>
+      <li>Less sensitive to cluster count than CH.</li>
+      <li>Values close to 0 indicate excellent separation.</li>
+    </ul>
+  </div>
+
+  <div class="callout callout-tip">
+    <strong>Choosing K with the Elbow Plot</strong>
+    Use the <strong>Elbow Plot</strong> visualization to plot CH and DB across a range of K values. Look for a peak in the CH curve (maximum ratio) and a valley in the DB curve (minimum overlap).
+  </div>
+</section>
+
+<!-- ==================== VISUALIZATIONS ==================== -->
+<section id="visualizations">
+  <h2>Visualizations</h2>
+  <p>Available from the <strong>Results</strong> tab after running any algorithm. Organized in two rows of buttons.</p>
+
+  <div class="card" style="border-left: 4px solid var(--primary); margin-bottom: 1.5rem;">
+    <h4 style="margin-top:0">Plot Window Features</h4>
+    <p>Every plot window includes an interactive toolbar:</p>
+    <ul>
+      <li><strong>Font size spinner</strong> &mdash; adjust text size within the figure (per-window setting)</li>
+      <li><strong>Export CSV</strong> &mdash; save the underlying data (cluster IDs, scores, distances, etc.) as a comma-separated file</li>
+      <li><strong>Export PS</strong> &mdash; save the figure as PostScript (always available)</li>
+      <li><strong>Export PNG</strong> &mdash; save the figure as PNG (requires ImageMagick or GraphicsMagick; falls back to PostScript if unavailable)</li>
+    </ul>
+    <p>All plot windows <strong>auto-resize</strong>: drag the window border and the figure redraws to fill the new dimensions. Computationally expensive plots (Silhouette, Distances, Rep.&nbsp;RMSD, Dendrogram) cache their results so resizing is fast.</p>
+  </div>
+
+  <h3>Core Plots</h3>
+  <div class="viz-grid">
+    <div class="viz-card">
+      <h4>Population Chart</h4>
+      <p>Bar chart of cluster sizes, colored by cluster. Reveals imbalanced partitions at a glance.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Timeline</h4>
+      <p>Cluster assignment vs. frame number. Shows temporal transitions between conformational states along the trajectory.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Cluster MSD</h4>
+      <p>Bar chart of within-cluster MSD. Lower bars = tighter, more homogeneous clusters.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Dendrogram</h4>
+      <p>Hierarchical merge tree. HELM shows the native merge history from the Z-matrix. KMeans and DIVINE compute a post-hoc dendrogram from centroid distances using average linkage.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Elbow Plot</h4>
+      <p>CH and DB scores plotted against K. Runs clustering for a range of K values to find the optimal count.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Silhouette</h4>
+      <p>Per-frame silhouette coefficients grouped by cluster. Horizontal bars show how well each frame fits its cluster. Red dashed line marks the mean. Sampled for large trajectories.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+  </div>
+
+  <h3>Analysis Plots</h3>
+  <div class="viz-grid">
+    <div class="viz-card">
+      <h4>Distances</h4>
+      <p>Heatmap of pairwise inter-cluster distances (centroid MSD). Shows which clusters are similar or well-separated.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>MSD / Population</h4>
+      <p>Scatter plot of within-cluster MSD vs. cluster size. Identifies clusters that may need splitting (large + high MSD) or are noise (tiny). Dashed median reference lines.</p>
+      <div class="avail">All algorithms (requires MSD)</div>
+    </div>
+    <div class="viz-card">
+      <h4>Rep. RMSD</h4>
+      <p>Heatmap of pairwise RMSD between representative (medoid) frames. Shows structural distinctness of cluster centers.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Transitions</h4>
+      <p>Heatmap of cluster-to-cluster transition probabilities from consecutive frame pairs. Reveals which conformational states interconvert directly.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+    <div class="viz-card">
+      <h4>Residence</h4>
+      <p>Bar chart of mean residence time (consecutive frames) per cluster with min/max whiskers. Distinguishes stable states from transient visits.</p>
+      <div class="avail">All algorithms</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SELECTION GUIDE ==================== -->
+<section id="selection-guide">
+  <h2>Algorithm Selection Guide</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Scenario</th><th>Recommended</th><th>Reasoning</th></tr></thead>
+    <tbody>
+      <tr><td>Quick exploration of a new trajectory</td><td><strong>KMeans NANI</strong></td><td>Fast, simple, immediate results. Use Elbow Plot to determine K.</td></tr>
+      <tr><td>Unknown number of conformational states</td><td><strong>DIVINE</strong></td><td>Hierarchical splitting reveals natural structure. Use threshold to control minimum cluster size.</td></tr>
+      <tr><td>Refining a coarse partition</td><td><strong>HELM</strong></td><td>Merges over-split clusters while preserving meaningful distinctions.</td></tr>
+      <tr><td>Noisy trajectory with outliers</td><td><strong>HELM</strong> + trimming</td><td>Trim options remove noise clusters before merging.</td></tr>
+      <tr><td>Dendrogram visualization needed</td><td><strong>HELM</strong></td><td>HELM produces a native Z-matrix for exact merge history. KMeans/DIVINE also show post-hoc dendrograms from centroid distances.</td></tr>
+      <tr><td>Reproducibility across runs</td><td><strong>KMeans</strong> + <code>CompSim</code></td><td>CompSim initialization is deterministic given the same data.</td></tr>
+      <tr><td>Very large trajectories (&gt;10K frames)</td><td><strong>KMeans NANI</strong></td><td>O(n&middot;k&middot;i) scales well. HELM is O(k&sup2;) on initial clusters only.</td></tr>
+      <tr><td>Coarse-to-fine pipeline</td><td><strong>KMeans</strong> &rarr; <strong>HELM</strong></td><td>KMeans for fast initial partition, HELM for hierarchical refinement.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ==================== SIZING ==================== -->
+<section id="sizing">
+  <h2>Recommended Parameters by Dataset Size</h2>
+  <p>Start with these defaults, then iterate based on quality scores and visual inspection.</p>
+
+  <div class="size-grid">
+    <div class="size-card">
+      <h4>Small</h4>
+      <div class="range">&lt; 500 frames</div>
+      <pre><code><span class="kw">KMeans</span>
+  <span class="flag">nclusters</span> <span class="val">3-5</span>
+  <span class="flag">kinit</span>     <span class="val">CompSim</span>
+
+<span class="kw">DIVINE</span>
+  <span class="flag">nclusters</span> <span class="val">2-4</span>
+  <span class="flag">refine</span>    <span class="val">yes</span>
+
+<span class="kw">HELM</span>
+  <span class="flag">nclusters</span> <span class="val">2-5</span>
+  <span class="flag">pre-K</span>     <span class="val">15-25</span></code></pre>
+    </div>
+    <div class="size-card">
+      <h4>Medium</h4>
+      <div class="range">500 &ndash; 5,000 frames</div>
+      <pre><code><span class="kw">KMeans</span>
+  <span class="flag">nclusters</span> <span class="val">5-15</span>
+  <span class="flag">kinit</span>     <span class="val">CompSim</span>
+
+<span class="kw">DIVINE</span>
+  <span class="flag">nclusters</span> <span class="val">3-10</span>
+  <span class="flag">threshold</span> <span class="val">0.1</span>
+
+<span class="kw">HELM</span>
+  <span class="flag">nclusters</span> <span class="val">5-15</span>
+  <span class="flag">pre-K</span>     <span class="val">30-50</span></code></pre>
+    </div>
+    <div class="size-card">
+      <h4>Large</h4>
+      <div class="range">5,000 &ndash; 50,000 frames</div>
+      <pre><code><span class="kw">KMeans</span>
+  <span class="flag">nclusters</span> <span class="val">10-30</span>
+  <span class="flag">kinit</span>     <span class="val">CompSim</span>
+
+<span class="kw">DIVINE</span>
+  <span class="flag">nclusters</span> <span class="val">5-20</span>
+  <span class="flag">threshold</span> <span class="val">0.2</span>
+
+<span class="kw">HELM</span>
+  <span class="flag">nclusters</span>    <span class="val">5-20</span>
+  <span class="flag">pre-K</span>        <span class="val">50-100</span>
+  <span class="flag">trim-start</span>   <span class="val">yes</span>
+  <span class="flag">min-samples</span>  <span class="val">0.01</span></code></pre>
+    </div>
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<footer>
+  MDANCE &mdash; Molecular Dynamics Adaptive N-ary Clustering Engine<br>
+  <a href="https://github.com/mqcomplab/CPP-MDANCE">github.com/mqcomplab/CPP-MDANCE</a>
+</footer>
+
+</body>
+</html>

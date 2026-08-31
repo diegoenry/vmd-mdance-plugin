@@ -1,0 +1,1156 @@
+# mdance.tcl - MDANCE VMD Plugin
+#
+# Main plugin file: registration, coordinate extraction, CLI invocation,
+# and result visualization for molecular dynamics trajectory clustering.
+
+package provide mdance 1.0
+
+package require Tk
+
+namespace eval ::mdance {
+    variable cli_path ""
+    variable w ""
+    variable results ""
+    variable molid "top"
+    variable atomsel "protein and name CA"
+    variable status "Ready"
+    variable running 0
+    variable use_library 0
+
+    # Async CLI run state (for cancellable, progress-streaming runs)
+    variable cancel_requested 0
+    variable async_fh ""
+    variable async_pid ""
+    variable async_done 0
+    variable async_err ""
+}
+
+# Source companion files from same directory
+set _mdance_dir [file dirname [info script]]
+source [file join $_mdance_dir mdance_utils.tcl]
+source [file join $_mdance_dir mdance_gui.tcl]
+source [file join $_mdance_dir mdance_plots.tcl]
+source [file join $_mdance_dir mdance_sweep.tcl]
+
+# init - Initialize the plugin, locate library or CLI binary
+# Returns "library" or "cli" depending on which backend is available
+proc ::mdance::init {} {
+    variable cli_path
+    variable use_library
+
+    # Try loading shared library first.
+    # The explicit "Mdance" prefix names the init symbol (Mdance_Init); without
+    # it Tcl guesses from the filename (mdance_tcl -> Mdance_tcl_Init), which the
+    # extension does not export, so the load would fail and fall back to CLI.
+    if {!$use_library} {
+        set lib_path [::mdance::utils::find_library]
+        if {$lib_path ne ""} {
+            if {![catch {load $lib_path Mdance}]} {
+                set use_library 1
+                return "library"
+            }
+        }
+    }
+
+    if {$use_library} {
+        return "library"
+    }
+
+    # Fall back to CLI binary
+    if {$cli_path eq ""} {
+        if {[catch {set cli_path [::mdance::utils::find_cli]} err]} {
+            set cli_path ""
+            return -code error $err
+        }
+    }
+    return "cli"
+}
+
+# frame_list - Resolve a first:last:stride selection into a list of absolute
+# VMD frame indices. last < 0 (or out of range) means "to the end"; stride < 1
+# is treated as 1. The default 0/-1/1 reproduces "all frames".
+proc ::mdance::frame_list {molid {first 0} {last -1} {stride 1}} {
+    set total [molinfo $molid get numframes]
+    if {$total == 0} {
+        error "Molecule $molid has no frames loaded."
+    }
+    if {$first eq "" || $first < 0} { set first 0 }
+    if {$last eq "" || $last < 0 || $last >= $total} { set last [expr {$total - 1}] }
+    if {$stride eq "" || $stride < 1} { set stride 1 }
+    if {$first > $last} {
+        error "Frame range invalid: first ($first) is past last ($last)."
+    }
+    set frames {}
+    for {set f $first} {$f <= $last} {incr f $stride} {
+        lappend frames $f
+    }
+    if {[llength $frames] == 0} {
+        error "Frame range/stride selected 0 frames."
+    }
+    return $frames
+}
+
+# range_params - Pull first/last/stride out of a params dict (with defaults
+# that mean "all frames"). Returns {first last stride}.
+proc ::mdance::range_params {params} {
+    set first  [expr {[dict exists $params first]  ? [dict get $params first]  : 0}]
+    set last   [expr {[dict exists $params last]   ? [dict get $params last]   : -1}]
+    set stride [expr {[dict exists $params stride] ? [dict get $params stride] : 1}]
+    return [list $first $last $stride]
+}
+
+# abs_frame - Map a clustering sample index (row in the extracted matrix) to the
+# absolute VMD frame it came from, using the "frames" map stored in a results
+# dict. Preserves the -1 "empty cluster" sentinel and falls back to identity
+# when no map is present (full-trajectory runs / older results).
+proc ::mdance::abs_frame {results subset_idx} {
+    if {$subset_idx eq "" || $subset_idx < 0} { return -1 }
+    if {![dict exists $results frames]} { return $subset_idx }
+    set af [lindex [dict get $results frames] $subset_idx]
+    if {$af eq ""} { return $subset_idx }
+    return $af
+}
+
+# extract_coordinates - Extract atomic coordinates from VMD molecule to CSV.
+# Optionally restricted to a first:last:stride frame range.
+# CSV row order == frame_list order; this alignment is load-bearing: the
+# backend returns labels/representatives indexed by matrix row, which the
+# plugin maps back to absolute VMD frames via the returned frame_list.
+# Returns: list of {csv_path natoms nframes frame_list}
+proc ::mdance::extract_coordinates {molid sel_text {first 0} {last -1} {stride 1}} {
+    variable status
+
+    set frames [frame_list $molid $first $last $stride]
+
+    set sel [atomselect $molid $sel_text]
+    set natoms [$sel num]
+    if {$natoms == 0} {
+        $sel delete
+        error "Atom selection '$sel_text' matched 0 atoms."
+    }
+
+    set csv_path [::mdance::utils::mktmp ".csv"]
+    set fp [open $csv_path w]
+
+    # Always release the channel and the VMD selection, even if a step in the
+    # loop throws (e.g. the molecule is deleted mid-run, or a write fails).
+    set rc [catch {
+        foreach f $frames {
+            $sel frame $f
+            $sel update
+            set coords [$sel get {x y z}]
+            set row {}
+            foreach atom $coords {
+                lappend row [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+            }
+            puts $fp [join $row ","]
+        }
+    } res opts]
+    catch {close $fp}
+    catch {$sel delete}
+    if {$rc} { return -options $opts $res }
+
+    return [list $csv_path $natoms [llength $frames] $frames]
+}
+
+# extract_coordinates_flat - Extract coordinates as a flat Tcl list (for library mode).
+# Optionally restricted to a first:last:stride frame range.
+# Returns: list of {coords_list natoms nframes frame_list}
+proc ::mdance::extract_coordinates_flat {molid sel_text {first 0} {last -1} {stride 1}} {
+    variable status
+
+    set frames [frame_list $molid $first $last $stride]
+
+    set sel [atomselect $molid $sel_text]
+    set natoms [$sel num]
+    if {$natoms == 0} {
+        $sel delete
+        error "Atom selection '$sel_text' matched 0 atoms."
+    }
+
+    set flat_coords {}
+    set rc [catch {
+        foreach f $frames {
+            $sel frame $f
+            $sel update
+            set coords [$sel get {x y z}]
+            foreach atom $coords {
+                lappend flat_coords [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+            }
+        }
+    } res opts]
+    catch {$sel delete}
+    if {$rc} { return -options $opts $res }
+
+    return [list $flat_coords $natoms [llength $frames] $frames]
+}
+
+# run_clustering - Execute clustering via library or CLI
+# algorithm: kmeans, divine, or helm
+# params: dict of parameter key-value pairs
+proc ::mdance::run_clustering {algorithm params} {
+    variable use_library
+    variable results
+    variable status
+    variable running
+
+    set running 1
+
+    # Ensure backend is available
+    if {[catch {init} err]} {
+        set running 0
+        error "Cannot initialize MDANCE: $err"
+    }
+
+    # Run inside a catch so the running flag is always cleared (e.g. on cancel)
+    set rc [catch {
+        if {$use_library} {
+            run_clustering_library $algorithm $params
+        } else {
+            run_clustering_cli $algorithm $params
+        }
+    } result]
+    if {$rc} {
+        set running 0
+        # Reclaim any temp files registered before the failure (CLI mode only;
+        # library mode registers none, so this is a harmless no-op there).
+        ::mdance::utils::cleanup
+        return -code error $result
+    }
+
+    set results $result
+    # Stash the input parameters so sessions are self-documenting
+    dict set results inputParams $params
+    set running 0
+
+    set nclust [dict get $results nClusters]
+    set status "Done: $nclust clusters found"
+
+    return $results
+}
+
+# run_clustering_library - Execute clustering via the loaded Tcl extension
+proc ::mdance::run_clustering_library {algorithm params} {
+    variable status
+
+    set status "Extracting coordinates..."
+    update idletasks
+
+    set molid [dict get $params molid]
+    set sel_text [dict get $params atomsel]
+    lassign [::mdance::range_params $params] first last stride
+
+    if {[catch {set extract_result [extract_coordinates_flat $molid $sel_text $first $last $stride]} err]} {
+        set status "Error: $err"
+        error $err
+    }
+    lassign $extract_result flat_coords natoms nframes frame_list
+
+    set status "Running $algorithm clustering (library)..."
+    update idletasks
+
+    switch $algorithm {
+        kmeans {
+            set metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}]
+            set kinit [expr {[dict exists $params kinit] ? [dict get $params kinit] : "StratAll"}]
+            set percentage [expr {[dict exists $params percentage] ? [dict get $params percentage] : 10}]
+            set nclusters [dict get $params nclusters]
+
+            set result [::mdance::kmeans $flat_coords $nframes $natoms $nclusters \
+                -metric $metric -kinit $kinit -percentage $percentage]
+        }
+        divine {
+            set metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}]
+            set nclusters [dict get $params nclusters]
+
+            set cmd [list ::mdance::divine $flat_coords $nframes $natoms $nclusters \
+                -metric $metric]
+
+            foreach {flag key} {-split split -anchors anchors -kinit kinit
+                                -threshold threshold -end-mode end-mode -percentage percentage} {
+                if {[dict exists $params $key]} {
+                    lappend cmd $flag [dict get $params $key]
+                }
+            }
+            if {[dict exists $params refine] && [dict get $params refine]} {
+                lappend cmd -refine
+            }
+
+            set result [eval $cmd]
+        }
+        equal {
+            set metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}]
+            set cmd [list ::mdance::equal $flat_coords $nframes $natoms \
+                -metric $metric -threshold [dict get $params threshold]]
+            foreach {flag key} {-seed-method seed-method -n-seeds n-seeds
+                                -percentage percentage -min-samples min-samples
+                                -sim-threshold sim-threshold -align align} {
+                if {[dict exists $params $key]} {
+                    lappend cmd $flag [dict get $params $key]
+                }
+            }
+            if {[dict exists $params check-sim] && [dict get $params check-sim]} {
+                lappend cmd -check-sim
+            }
+            if {[dict exists $params reject-lowd] && [dict get $params reject-lowd]} {
+                lappend cmd -reject-lowd
+            }
+            set result [eval $cmd]
+        }
+        helm {
+            set metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}]
+            set nclusters [expr {[dict exists $params nclusters] ? [dict get $params nclusters] : 0}]
+
+            # Handle initial labels - for library mode we need them as a list
+            if {[dict exists $params initial-labels-list]} {
+                set init_labels [dict get $params initial-labels-list]
+            } elseif {[dict exists $params initial-labels]} {
+                # Read from file
+                set lfp [open [dict get $params initial-labels] r]
+                set init_labels {}
+                while {[gets $lfp line] >= 0} {
+                    set line [string trim $line]
+                    if {$line ne ""} {
+                        lappend init_labels $line
+                    }
+                }
+                close $lfp
+            } else {
+                # Auto pre-cluster with KMeans
+                set status "Pre-clustering with KMeans (library)..."
+                update idletasks
+
+                set pre_k [expr {[dict exists $params pre-k] ? [dict get $params pre-k] : 50}]
+                set pre_result [::mdance::kmeans $flat_coords $nframes $natoms $pre_k \
+                    -metric $metric]
+                set init_labels [dict get $pre_result labels]
+
+                set status "Running HELM clustering (library)..."
+                update idletasks
+            }
+
+            set cmd [list ::mdance::helm $flat_coords $nframes $natoms $nclusters $init_labels \
+                -metric $metric]
+
+            foreach {flag key} {-merge-scheme merge-scheme -eps eps
+                                -min-samples min-samples -trim-val trim-val -trim-k trim-k} {
+                if {[dict exists $params $key]} {
+                    lappend cmd $flag [dict get $params $key]
+                }
+            }
+            if {[dict exists $params trim-start] && [dict get $params trim-start]} {
+                lappend cmd -trim-start
+            }
+
+            set result [eval $cmd]
+        }
+    }
+
+    # Store molecule info in results
+    dict set result molid $molid
+    dict set result atomsel $sel_text
+    dict set result frames $frame_list
+
+    return $result
+}
+
+# run_cli_capture - Run a CLI command (a list) asynchronously, streaming its
+# merged stdout+stderr line-by-line to $status_cb so the GUI can show progress
+# and stay responsive (the event loop runs during the vwait, so a Cancel button
+# can fire). Returns normally on success; raises "CANCELLED" if request_cancel
+# was called, or the child's error text on non-zero exit.
+proc ::mdance::run_cli_capture {cmd status_cb} {
+    variable async_fh
+    variable async_pid
+    variable async_done
+    variable async_err
+    variable cancel_requested
+
+    # Single-instance state: refuse to start a second streaming run on top of an
+    # in-flight one (would clobber async_fh/async_pid and corrupt both runs).
+    if {$async_fh ne ""} {
+        return -code error "A CLI run is already active."
+    }
+
+    set async_done 0
+    set async_err ""
+    set cancel_requested 0
+
+    # "2>@1" merges the child's stderr (where the CLI prints progress) into the
+    # readable pipe. Paths here live under the temp dir and contain no spaces.
+    set async_fh [open "|$cmd 2>@1" r]
+    fconfigure $async_fh -blocking 0 -buffering line
+    set async_pid [pid $async_fh]
+    fileevent $async_fh readable [list ::mdance::_async_read $status_cb]
+
+    vwait ::mdance::async_done
+
+    set async_pid ""
+    set async_fh ""
+    if {$cancel_requested} {
+        return -code error "CANCELLED"
+    }
+    if {$async_err ne ""} {
+        return -code error $async_err
+    }
+    return
+}
+
+# _async_read - fileevent handler: forward complete lines to the callback and
+# detect end-of-stream / errors.
+proc ::mdance::_async_read {status_cb} {
+    variable async_fh
+    variable async_done
+    variable async_err
+
+    if {[catch {set n [gets $async_fh line]} e]} {
+        fileevent $async_fh readable {}
+        catch {close $async_fh}
+        set async_err $e
+        set async_done 1
+        return
+    }
+    if {$n < 0} {
+        # -1 with eof => stream finished; -1 without eof => partial line, wait
+        if {[eof $async_fh]} {
+            fileevent $async_fh readable {}
+            # Switch back to blocking so close() waits for the child and reports a
+            # non-zero exit. On a non-blocking pipe close returns without the exit
+            # status, so a failed CLI would otherwise slip through as a cryptic
+            # "couldn't open <output>" error downstream instead of a clean failure.
+            catch {fconfigure $async_fh -blocking 1}
+            if {[catch {close $async_fh} ce]} { set async_err $ce }
+            set async_done 1
+        }
+        return
+    }
+    if {$status_cb ne "" && [string trim $line] ne ""} {
+        uplevel #0 [list {*}$status_cb $line]
+    }
+}
+
+# request_cancel - Ask an in-flight async CLI run to stop (kills the child).
+# In-process library-mode runs cannot be interrupted and are unaffected.
+proc ::mdance::request_cancel {} {
+    variable async_pid
+    variable cancel_requested
+    set cancel_requested 1
+    if {$async_pid ne ""} {
+        foreach p $async_pid {
+            if {$::tcl_platform(platform) eq "windows"} {
+                # `kill` does not exist on Windows; taskkill /T ends the tree, /F forces it.
+                catch {exec taskkill /F /T /PID $p}
+            } else {
+                catch {exec kill $p}
+            }
+        }
+    }
+}
+
+# _cli_progress - default progress sink: surface the CLI's status lines
+proc ::mdance::_cli_progress {line} {
+    variable status
+    set status $line
+}
+
+# run_clustering_cli - Execute clustering via CLI subprocess (fallback)
+proc ::mdance::run_clustering_cli {algorithm params} {
+    variable cli_path
+    variable status
+
+    set status "Extracting coordinates..."
+    update idletasks
+
+    set molid [dict get $params molid]
+    set sel_text [dict get $params atomsel]
+    lassign [::mdance::range_params $params] first last stride
+
+    if {[catch {set extract_result [extract_coordinates $molid $sel_text $first $last $stride]} err]} {
+        set status "Error: $err"
+        error $err
+    }
+    lassign $extract_result csv_path natoms nframes frame_list
+
+    set status "Running $algorithm clustering..."
+    update idletasks
+
+    # Build command line
+    set output_path [::mdance::utils::mktmp ".json"]
+    set cmd [list $cli_path \
+        --algorithm $algorithm \
+        --input $csv_path \
+        --output $output_path \
+        --natoms $natoms]
+
+    # Add common parameters
+    foreach key {nclusters metric} {
+        if {[dict exists $params $key]} {
+            lappend cmd --$key [dict get $params $key]
+        }
+    }
+
+    # Add algorithm-specific parameters
+    switch $algorithm {
+        kmeans {
+            foreach key {kinit percentage} {
+                if {[dict exists $params $key]} {
+                    lappend cmd --$key [dict get $params $key]
+                }
+            }
+        }
+        divine {
+            foreach key {split anchors kinit threshold end-mode percentage} {
+                if {[dict exists $params $key]} {
+                    lappend cmd --$key [dict get $params $key]
+                }
+            }
+            if {[dict exists $params refine] && [dict get $params refine]} {
+                lappend cmd --refine
+            }
+        }
+        equal {
+            foreach key {threshold seed-method n-seeds percentage min-samples sim-threshold align} {
+                if {[dict exists $params $key]} {
+                    lappend cmd --$key [dict get $params $key]
+                }
+            }
+            if {[dict exists $params check-sim] && [dict get $params check-sim]} {
+                lappend cmd --check-sim
+            }
+            if {[dict exists $params reject-lowd] && [dict get $params reject-lowd]} {
+                lappend cmd --reject-lowd
+            }
+        }
+        helm {
+            foreach key {merge-scheme eps min-samples trim-val trim-k} {
+                if {[dict exists $params $key]} {
+                    lappend cmd --$key [dict get $params $key]
+                }
+            }
+            if {[dict exists $params trim-start] && [dict get $params trim-start]} {
+                lappend cmd --trim-start
+            }
+
+            # Handle initial labels
+            if {[dict exists $params initial-labels]} {
+                lappend cmd --initial-labels [dict get $params initial-labels]
+            } else {
+                # Auto pre-cluster with KMeans
+                set status "Pre-clustering with KMeans..."
+                update idletasks
+
+                set pre_k [expr {[dict exists $params pre-k] ? [dict get $params pre-k] : 50}]
+                set pre_output [::mdance::utils::mktmp "_pre.json"]
+                set pre_cmd [list $cli_path \
+                    --algorithm kmeans \
+                    --input $csv_path \
+                    --output $pre_output \
+                    --natoms $natoms \
+                    --nclusters $pre_k \
+                    --metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}]]
+
+                if {[catch {run_cli_capture $pre_cmd ::mdance::_cli_progress} pre_err]} {
+                    if {$pre_err eq "CANCELLED"} {
+                        set status "Cancelled."
+                        error "Clustering cancelled."
+                    }
+                    set status "Pre-clustering error: $pre_err"
+                    error "Pre-clustering failed: $pre_err"
+                }
+
+                # Extract labels from pre-clustering result and write as CSV
+                set pre_result [::mdance::utils::parse_json $pre_output]
+                set pre_labels [dict get $pre_result labels]
+                set labels_csv [::mdance::utils::mktmp "_labels.csv"]
+                set lfp [open $labels_csv w]
+                foreach l $pre_labels {
+                    puts $lfp $l
+                }
+                close $lfp
+                lappend cmd --initial-labels $labels_csv
+
+                set status "Running HELM clustering..."
+                update idletasks
+            }
+        }
+    }
+
+    # Execute CLI asynchronously so the run streams progress and can be cancelled
+    if {[catch {run_cli_capture $cmd ::mdance::_cli_progress} err]} {
+        if {$err eq "CANCELLED"} {
+            set status "Cancelled."
+            error "Clustering cancelled."
+        }
+        set status "Error: $err"
+        error "mdance-cli failed: $err"
+    }
+
+    # Parse results
+    set status "Loading results..."
+    update idletasks
+
+    if {[catch {set result [::mdance::utils::parse_json $output_path]} err]} {
+        set status "Error parsing results: $err"
+        error $err
+    }
+
+    # Store molecule info in results
+    dict set result molid $molid
+    dict set result atomsel $sel_text
+    dict set result frames $frame_list
+
+    # Clean up temp files
+    ::mdance::utils::cleanup
+
+    return $result
+}
+
+# apply_cluster_colors - Set VMD User field and coloring by cluster
+proc ::mdance::apply_cluster_colors {} {
+    variable results
+
+    if {$results eq ""} {
+        error "No clustering results available."
+    }
+
+    set molid [dict get $results molid]
+    set labels [dict get $results labels]
+    set nsub [llength $labels]
+    set nclusters [dict get $results nClusters]
+    set total [molinfo $molid get numframes]
+
+    set sel [atomselect $molid all]
+
+    # If clustering ran on a subset (frame range/stride), mark every frame as
+    # unassigned (-1.0) first so non-clustered frames don't keep a stale color.
+    set frames [expr {[dict exists $results frames] ? [dict get $results frames] : ""}]
+    if {$frames ne "" && [llength $frames] < $total} {
+        for {set f 0} {$f < $total} {incr f} {
+            $sel frame $f
+            $sel set user -1.0
+        }
+    }
+
+    # Set User field for each clustered sample on its absolute VMD frame
+    for {set i 0} {$i < $nsub} {incr i} {
+        set af [::mdance::abs_frame $results $i]
+        if {$af < 0 || $af >= $total} continue
+        $sel frame $af
+        $sel set user [expr {double([lindex $labels $i])}]
+    }
+    $sel delete
+
+    # Configure representation for cluster coloring. Ensure rep 0 exists (the
+    # user may have deleted all reps), and keep the scale range non-degenerate
+    # (min != max) so a 1-cluster result still colors.
+    if {[molinfo $molid get numreps] == 0} {
+        mol addrep $molid
+    }
+    mol modcolor 0 $molid User
+    mol scaleminmax $molid 0 0.0 [expr {max(1.0, double($nclusters - 1))}]
+    color scale method BGR
+    display update
+}
+
+# goto_representative - Navigate to a representative frame
+proc ::mdance::goto_representative {cluster_idx} {
+    variable results
+
+    if {$results eq ""} {
+        error "No clustering results available."
+    }
+
+    set reps [dict get $results representatives]
+    if {$cluster_idx < 0 || $cluster_idx >= [llength $reps]} {
+        error "Invalid cluster index: $cluster_idx"
+    }
+
+    set molid [dict get $results molid]
+    set frame_idx [::mdance::abs_frame $results [lindex $reps $cluster_idx]]
+    if {$frame_idx < 0} {
+        error "Cluster $cluster_idx has no representative frame (empty cluster)."
+    }
+    set total [molinfo $molid get numframes]
+    if {$frame_idx >= $total} {
+        error "Representative frame $frame_idx is beyond the current trajectory ($total frames). Was the molecule reloaded?"
+    }
+    animate goto $frame_idx
+    display update
+}
+
+# export_labels - Save cluster labels to a CSV file
+proc ::mdance::export_labels {filename} {
+    variable results
+
+    if {$results eq ""} {
+        error "No clustering results available."
+    }
+
+    set labels [dict get $results labels]
+    set fp [open $filename w]
+    set rc [catch {
+        puts $fp "frame,cluster"
+        for {set i 0} {$i < [llength $labels]} {incr i} {
+            puts $fp "[::mdance::abs_frame $results $i],[lindex $labels $i]"
+        }
+    } res opts]
+    catch {close $fp}
+    if {$rc} { return -options $opts $res }
+}
+
+# extract_csv_for_frames - Write a CSV of coordinates for an explicit list of
+# absolute VMD frames (used by analysis on an already-computed result, whose
+# frame list may be arbitrary, e.g. a sweep-loaded run). Row order == $frames.
+# Returns {csv_path natoms}.
+proc ::mdance::extract_csv_for_frames {molid sel_text frames} {
+    set sel [atomselect $molid $sel_text]
+    set natoms [$sel num]
+    if {$natoms == 0} {
+        $sel delete
+        error "Atom selection '$sel_text' matched 0 atoms."
+    }
+    set csv [::mdance::utils::mktmp ".csv"]
+    set fp [open $csv w]
+    set rc [catch {
+        foreach f $frames {
+            $sel frame $f
+            $sel update
+            set row {}
+            foreach atom [$sel get {x y z}] {
+                lappend row [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+            }
+            puts $fp [join $row ","]
+        }
+    } res opts]
+    catch {close $fp}
+    catch {$sel delete}
+    if {$rc} { return -options $opts $res }
+    return [list $csv $natoms]
+}
+
+# run_analysis - Compute extended-similarity (iSIM) analysis for a set of frames
+# and per-sample labels. Returns a dict with keys: isim, clusterISIM,
+# clusterOutliers (outlier indices are SAMPLE indices, i.e. positions in
+# $frames -- map with abs_frame for display). Works in both backends.
+proc ::mdance::run_analysis {molid sel_text frames labels metric} {
+    variable use_library
+    variable cli_path
+
+    if {$use_library} {
+        set sel [atomselect $molid $sel_text]
+        set natoms [$sel num]
+        if {$natoms == 0} { $sel delete; error "Atom selection '$sel_text' matched 0 atoms." }
+        set flat {}
+        set rc [catch {
+            foreach f $frames {
+                $sel frame $f
+                $sel update
+                foreach atom [$sel get {x y z}] {
+                    lappend flat [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+                }
+            }
+        } res opts]
+        catch {$sel delete}
+        if {$rc} { return -options $opts $res }
+        return [::mdance::analysis $flat [llength $frames] $natoms -metric $metric -labels $labels]
+    }
+
+    if {$cli_path eq ""} { init }
+    lassign [extract_csv_for_frames $molid $sel_text $frames] csv natoms
+    set lcsv [::mdance::utils::mktmp "_lab.csv"]
+    set lfp [open $lcsv w]
+    set rc [catch {foreach l $labels { puts $lfp $l }} res opts]
+    catch {close $lfp}
+    if {$rc} { catch {file delete $csv}; catch {file delete $lcsv}; return -options $opts $res }
+    set out [::mdance::utils::mktmp ".json"]
+    set cmd [list $cli_path --analysis --input $csv --output $out \
+        --natoms $natoms --metric $metric --labels $lcsv]
+    # Wrap exec+parse so a non-zero CLI exit (which exec raises) still deletes temps.
+    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    catch {file delete $out}
+    catch {file delete $csv}
+    catch {file delete $lcsv}
+    if {$rc} { return -options $opts $result }
+    return $result
+}
+
+# run_prime - PRIME representative/"native" frame prediction for an existing
+# clustering (frames + per-sample labels). Returns a dict with keys pairwise,
+# union, medoid, outlier, medoidAll, medoidC0, medoidC0Trimmed, nClusters. The
+# frame fields are SAMPLE indices (positions in $frames); map with abs_frame.
+proc ::mdance::run_prime {molid sel_text frames labels metric trimFrac weighted} {
+    variable use_library
+    variable cli_path
+
+    if {$use_library} {
+        set sel [atomselect $molid $sel_text]
+        set natoms [$sel num]
+        if {$natoms == 0} { $sel delete; error "Atom selection '$sel_text' matched 0 atoms." }
+        set flat {}
+        set rc [catch {
+            foreach f $frames {
+                $sel frame $f
+                $sel update
+                foreach atom [$sel get {x y z}] {
+                    lappend flat [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+                }
+            }
+        } res opts]
+        catch {$sel delete}
+        if {$rc} { return -options $opts $res }
+        set cmd [list ::mdance::prime $flat [llength $frames] $natoms \
+            -metric $metric -labels $labels -trim-frac $trimFrac]
+        if {$weighted} { lappend cmd -weighted }
+        return [eval $cmd]
+    }
+
+    if {$cli_path eq ""} { init }
+    lassign [extract_csv_for_frames $molid $sel_text $frames] csv natoms
+    set lcsv [::mdance::utils::mktmp "_lab.csv"]
+    set lfp [open $lcsv w]
+    set rc [catch {foreach l $labels { puts $lfp $l }} res opts]
+    catch {close $lfp}
+    if {$rc} { catch {file delete $csv}; catch {file delete $lcsv}; return -options $opts $res }
+    set out [::mdance::utils::mktmp ".json"]
+    set cmd [list $cli_path --prime --input $csv --output $out \
+        --natoms $natoms --metric $metric --labels $lcsv --trim-frac $trimFrac]
+    if {$weighted} { lappend cmd --weighted }
+    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    catch {file delete $out}
+    catch {file delete $csv}
+    catch {file delete $lcsv}
+    if {$rc} { return -options $opts $result }
+    return $result
+}
+
+# run_select - Frame-selection tools (diversity / outliers / repsample / medoid /
+# outlier) over a set of frames. Returns a list of SAMPLE indices (positions in
+# $frames); map with abs_frame / [lindex $frames $i] for absolute VMD frames.
+proc ::mdance::run_select {molid sel_text frames method metric param nbins} {
+    variable use_library
+    variable cli_path
+
+    if {$use_library} {
+        set sel [atomselect $molid $sel_text]
+        set natoms [$sel num]
+        if {$natoms == 0} { $sel delete; error "Atom selection '$sel_text' matched 0 atoms." }
+        set flat {}
+        set rc [catch {
+            foreach f $frames {
+                $sel frame $f
+                $sel update
+                foreach atom [$sel get {x y z}] {
+                    lappend flat [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+                }
+            }
+        } res opts]
+        catch {$sel delete}
+        if {$rc} { return -options $opts $res }
+        return [::mdance::select $flat [llength $frames] $natoms \
+            -metric $metric -method $method -param $param -nbins $nbins]
+    }
+
+    if {$cli_path eq ""} { init }
+    lassign [extract_csv_for_frames $molid $sel_text $frames] csv natoms
+    set out [::mdance::utils::mktmp ".json"]
+    set cmd [list $cli_path --select --input $csv --output $out \
+        --natoms $natoms --metric $metric --method $method --param $param --nbins $nbins]
+    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    catch {file delete $out}
+    catch {file delete $csv}
+    if {$rc} { return -options $opts $result }
+    return [expr {[dict exists $result indices] ? [dict get $result indices] : {}}]
+}
+
+# write_frames_to_file - Write an arbitrary (possibly non-contiguous) list of
+# absolute VMD frames to a single structure/trajectory file.
+#
+# VMD's `animate write` OVERWRITES its target on each call and only accepts a
+# contiguous beg/end/skip range -- it cannot append, and cannot take an explicit
+# frame list. So for >1 non-contiguous frame we assemble the selected frames into
+# a fresh in-memory molecule (built from the chosen selection) and then write that
+# molecule once over its full 0..N-1 range. Mirrors VMD's own modelmaker plugin.
+#
+#   molid    - source molecule id
+#   seltext  - atom selection to export (e.g. "all" or "protein and name CA")
+#   frames   - list of absolute VMD frame indices (already mapped via abs_frame)
+#   out_path - output file
+#   fmt      - "pdb" or "dcd"
+proc ::mdance::write_frames_to_file {molid seltext frames out_path fmt} {
+    set n [llength $frames]
+    if {$n == 0} {
+        error "No frames to write."
+    }
+
+    set src [atomselect $molid $seltext]
+    if {[$src num] == 0} {
+        $src delete
+        error "Atom selection '$seltext' matched 0 atoms."
+    }
+
+    # Do the work under a catch so an error mid-build (animate dup/write, a
+    # coordinate count mismatch, etc.) never orphans the temp molecule $dest,
+    # the per-iteration selection $d, $allsel, or $src in the VMD molecule list.
+    set rc [catch {
+        if {$n == 1 && $fmt eq "pdb"} {
+            # Single PDB frame: write directly, no temp molecule needed.
+            $src frame [lindex $frames 0]
+            $src update
+            $src writepdb $out_path
+        } else {
+            # General case: build a temp molecule containing only the selected
+            # atoms, one timestep per requested frame, then write it once.
+            set tmppdb [::mdance::utils::mktmp ".pdb"]
+            $src frame [lindex $frames 0]
+            $src update
+            $src writepdb $tmppdb
+            set dest [mol new $tmppdb waitfor all]
+            catch {file delete $tmppdb}
+
+            for {set i 1} {$i < $n} {incr i} {
+                animate dup frame 0 $dest
+                set last [expr {[molinfo $dest get numframes] - 1}]
+                $src frame [lindex $frames $i]
+                $src update
+                set d [atomselect $dest all frame $last]
+                $d set {x y z} [$src get {x y z}]
+                $d delete
+                unset d
+            }
+
+            set nf [molinfo $dest get numframes]
+            set allsel [atomselect $dest all]
+            animate write $fmt $out_path beg 0 end [expr {$nf - 1}] waitfor all sel $allsel $dest
+            $allsel delete
+            mol delete $dest
+        }
+    } res opts]
+    if {$rc} {
+        catch {$d delete}
+        catch {$allsel delete}
+        catch {mol delete $dest}
+    }
+    catch {$src delete}
+    if {$rc} { return -options $opts $res }
+}
+
+# export_representatives - Write the medoid (representative) frame of every
+# cluster to a single multi-frame file (one model/timestep per cluster).
+# Returns the number of representatives written.
+proc ::mdance::export_representatives {out_path fmt {seltext "all"}} {
+    variable results
+    if {$results eq ""} {
+        error "No clustering results available."
+    }
+    set molid [dict get $results molid]
+    if {[lsearch -exact [molinfo list] $molid] < 0} {
+        error "Source molecule $molid is no longer loaded."
+    }
+
+    set reps [dict get $results representatives]
+    set frames {}
+    foreach r $reps {
+        set af [::mdance::abs_frame $results $r]
+        if {$af >= 0} { lappend frames $af }
+    }
+    if {[llength $frames] == 0} {
+        error "No valid representative frames to export."
+    }
+
+    write_frames_to_file $molid $seltext $frames $out_path $fmt
+
+    # A DCD has no topology; write a companion PDB so it is loadable standalone.
+    if {$fmt eq "dcd"} {
+        write_frames_to_file $molid $seltext [list [lindex $frames 0]] \
+            "[file rootname $out_path].pdb" pdb
+    }
+    return [llength $frames]
+}
+
+# export_clusters_split - Write one file per cluster containing all of that
+# cluster's member frames (as a trajectory). Files are named cluster_<id>.<fmt>
+# in $dir. Returns the number of cluster files written.
+proc ::mdance::export_clusters_split {dir fmt {seltext "all"}} {
+    variable results
+    if {$results eq ""} {
+        error "No clustering results available."
+    }
+    set molid [dict get $results molid]
+    if {[lsearch -exact [molinfo list] $molid] < 0} {
+        error "Source molecule $molid is no longer loaded."
+    }
+
+    set labels [dict get $results labels]
+    set nclusters [dict get $results nClusters]
+
+    # Group absolute frames by cluster
+    for {set c 0} {$c < $nclusters} {incr c} { set members($c) {} }
+    for {set i 0} {$i < [llength $labels]} {incr i} {
+        set c [lindex $labels $i]
+        set af [::mdance::abs_frame $results $i]
+        if {$af >= 0 && [info exists members($c)]} {
+            lappend members($c) $af
+        }
+    }
+
+    set written 0
+    for {set c 0} {$c < $nclusters} {incr c} {
+        if {[llength $members($c)] == 0} continue
+        set out [file join $dir "cluster_$c.$fmt"]
+        write_frames_to_file $molid $seltext $members($c) $out $fmt
+        if {$fmt eq "dcd"} {
+            write_frames_to_file $molid $seltext [list [lindex $members($c) 0]] \
+                [file join $dir "cluster_$c.pdb"] pdb
+        }
+        incr written
+    }
+    if {$written == 0} {
+        error "No non-empty clusters to export."
+    }
+    return $written
+}
+
+# run_one_config - Execute one clustering configuration and return the result
+# dict (labels/clusterSizes/representatives/clusterMSD/score_*/nClusters). Does
+# NOT attach molid/atomsel/frames -- the caller adds those. Coordinates are
+# extracted once by the caller and passed in via $extract so a sweep/elbow does
+# not re-read the trajectory per configuration.
+#
+#   extract: dict, one of
+#       {mode library flat <flatlist> natoms N nframes M}
+#       {mode cli     csv  <path>     natoms N}
+#   config:  dict {algorithm a nclusters k ?metric m? ?kinit ki? ?percentage p?}
+proc ::mdance::run_one_config {extract config} {
+    variable cli_path
+
+    set algorithm [dict get $config algorithm]
+    set k         [dict get $config nclusters]
+    set metric [expr {[dict exists $config metric]     ? [dict get $config metric]     : "MSD"}]
+    set kinit  [expr {[dict exists $config kinit]      ? [dict get $config kinit]      : "CompSim"}]
+    set pct    [expr {[dict exists $config percentage] ? [dict get $config percentage] : 10}]
+
+    if {[dict get $extract mode] eq "library"} {
+        set flat    [dict get $extract flat]
+        set natoms  [dict get $extract natoms]
+        set nframes [dict get $extract nframes]
+        switch $algorithm {
+            kmeans {
+                return [::mdance::kmeans $flat $nframes $natoms $k \
+                    -metric $metric -kinit $kinit -percentage $pct]
+            }
+            divine {
+                return [::mdance::divine $flat $nframes $natoms $k \
+                    -metric $metric -kinit $kinit]
+            }
+            default { error "Unsupported sweep algorithm: $algorithm" }
+        }
+    }
+
+    # CLI mode
+    if {$cli_path eq ""} { init }
+    set csv    [dict get $extract csv]
+    set natoms [dict get $extract natoms]
+    set out [::mdance::utils::mktmp ".json"]
+    set cmd [list $cli_path \
+        --algorithm $algorithm \
+        --input $csv \
+        --output $out \
+        --natoms $natoms \
+        --nclusters $k \
+        --metric $metric]
+    switch $algorithm {
+        kmeans { lappend cmd --kinit $kinit --percentage $pct }
+        divine { lappend cmd --kinit $kinit }
+    }
+    set rc [catch {exec -ignorestderr {*}$cmd; ::mdance::utils::parse_json $out} result opts]
+    catch {file delete $out}
+    if {$rc} { return -options $opts $result }
+    return $result
+}
+
+# save_session - Serialize the current results (which already carries the input
+# parameters, molecule id, atom selection and frame map) to a single file. The
+# results dict is itself a valid Tcl dict, so it round-trips verbatim.
+proc ::mdance::save_session {filename} {
+    variable results
+    if {$results eq ""} {
+        error "No clustering results to save."
+    }
+    set session [dict create \
+        mdanceSession 1 \
+        savedAt [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"] \
+        results $results]
+    set fp [open $filename w]
+    puts $fp $session
+    close $fp
+}
+
+# load_session - Restore a saved session into ::mdance::results. The molecule it
+# was computed from may not be loaded; score/table/label-based views still work,
+# while coordinate-re-extracting plots and structure export require the original
+# molecule. Returns 1 if the saved molecule is currently loaded, 0 otherwise.
+proc ::mdance::load_session {filename} {
+    variable results
+    set fp [open $filename r]
+    set content [read $fp]
+    close $fp
+    if {[catch {dict get $content mdanceSession} ver] || $ver eq ""} {
+        error "Not a valid MDANCE session file."
+    }
+    if {![dict exists $content results]} {
+        error "Session file has no results block."
+    }
+    set res [dict get $content results]
+    foreach key {labels nClusters clusterSizes representatives} {
+        if {![dict exists $res $key]} {
+            error "Session results are missing '$key' -- file may be corrupt."
+        }
+    }
+    set results $res
+
+    set molid [expr {[dict exists $res molid] ? [dict get $res molid] : ""}]
+    return [expr {$molid ne "" && [lsearch -exact [molinfo list] $molid] >= 0}]
+}
+
+# run_single_k - Run clustering for a single K value (used by the elbow plot).
+# Takes a pre-extracted csv_path; delegates to run_one_config (MSD + CompSim, to
+# preserve the elbow's historical behavior) and does NOT extract coordinates.
+proc ::mdance::run_single_k {algorithm csv_path natoms nclusters} {
+    variable use_library
+
+    if {$use_library} {
+        # Read the pre-extracted CSV back into a flat list for library mode
+        set fp [open $csv_path r]
+        set flat_coords {}
+        set nframes 0
+        while {[gets $fp line] >= 0} {
+            set line [string trim $line]
+            if {$line ne ""} {
+                foreach val [split $line ","] {
+                    lappend flat_coords [string trim $val]
+                }
+                incr nframes
+            }
+        }
+        close $fp
+        set extract [dict create mode library flat $flat_coords natoms $natoms nframes $nframes]
+    } else {
+        set extract [dict create mode cli csv $csv_path natoms $natoms]
+    }
+
+    return [run_one_config $extract \
+        [dict create algorithm $algorithm nclusters $nclusters metric MSD kinit CompSim]]
+}
+
+# gui - Main entry point called by VMD extension registration
+proc ::mdance::gui {} {
+    variable w
+
+    if {[winfo exists .mdance]} {
+        wm deiconify .mdance
+        raise .mdance
+        return .mdance
+    }
+
+    return [::mdance::gui::create_window]
+}

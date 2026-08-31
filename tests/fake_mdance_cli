@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+"""fake_mdance_cli - a deterministic stand-in for the real mdance-cli binary.
+
+It lets the VMD plugin's full CLI data path be exercised end-to-end without the
+C++ backend: it reads the coordinate CSV the plugin extracts, performs a real
+(but trivial, deterministic) medoid clustering / analysis, and writes JSON in
+exactly the shape the plugin's parse_json expects.
+
+Supported invocations (a subset of the real CLI, enough to drive the plugin):
+  --algorithm {kmeans|divine|helm|equal} --input CSV --output JSON --natoms N
+      [--nclusters K] [--metric M] [--kinit KI] [--percentage P]
+      [--threshold T] [--initial-labels LABELS_CSV] ...
+  --analysis --input CSV --output JSON --natoms N --metric M --labels LABELS_CSV
+  --prime    --input CSV --output JSON --natoms N --metric M --labels LABELS_CSV --trim-frac F [--weighted]
+  --select   --input CSV --output JSON --natoms N --metric M --method MTH --param P --nbins B
+
+Test hooks via environment variables:
+  MDANCE_FAKE_FAIL=1     -> print to stderr and exit non-zero (simulate a crash)
+  MDANCE_FAKE_SLEEP=SEC  -> stream progress to stderr while sleeping SEC seconds
+                            (lets the cancel path interrupt a "long" run)
+"""
+import sys, os, json, time, math
+
+
+def parse_args(argv):
+    args, flags = {}, set()
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--"):
+            key = a[2:]
+            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                args[key] = argv[i + 1]; i += 2
+            else:
+                flags.add(key); i += 1
+        else:
+            i += 1
+    return args, flags
+
+
+def read_csv(path):
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append([float(x) for x in line.split(",")])
+    return rows
+
+
+def read_labels(path):
+    out = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                out.append(int(float(line)))
+    return out
+
+
+def msd(a, b):
+    # mean squared deviation per atom (len = 3*natoms)
+    n = len(a)
+    if n == 0:
+        return 0.0
+    return sum((a[k] - b[k]) ** 2 for k in range(n)) / (n / 3.0)
+
+
+def centroid(frames, idxs):
+    n = len(frames[0])
+    c = [0.0] * n
+    for i in idxs:
+        fi = frames[i]
+        for j in range(n):
+            c[j] += fi[j]
+    m = len(idxs)
+    return [v / m for v in c]
+
+
+def medoid(frames, idxs):
+    best, bi = None, idxs[0]
+    for i in idxs:
+        tot = sum(msd(frames[i], frames[j]) for j in idxs)
+        if best is None or tot < best:
+            best, bi = tot, i
+    return bi
+
+
+def seed_indices(n, k):
+    if k <= 1:
+        return [0]
+    return [round(i * (n - 1) / (k - 1)) for i in range(k)]
+
+
+def cluster(frames, k):
+    """Nearest-medoid assignment to k evenly spaced seeds (deterministic)."""
+    n = len(frames)
+    seeds = [frames[i] for i in seed_indices(n, k)]
+    labels = []
+    for f in frames:
+        bi, bd = 0, None
+        for ci, s in enumerate(seeds):
+            d = msd(f, s)
+            if bd is None or d < bd:
+                bd, bi = d, ci
+        labels.append(bi)
+    return labels
+
+
+def summarize(frames, labels, k):
+    members = {c: [i for i, l in enumerate(labels) if l == c] for c in range(k)}
+    sizes = [len(members[c]) for c in range(k)]
+    reps = [medoid(frames, members[c]) if members[c] else -1 for c in range(k)]
+    cmsd = []
+    for c in range(k):
+        if members[c]:
+            r = reps[c]
+            cmsd.append(round(sum(msd(frames[i], frames[r]) for i in members[c]) / len(members[c]), 6))
+        else:
+            cmsd.append(0.0)
+    ch, db = scores(frames, labels, members, k)
+    return sizes, reps, cmsd, ch, db
+
+
+def scores(frames, labels, members, k):
+    n = len(frames)
+    nonempty = [c for c in range(k) if members[c]]
+    overall = centroid(frames, range(n))
+    cents = {c: centroid(frames, members[c]) for c in nonempty}
+    W = sum(msd(frames[i], cents[labels[i]]) for i in range(n) if labels[i] in cents)
+    B = sum(len(members[c]) * msd(cents[c], overall) for c in nonempty)
+    keff = len(nonempty)
+    if keff > 1 and W > 0 and n > keff:
+        ch = round((B / (keff - 1)) / (W / (n - keff)), 6)
+    else:
+        ch = 0.0
+    if keff > 1:
+        s = {c: (sum(msd(frames[i], cents[c]) for i in members[c]) / len(members[c])) for c in nonempty}
+        terms = []
+        for c in nonempty:
+            best = None
+            for c2 in nonempty:
+                if c2 == c:
+                    continue
+                d = msd(cents[c], cents[c2])
+                if d > 0:
+                    r = (s[c] + s[c2]) / d
+                    best = r if best is None or r > best else best
+            terms.append(best if best is not None else 0.0)
+        db = round(sum(terms) / len(terms), 6)
+    else:
+        db = float("nan")  # Davies-Bouldin is undefined for a single cluster
+    return ch, db
+
+
+def cluster_equal(frames, threshold):
+    """Emulate eQUAL: nearest-of-a-few-seeds, but frames farther than the radial
+    threshold from every seed become -1 noise. Produces real -1 labels."""
+    n = len(frames)
+    k = max(2, min(4, n // 3 or 2))
+    seeds = [frames[i] for i in seed_indices(n, k)]
+    labels = []
+    for f in frames:
+        bi, bd = 0, None
+        for ci, s in enumerate(seeds):
+            d = msd(f, s)
+            if bd is None or d < bd:
+                bd, bi = d, ci
+        labels.append(bi if bd <= threshold else -1)
+    # renumber non-noise labels to a contiguous 0..m-1
+    seen = sorted({l for l in labels if l >= 0})
+    remap = {old: new for new, old in enumerate(seen)}
+    labels = [remap[l] if l >= 0 else -1 for l in labels]
+    return labels, len(seen)
+
+
+def write(path, obj):
+    with open(path, "w") as f:
+        json.dump(obj, f)  # allow_nan=True by default -> emits NaN / Infinity
+
+
+def main():
+    args, flags = parse_args(sys.argv[1:])
+
+    if os.environ.get("MDANCE_FAKE_FAIL"):
+        print("fake_mdance_cli: simulated backend failure", file=sys.stderr)
+        sys.exit(2)
+
+    # Fail only for a specific --nclusters value (used to test that one bad config
+    # does not abort an entire parameter sweep).
+    fail_k = os.environ.get("MDANCE_FAKE_FAIL_K")
+    if fail_k is not None and args.get("nclusters") == fail_k:
+        print(f"fake_mdance_cli: simulated failure for k={fail_k}", file=sys.stderr)
+        sys.exit(3)
+
+    sleep = float(os.environ.get("MDANCE_FAKE_SLEEP", "0"))
+    if sleep > 0:
+        steps = 20
+        for s in range(steps):
+            print(f"clustering... {int(100 * s / steps)}%", file=sys.stderr, flush=True)
+            time.sleep(sleep / steps)
+
+    out_path = args["output"]
+    frames = read_csv(args["input"])
+    nframes = len(frames)
+
+    if "analysis" in flags:
+        labels = read_labels(args["labels"])
+        k = max(labels) + 1 if labels else 0
+        members = {c: [i for i, l in enumerate(labels) if l == c] for c in range(k)}
+        # isim proxy: 1/(1+mean pairwise msd); per-cluster the same on its members
+        def isim_of(idxs):
+            if len(idxs) < 2:
+                return 1.0
+            tot, cnt = 0.0, 0
+            for a in range(len(idxs)):
+                for b in range(a + 1, len(idxs)):
+                    tot += msd(frames[idxs[a]], frames[idxs[b]]); cnt += 1
+            return round(1.0 / (1.0 + tot / cnt), 6)
+        out = {
+            "isim": isim_of(list(range(nframes))),
+            "clusterISIM": [isim_of(members[c]) for c in range(k)],
+            # least-representative (outlier) sample index per cluster
+            "clusterOutliers": [
+                (max(members[c], key=lambda i: sum(msd(frames[i], frames[j]) for j in members[c]))
+                 if members[c] else -1)
+                for c in range(k)
+            ],
+        }
+        write(out_path, out)
+        return
+
+    if "prime" in flags:
+        labels = read_labels(args["labels"])
+        k = max(labels) + 1 if labels else 0
+        # deterministic sample-index picks
+        out = {
+            "pairwise": 0, "union": min(1, nframes - 1), "medoid": nframes // 2,
+            "outlier": nframes - 1, "medoidAll": nframes // 3,
+            "medoidC0": 0, "medoidC0Trimmed": min(1, nframes - 1), "nClusters": k,
+        }
+        write(out_path, out)
+        return
+
+    if "select" in flags:
+        method = args.get("method", "diversity")
+        param = float(args.get("param", "10"))
+        if method in ("medoid", "outlier"):
+            idxs = [nframes // 2]
+        else:
+            cnt = max(1, round(param / 100.0 * nframes) if param <= 100 and param > 1 else int(param))
+            cnt = min(cnt, nframes)
+            step = max(1, nframes // cnt)
+            idxs = list(range(0, nframes, step))[:cnt]
+        write(out_path, {"indices": idxs})
+        return
+
+    # --- clustering ---
+    algo = args.get("algorithm", "kmeans")
+    if algo == "equal":
+        threshold = float(args.get("threshold", "1.0"))
+        labels, k = cluster_equal(frames, threshold)
+        # remap members for summarize (k contiguous non-noise clusters)
+        members = {c: [i for i, l in enumerate(labels) if l == c] for c in range(k)}
+        sizes = [len(members[c]) for c in range(k)]
+        reps = [medoid(frames, members[c]) if members[c] else -1 for c in range(k)]
+        cmsd = [
+            round(sum(msd(frames[i], frames[reps[c]]) for i in members[c]) / len(members[c]), 6)
+            if members[c] else 0.0 for c in range(k)
+        ]
+        ch, db = scores(frames, labels, members, k)
+    else:
+        k = int(args.get("nclusters", "0")) or 3
+        k = max(1, min(k, nframes))
+        if "initial-labels" in args:
+            # HELM merge step: fold the pre-cluster labels into k buckets
+            init = read_labels(args["initial-labels"])
+            labels = [l % k for l in init][:nframes]
+            while len(labels) < nframes:
+                labels.append(0)
+        else:
+            labels = cluster(frames, k)
+        sizes, reps, cmsd, ch, db = summarize(frames, labels, k)
+
+    out = {
+        "algorithm": algo,
+        "nClusters": k,
+        "nFrames": nframes,
+        "labels": labels,
+        "clusterSizes": sizes,
+        "representatives": reps,
+        "clusterMSD": cmsd,
+        "scores": {"calinskiHarabasz": ch, "daviesBouldin": db},
+    }
+    write(out_path, out)
+
+
+if __name__ == "__main__":
+    main()

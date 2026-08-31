@@ -1,0 +1,97 @@
+MODEL        1
+ATOM      1  CA  ALA A   1      -0.041   2.093   2.932  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.594   1.962   3.238  1.00  0.00           C
+ATOM      3  CA  ALA A   3       3.084   2.010   3.599  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.422   1.977   3.912  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.030   2.062   4.103  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.541   2.006   4.547  1.00  0.00           C
+ENDMDL
+MODEL        2
+ATOM      1  CA  ALA A   1      -0.092   2.023   2.997  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.479   1.958   3.371  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.921   1.972   3.690  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.472   1.948   3.834  1.00  0.00           C
+ATOM      5  CA  ALA A   5       5.908   1.981   4.170  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.562   1.909   4.534  1.00  0.00           C
+ENDMDL
+MODEL        3
+ATOM      1  CA  ALA A   1      -0.025   2.064   3.046  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.598   2.089   3.269  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.973   1.935   3.527  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.588   2.009   3.905  1.00  0.00           C
+ATOM      5  CA  ALA A   5       5.956   1.936   4.299  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.482   2.003   4.511  1.00  0.00           C
+ENDMDL
+MODEL        4
+ATOM      1  CA  ALA A   1       0.064   2.044   3.027  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.412   2.065   3.236  1.00  0.00           C
+ATOM      3  CA  ALA A   3       3.063   1.974   3.514  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.548   2.065   3.994  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.030   2.074   4.135  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.540   2.009   4.407  1.00  0.00           C
+ENDMDL
+MODEL        5
+ATOM      1  CA  ALA A   1      -0.054   2.045   3.054  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.534   1.959   3.342  1.00  0.00           C
+ATOM      3  CA  ALA A   3       3.057   1.967   3.676  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.400   1.952   3.942  1.00  0.00           C
+ATOM      5  CA  ALA A   5       5.990   1.973   4.189  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.418   1.976   4.454  1.00  0.00           C
+ENDMDL
+MODEL        6
+ATOM      1  CA  ALA A   1      -0.045   1.926   2.985  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.491   1.986   3.369  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.965   1.974   3.618  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.440   1.970   3.983  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.070   2.076   4.247  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.512   1.954   4.547  1.00  0.00           C
+ENDMDL
+MODEL        7
+ATOM      1  CA  ALA A   1      50.096   1.944   2.917  1.00  0.00           C
+ATOM      2  CA  ALA A   2      51.426   1.996   3.251  1.00  0.00           C
+ATOM      3  CA  ALA A   3      52.986   2.011   3.691  1.00  0.00           C
+ATOM      4  CA  ALA A   4      54.425   2.040   3.901  1.00  0.00           C
+ATOM      5  CA  ALA A   5      55.930   2.091   4.259  1.00  0.00           C
+ATOM      6  CA  ALA A   6      57.583   1.987   4.574  1.00  0.00           C
+ENDMDL
+MODEL        8
+ATOM      1  CA  ALA A   1       0.018   2.010   3.007  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.417   1.994   3.390  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.978   1.937   3.601  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.551   1.996   3.960  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.088   1.982   4.199  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.413   1.945   4.573  1.00  0.00           C
+ENDMDL
+MODEL        9
+ATOM      1  CA  ALA A   1       0.039   2.062   3.089  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.409   1.963   3.266  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.955   1.993   3.531  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.539   2.057   3.919  1.00  0.00           C
+ATOM      5  CA  ALA A   5       5.921   2.031   4.154  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.589   1.957   4.532  1.00  0.00           C
+ENDMDL
+MODEL       10
+ATOM      1  CA  ALA A   1      -0.057   1.935   3.021  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.477   2.044   3.323  1.00  0.00           C
+ATOM      3  CA  ALA A   3       3.099   2.038   3.637  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.455   1.944   3.838  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.047   1.995   4.186  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.580   1.922   4.533  1.00  0.00           C
+ENDMDL
+MODEL       11
+ATOM      1  CA  ALA A   1       0.041   2.024   3.040  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.446   1.964   3.326  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.993   2.071   3.662  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.416   2.003   3.837  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.074   1.904   4.158  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.454   1.934   4.408  1.00  0.00           C
+ENDMDL
+MODEL       12
+ATOM      1  CA  ALA A   1      -0.069   2.071   2.987  1.00  0.00           C
+ATOM      2  CA  ALA A   2       1.465   1.965   3.347  1.00  0.00           C
+ATOM      3  CA  ALA A   3       2.982   2.033   3.631  1.00  0.00           C
+ATOM      4  CA  ALA A   4       4.493   1.979   3.818  1.00  0.00           C
+ATOM      5  CA  ALA A   5       6.042   1.941   4.215  1.00  0.00           C
+ATOM      6  CA  ALA A   6       7.443   1.951   4.460  1.00  0.00           C
+ENDMDL
+END
