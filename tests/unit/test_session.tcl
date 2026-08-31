@@ -59,4 +59,47 @@ th::test "loading a session missing a required key is rejected" {
     catch {file delete $f}
 }
 
+th::section "save_session - atomic replace protects the previous session"
+proc slurp {path} {
+    set fp [open $path r]
+    set c [read $fp]
+    close $fp
+    return $c
+}
+
+th::test "a successful save leaves no temp file behind" {
+    set ::mdance::results $sample
+    set f [tmpfile]
+    ::mdance::save_session $f
+    th::eq {} [glob -nocomplain "$f.tmp*"] "the .tmp<pid> staging file must be renamed away"
+    catch {file delete $f}
+}
+
+th::test "a failed save leaves the existing session byte-identical" {
+    # Regression: save_session used to `open $filename w`, truncating the target
+    # before writing. A failure part-way through destroyed a good session file.
+    set dir [file join [::mdance::utils::tmpdir] "mdance_atomic_[pid]"]
+    file delete -force $dir
+    file mkdir $dir
+    set f [file join $dir session.mdance]
+
+    set ::mdance::results $sample
+    ::mdance::save_session $f
+    set before [slurp $f]
+
+    file attributes $dir -permissions 0500
+    if {[file writable $dir]} {
+        # Running as root, or a filesystem that ignores mode bits: the failure
+        # cannot be provoked here, so assert only what still holds.
+        th::eq $before [slurp $f]
+    } else {
+        set ::mdance::results [dict replace $sample nClusters 99]
+        th::throws {::mdance::save_session $f}
+        th::eq $before [slurp $f] "the previous session must survive a failed save"
+        th::eq {} [glob -nocomplain "$f.tmp*"] "no partial temp file may be left behind"
+    }
+    file attributes $dir -permissions 0700
+    file delete -force $dir
+}
+
 exit [th::done "unit:session"]

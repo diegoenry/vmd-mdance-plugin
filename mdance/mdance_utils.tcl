@@ -8,6 +8,18 @@ namespace eval ::mdance::utils {
     variable tmpseq 0
 }
 
+# is_finite - True when $v is a real number safe to do arithmetic and formatting
+# with. `string is double` alone is not enough: it accepts the NaN/Infinity
+# tokens the backend emits for degenerate clusterings, and those poison every
+# consumer -- NaN makes any expr raise "domain error" and format %f raise, while
+# Inf survives both but blows up canvas coordinate math. Callers use this to tell
+# "no score" from "a score", instead of letting the token reach the plot.
+proc ::mdance::utils::is_finite {v} {
+    if {![string is double -strict $v]} { return 0 }
+    if {[catch {format %f $v}]} { return 0 }
+    return [expr {abs($v) != Inf}]
+}
+
 # parse_json - Minimal JSON parser for mdance-cli output
 # Returns a Tcl dict with the parsed JSON structure.
 # Only handles the known output format: flat objects, arrays of numbers,

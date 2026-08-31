@@ -48,4 +48,31 @@ th::test "blocked while a run is active" {
     set ::mdance::running 0
 }
 
+th::section "utils::is_finite - a real number vs the backend's NaN/Infinity tokens"
+th::test "accepts ordinary numbers" {
+    th::true [::mdance::utils::is_finite 1.5]
+    th::true [::mdance::utils::is_finite 0]
+    th::true [::mdance::utils::is_finite -3.25]
+    th::true [::mdance::utils::is_finite 1e30]
+}
+th::test "rejects NaN, which 'string is double' accepts" {
+    th::true  [string is double -strict NaN]
+    th::false [::mdance::utils::is_finite NaN]
+}
+th::test "rejects Infinity in both signs" {
+    th::false [::mdance::utils::is_finite Infinity]
+    th::false [::mdance::utils::is_finite -Infinity]
+}
+th::test "rejects empty and non-numeric values" {
+    th::false [::mdance::utils::is_finite ""]
+    th::false [::mdance::utils::is_finite abc]
+}
+th::test "the trap it exists for: NaN makes plain expr and format throw" {
+    # This is why 'string is double' was not a sufficient guard: a NaN score
+    # passed it, then blew up the arithmetic that consumed the value -- turning
+    # a SUCCESSFUL sweep run into a failed 'ERR' row and killing elbow charts.
+    th::throws {expr {1 ? NaN : ""}} "*domain error*"
+    th::throws {format %.2f NaN}
+}
+
 exit [th::done "unit:validation"]

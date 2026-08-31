@@ -74,9 +74,26 @@ proc ::mdance::frame_list {molid {first 0} {last -1} {stride 1}} {
     if {$total == 0} {
         error "Molecule $molid has no frames loaded."
     }
-    if {$first eq "" || $first < 0} { set first 0 }
-    if {$last eq "" || $last < 0 || $last >= $total} { set last [expr {$total - 1}] }
-    if {$stride eq "" || $stride < 1} { set stride 1 }
+
+    # Reject non-integer input BEFORE the range guards below. Every guard here is
+    # an expr comparison, and expr silently falls back to STRING comparison when
+    # an operand is not numeric -- so a typo like "1o" for "10" passes them all
+    # and selects a wrong subset with no error at all, with the damage depending
+    # on the digits of $total ("1o" yields 2 frames out of 500, but all 1000 out
+    # of 1000). Clustering the wrong frames silently is the worst failure this
+    # plugin can have, so it must fail loudly instead.
+    if {$first eq ""}  { set first 0 }
+    if {$last eq ""}   { set last -1 }
+    if {$stride eq ""} { set stride 1 }
+    foreach {label val} [list "First frame" $first "Last frame" $last "Stride" $stride] {
+        if {![string is integer -strict $val]} {
+            error "$label must be a whole number (got \"$val\")."
+        }
+    }
+
+    if {$first < 0} { set first 0 }
+    if {$last < 0 || $last >= $total} { set last [expr {$total - 1}] }
+    if {$stride < 1} { set stride 1 }
     if {$first > $last} {
         error "Frame range invalid: first ($first) is past last ($last)."
     }
@@ -146,7 +163,15 @@ proc ::mdance::extract_coordinates {molid sel_text {first 0} {last -1} {stride 1
             puts $fp [join $row ","]
         }
     } res opts]
-    catch {close $fp}
+    # close is where buffered output is actually flushed, so a full disk or a
+    # dying filesystem surfaces HERE rather than in the loop above. Swallowing it
+    # would hand the backend a silently truncated coordinate file and cluster it.
+    if {$rc} {
+        catch {close $fp}
+    } else {
+        set rc [catch {close $fp} res opts]
+        if {$rc} { set res "Failed writing coordinates to $csv_path: $res" }
+    }
     catch {$sel delete}
     if {$rc} { return -options $opts $res }
 
@@ -694,7 +719,14 @@ proc ::mdance::export_labels {filename} {
             puts $fp "[::mdance::abs_frame $results $i],[lindex $labels $i]"
         }
     } res opts]
-    catch {close $fp}
+    # Report a failed flush rather than claiming the export succeeded: the user
+    # would otherwise keep a truncated label CSV believing it is complete.
+    if {$rc} {
+        catch {close $fp}
+    } else {
+        set rc [catch {close $fp} res opts]
+        if {$rc} { set res "Failed writing labels to $filename: $res" }
+    }
     if {$rc} { return -options $opts $res }
 }
 
@@ -722,7 +754,12 @@ proc ::mdance::extract_csv_for_frames {molid sel_text frames} {
             puts $fp [join $row ","]
         }
     } res opts]
-    catch {close $fp}
+    if {$rc} {
+        catch {close $fp}
+    } else {
+        set rc [catch {close $fp} res opts]
+        if {$rc} { set res "Failed writing coordinates to $csv: $res" }
+    }
     catch {$sel delete}
     if {$rc} { return -options $opts $res }
     return [list $csv $natoms]
@@ -1080,9 +1117,27 @@ proc ::mdance::save_session {filename} {
         mdanceSession 1 \
         savedAt [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"] \
         results $results]
-    set fp [open $filename w]
-    puts $fp $session
-    close $fp
+
+    # Write to a sibling temp file and rename into place. Writing directly would
+    # truncate the target first, so a failure part-way through (full disk, lost
+    # permissions) would destroy a perfectly good existing session and leave a
+    # half-written file that load_session cannot read.
+    set tmp "$filename.tmp[pid]"
+    set fp [open $tmp w]
+    set rc [catch {puts $fp $session} res opts]
+    if {$rc} {
+        catch {close $fp}
+    } else {
+        set rc [catch {close $fp} res opts]
+    }
+    if {$rc} {
+        catch {file delete -force $tmp}
+        return -options $opts $res
+    }
+    if {[catch {file rename -force $tmp $filename} rerr]} {
+        catch {file delete -force $tmp}
+        error "Could not save session to $filename: $rerr"
+    }
 }
 
 # load_session - Restore a saved session into ::mdance::results. The molecule it

@@ -1155,6 +1155,8 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     ::mdance::gui::busy_start "Elbow plot: starting..." 1
     set cancelled 0
     set data_points {}
+    set failed_ks {}
+    set first_err ""
     set rc [catch {
         for {set k $k_min} {$k <= $k_max} {set k [expr {$k + $k_step}]} {
             if {$::mdance::cancel_requested} { set cancelled 1; break }
@@ -1165,16 +1167,27 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
                 set result [::mdance::run_single_k $algorithm $csv_path $natoms $k]
                 set ch [dict get $result score_calinskiHarabasz]
                 set db [dict get $result score_daviesBouldin]
+                # A degenerate clustering yields NaN/Infinity scores. They must
+                # not reach the chart: NaN makes the canvas coordinate arithmetic
+                # raise and kills the whole plot after every K has been computed.
+                if {![::mdance::utils::is_finite $ch] || ![::mdance::utils::is_finite $db]} {
+                    error "backend returned a non-finite score (CH=$ch DB=$db)"
+                }
                 lappend data_points [list $k $ch $db]
             } err]} {
-                # Skip failed K values but continue
-                lappend data_points [list $k 0 0]
+                # Record the failure -- do NOT fabricate a data point. Appending
+                # (K,0,0) here used to plot a real dot at zero, and since the
+                # legend reads "Davies-Bouldin (lower=better)" a failed K rendered
+                # as the visually optimal one, which is exactly the number the
+                # user reads off this chart.
+                lappend failed_ks $k
+                if {$first_err eq ""} { set first_err $err }
             }
         }
         if {!$cancelled && [llength $data_points] > 0} {
             set ::mdance::status "Elbow plot: rendering..."
             update idletasks
-            draw_elbow_chart $data_points
+            draw_elbow_chart $data_points $failed_ks
         }
     } eerr]
 
@@ -1191,12 +1204,22 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     }
     if {$cancelled} {
         set ::mdance::status "Elbow plot cancelled."
-    } else {
-        set ::mdance::status "Ready"
+        return
+    }
+    set ::mdance::status "Ready"
+
+    # Never let failed K values pass silently: they are missing from the chart,
+    # so without this the user reads an elbow off an incomplete curve.
+    if {[llength $data_points] == 0} {
+        tk_messageBox -icon error -title "MDANCE Error" \
+            -message "Every K in the scan failed, so there is nothing to plot.\n\nFirst error: $first_err"
+    } elseif {[llength $failed_ks] > 0} {
+        tk_messageBox -icon warning -title "MDANCE" \
+            -message "Skipped K = [join $failed_ks {, }] (no usable score); the chart shows the remaining values.\n\nFirst error: $first_err"
     }
 }
 
-proc ::mdance::plots::draw_elbow_chart {data_points} {
+proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     variable current_plot
     set current_plot mdance_elbow
 
@@ -1210,7 +1233,13 @@ proc ::mdance::plots::draw_elbow_chart {data_points} {
     set y0 $top_margin; set y1 [expr {$ch - $bottom_margin}]
     set plot_w [expr {$x1 - $x0}]; set plot_h [expr {$y1 - $y0}]
 
-    draw_title $c $cw "Cluster Quality vs. K"
+    # Carry the skipped-K caveat on the chart itself, so it survives being saved
+    # or shown to someone who never saw the warning dialog.
+    if {[llength $failed_ks] > 0} {
+        draw_title $c $cw "Cluster Quality vs. K  (K = [join $failed_ks {, }] skipped: no usable score)"
+    } else {
+        draw_title $c $cw "Cluster Quality vs. K"
+    }
 
     # Left and bottom axes
     $c create line $x0 $y1 $x0 $y0 -width 2 -fill "#2255cc"
@@ -1318,10 +1347,16 @@ proc ::mdance::plots::draw_elbow_chart {data_points} {
         -anchor s -font [plot_font 0]
 
     # Store redraw command and CSV data
-    set ::mdance::plots::redraw_cmds(mdance_elbow) [list ::mdance::plots::draw_elbow_chart $data_points]
+    set ::mdance::plots::redraw_cmds(mdance_elbow) \
+        [list ::mdance::plots::draw_elbow_chart $data_points $failed_ks]
     set csv "k,calinski_harabasz,davies_bouldin\n"
     foreach pt $data_points {
         append csv "[lindex $pt 0],[format "%.6f" [lindex $pt 1]],[format "%.6f" [lindex $pt 2]]\n"
+    }
+    # Skipped K values are recorded as blanks rather than dropped, so the CSV
+    # cannot be mistaken for a complete scan.
+    foreach k $failed_ks {
+        append csv "$k,,\n"
     }
     set ::mdance::plots::csv_data(mdance_elbow) $csv
 }

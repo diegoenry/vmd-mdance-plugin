@@ -146,6 +146,16 @@ proc ::mdance::gui::run_parameter_sweep {} {
     variable sweep_rows
 
     if {$sweep_running} return
+    # A sweep and a single run/elbow share ::mdance::results and the global temp
+    # file registry, and each one ends by calling ::mdance::utils::cleanup, which
+    # deletes EVERY registered file -- including the other operation's live input
+    # CSV. The interlock has to run both ways, so check the single-run flag here
+    # (run_guarded/_busy_guard/run_elbow_analysis check sweep_running in return).
+    if {$::mdance::running} {
+        tk_messageBox -icon info -title "MDANCE" \
+            -message "A clustering run is already in progress."
+        return
+    }
 
     set algos   [_selected_keys ::mdance::gui::sweep_algo  {kmeans divine}]
     set metrics [_selected_keys ::mdance::gui::sweep_metric {MSD BUB Fai Gle Ja JT RT RR SM SS1 SS2}]
@@ -157,6 +167,12 @@ proc ::mdance::gui::run_parameter_sweep {} {
     }
     if {[llength $metrics] == 0} { set metrics {MSD} }
     if {[llength $kinits] == 0}  { set kinits {CompSim} }
+    # Validate before comparing or looping. The spinboxes accept arbitrary typed
+    # text, and a K step of 0 turns the list build below into an infinite loop
+    # that grows `ks` until VMD dies -- with no way to interrupt it.
+    if {![_chknum $sweep_kmin  "K min"  int 2]} return
+    if {![_chknum $sweep_kmax  "K max"  int 2]} return
+    if {![_chknum $sweep_kstep "K step" int 1]} return
     if {$sweep_kmin > $sweep_kmax} {
         tk_messageBox -icon error -title "MDANCE" -message "K min must be <= K max."
         return
@@ -194,6 +210,10 @@ proc ::mdance::gui::run_parameter_sweep {} {
     }
 
     set sweep_running 1
+    # Hold the shared run flag too: `update` inside the grid loop keeps the event
+    # loop live, so without this a Run click on any algorithm tab would start a
+    # concurrent run whose cleanup deletes this sweep's input CSV mid-grid.
+    set ::mdance::running 1
     set sweep_cancel 0
     .mdance.nb.sweep.run.cancel configure -state normal
     .mdance.nb.sweep.run.go configure -state disabled
@@ -214,6 +234,7 @@ proc ::mdance::gui::run_parameter_sweep {} {
         }
     } err]} {
         set sweep_running 0
+        set ::mdance::running 0
         .mdance.nb.sweep.run.cancel configure -state disabled
         .mdance.nb.sweep.run.go configure -state normal
         set sweep_status "Idle"
@@ -261,12 +282,18 @@ proc ::mdance::gui::run_parameter_sweep {} {
                             if {![dict exists $result nClusters] || ![dict exists $result clusterSizes]} {
                                 error "incomplete result"
                             }
+                            # is_finite, not `string is double`: the latter accepts
+                            # the NaN token a degenerate clustering produces, and
+                            # NaN then makes the assignment below raise "domain
+                            # error" -- so a run that actually SUCCEEDED was being
+                            # recorded as a failed ERR row with no stored result.
                             set hasCH [expr {[dict exists $result score_calinskiHarabasz] \
-                                && [string is double -strict [dict get $result score_calinskiHarabasz]]}]
+                                && [::mdance::utils::is_finite [dict get $result score_calinskiHarabasz]]}]
                             set hasDB [expr {[dict exists $result score_daviesBouldin] \
-                                && [string is double -strict [dict get $result score_daviesBouldin]]}]
-                            set ch [expr {$hasCH ? [dict get $result score_calinskiHarabasz] : ""}]
-                            set db [expr {$hasDB ? [dict get $result score_daviesBouldin]   : ""}]
+                                && [::mdance::utils::is_finite [dict get $result score_daviesBouldin]]}]
+                            set ch ""; set db ""
+                            if {$hasCH} { set ch [dict get $result score_calinskiHarabasz] }
+                            if {$hasDB} { set db [dict get $result score_daviesBouldin] }
                             set kact [dict get $result nClusters]
                             set sizes [dict get $result clusterSizes]
                             set top 0
@@ -314,6 +341,7 @@ proc ::mdance::gui::run_parameter_sweep {} {
     if {$csv_path ne ""} { catch {file delete $csv_path} }
     ::mdance::utils::cleanup
     set sweep_running 0
+    set ::mdance::running 0
     catch {.mdance.nb.sweep.run.cancel configure -state disabled}
     catch {.mdance.nb.sweep.run.go configure -state normal}
 

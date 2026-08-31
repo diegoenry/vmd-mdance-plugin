@@ -155,9 +155,11 @@ proc ::mdance::gui::busy_stop {} {
 # run_guarded - shared entry for single clustering runs: prevents concurrent
 # runs, shows progress/cancel, runs, and refreshes the Results tab.
 proc ::mdance::gui::run_guarded {algorithm params} {
-    if {$::mdance::running} {
+    variable sweep_running
+    if {$::mdance::running || $sweep_running} {
         tk_messageBox -icon info -title "MDANCE" \
-            -message "A clustering run is already in progress."
+            -message [expr {$sweep_running ? "A parameter sweep is in progress." \
+                                           : "A clustering run is already in progress."}]
         return
     }
     set cancellable [expr {!$::mdance::use_library}]
@@ -187,9 +189,11 @@ proc ::mdance::gui::run_guarded {algorithm params} {
 # in a live event loop (vwait), so these buttons would otherwise fire mid-run and
 # read/clobber the shared ::mdance::results / ::mdance::status. Returns 1 if free.
 proc ::mdance::gui::_busy_guard {} {
-    if {$::mdance::running} {
+    variable sweep_running
+    if {$::mdance::running || $sweep_running} {
         tk_messageBox -icon info -title "MDANCE" \
-            -message "A clustering run is in progress. Please wait for it to finish."
+            -message [expr {$sweep_running ? "A parameter sweep is in progress. Please wait for it to finish." \
+                                           : "A clustering run is in progress. Please wait for it to finish."}]
         return 0
     }
     return 1
