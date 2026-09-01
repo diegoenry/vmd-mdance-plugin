@@ -236,3 +236,19 @@ if (mdance_result_error(r)) {
 }
 mdance_result_free(r);
 ```
+
+## Credits
+
+This repository is the **VMD plugin layer** only — the Tcl/Tk interface, the
+visualisation and export code, the test suite, and the narrated walkthrough. The
+clustering itself is not ours.
+
+| Component | Project | License |
+|---|---|---|
+| The algorithms — KMeans NANI, DIVINE, HELM, eQUAL, PRIME, and the extended (n-ary) similarity they are built on | [MDANCE](https://github.com/mqcomplab/MDANCE) by the [Miranda-Quintana group](https://github.com/mqcomplab) ([docs](https://mdance.readthedocs.io)) | MIT |
+| The C++ backend this plugin drives (`mdance-cli`, the C API and the Tcl extension) | [CPP-MDANCE](https://github.com/mqcomplab/CPP-MDANCE) — © 2025 Andrey Nikitin | MIT |
+| The host application | [VMD](https://www.ks.uiuc.edu/Research/vmd/), Theoretical and Computational Biophysics Group, University of Illinois at Urbana-Champaign | see VMD's own license |
+| This plugin and its walkthrough | © 2026 Diego Gomes | MIT |
+
+If you use MDANCE or VMD in published work, please follow each project's own
+guidance on how to cite it.
