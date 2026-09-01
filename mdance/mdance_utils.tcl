@@ -13,6 +13,9 @@ namespace eval ::mdance::utils {
     # empty, [file dirname {}] is ".", and the backend search silently looked in
     # whatever the process's current working directory happened to be.
     variable plugin_dir [file dirname [file normalize [info script]]]
+
+    # Per-process private scratch directory (see workdir).
+    variable workdir_path ""
 }
 
 # is_finite - True when $v is a real number safe to do arithmetic and formatting
@@ -196,12 +199,52 @@ proc ::mdance::utils::tmpdir {} {
     return "/tmp"
 }
 
+# workdir - A private, user-only scratch directory for this process, created
+# once per session under the system temp dir.
+#
+# Every intermediate file the plugin writes (extracted coordinates) and reads
+# back (backend results) lives here. Those paths are predictable -- pid plus a
+# counter -- and the Unix temp dir is world-writable, so another local user could
+# pre-create or symlink a path the plugin is about to write, clobbering a file of
+# their choosing or substituting results the plugin would then trust. Putting
+# everything inside one 0700 directory closes that for all of them at once, and
+# makes the files invisible to other users' globs.
+proc ::mdance::utils::workdir {} {
+    variable workdir_path
+    if {$workdir_path ne "" && [file isdirectory $workdir_path]} {
+        return $workdir_path
+    }
+    set dir [file join [tmpdir] "mdance-[pid]"]
+
+    # `file type` does not follow symlinks, so this catches a planted link that
+    # would otherwise redirect every temp write somewhere else.
+    if {[file exists $dir] || ![catch {file lstat $dir st}]} {
+        set t ""
+        catch {set t [file type $dir]}
+        if {$t ne "directory"} {
+            error "Refusing to use temp directory $dir: it exists and is not a directory (type: $t)."
+        }
+        if {$::tcl_platform(platform) ne "windows"} {
+            if {![catch {file attributes $dir -owner} owner] \
+                    && [info exists ::tcl_platform(user)] \
+                    && $owner ne $::tcl_platform(user)} {
+                error "Refusing to use temp directory $dir: it is owned by $owner, not $::tcl_platform(user)."
+            }
+        }
+    }
+
+    file mkdir $dir
+    catch {file attributes $dir -permissions 0700}   ;# no-op on Windows
+    set workdir_path $dir
+    return $dir
+}
+
 # mktmp - Create a temp file path and register it for cleanup
 proc ::mdance::utils::mktmp {suffix} {
     variable tmpfiles
     variable tmpseq
     incr tmpseq
-    set path [file join [tmpdir] "mdance_[pid]_[clock milliseconds]_$tmpseq$suffix"]
+    set path [file join [workdir] "mdance_[pid]_[clock milliseconds]_$tmpseq$suffix"]
     lappend tmpfiles $path
     return $path
 }

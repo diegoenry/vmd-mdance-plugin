@@ -10,11 +10,14 @@ set params [dict create molid $mol atomsel "name CA" \
     nclusters 2 metric MSD kinit CompSim percentage 10 first 0 last -1 stride 1]
 
 proc tmp_count {} {
-    return [llength [glob -nocomplain [file join [::mdance::utils::tmpdir] mdance_*]]]
+    # Count inside the plugin's OWN private scratch dir. Globbing the shared
+    # system tmpdir also saw (and the cleanup below also deleted) files belonging
+    # to any other VMD session running at the same time.
+    return [llength [glob -nocomplain [file join [::mdance::utils::workdir] *]]]
 }
 # Remove temp files left by earlier test runs so tmp_count reflects only this
 # process (the temp dir is shared across runs).
-foreach f [glob -nocomplain [file join [::mdance::utils::tmpdir] mdance_*]] {
+foreach f [glob -nocomplain [file join [::mdance::utils::workdir] *]] {
     catch {file delete -force $f}
 }
 
@@ -77,4 +80,26 @@ th::test "a failed run leaves no temp files behind" {
 }
 
 ::mdance::utils::cleanup
+th::section "Cancel escalates when the child ignores TERM"
+th::test "a TERM-ignoring backend is still stopped, and the run returns" {
+    # request_cancel used to send a single TERM and wait. A child that ignores it
+    # (or a wrapper whose grandchild holds the pipe) left VMD parked in vwait
+    # forever with no way out. The escalation is TERM -> KILL -> abandon channel.
+    set ::env(MDANCE_FAKE_IGNORE_TERM) 1
+    set ::env(MDANCE_FAKE_SLEEP) 30
+    after 500 { catch {::mdance::request_cancel} }
+    set t0 [clock milliseconds]
+    set rc [catch {::mdance::run_clustering kmeans $params} err]
+    set elapsed [expr {[clock milliseconds] - $t0}]
+    catch {unset ::env(MDANCE_FAKE_IGNORE_TERM)}
+    catch {unset ::env(MDANCE_FAKE_SLEEP)}
+    th::true $rc "the cancelled run must not report success"
+    th::match "*ancel*" $err
+    # The child was told to sleep 30s; escalation must end it far sooner.
+    th::true [expr {$elapsed < 20000}] "run took ${elapsed}ms -- escalation did not fire"
+}
+th::test "the run flag is cleared after an escalated cancel" {
+    th::eq 0 $::mdance::running
+}
+
 exit [th::done "runtime:cancel"]

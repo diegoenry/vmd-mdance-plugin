@@ -140,4 +140,34 @@ th::test "the backend search does not depend on the current directory" {
     th::eq [file join $repo mdance] $dir_after
 }
 
+th::section "workdir - a private scratch directory, not the shared temp dir"
+th::test "temp files live inside a per-process directory" {
+    set d [::mdance::utils::workdir]
+    th::true [file isdirectory $d]
+    th::match "*mdance-[pid]" $d "the directory is scoped to this process"
+    set p [::mdance::utils::mktmp .csv]
+    th::match "$d/*" $p "mktmp must place files inside it"
+}
+th::test "the directory is not readable by other users" {
+    # Predictable names in a world-writable /tmp let another local user
+    # pre-create or symlink a path the plugin is about to write coordinates to.
+    if {$::tcl_platform(platform) eq "windows"} {
+        th::true 1 "permissions are not meaningful on Windows"
+    } else {
+        set perms [file attributes [::mdance::utils::workdir] -permissions]
+        th::eq "00700" [format %05o [expr {[format %d 0$perms] & 0777}]]
+    }
+}
+th::test "workdir is stable across calls" {
+    th::eq [::mdance::utils::workdir] [::mdance::utils::workdir]
+}
+th::test "cleanup removes the registered files but keeps the directory" {
+    set p [::mdance::utils::mktmp .csv]
+    set fp [open $p w]; puts $fp "x"; close $fp
+    th::true [file exists $p]
+    ::mdance::utils::cleanup
+    th::false [file exists $p]
+    th::true [file isdirectory [::mdance::utils::workdir]]
+}
+
 exit [th::done "unit:utils"]

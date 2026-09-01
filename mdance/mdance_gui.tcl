@@ -210,6 +210,26 @@ proc ::mdance::gui::run_guarded {algorithm params} {
     }
 }
 
+# _confirm_overwrite - Ask before clobbering files the user never chose.
+# tk_getSaveFile already confirms the path the user picked, but the plugin also
+# writes DERIVED files next to it (a DCD's companion .pdb topology, the
+# per-cluster set), and those were overwritten with no warning at all.
+proc ::mdance::gui::_confirm_overwrite {paths what} {
+    set existing {}
+    foreach p $paths {
+        if {[file exists $p]} { lappend existing [file tail $p] }
+    }
+    if {[llength $existing] == 0} { return 1 }
+    if {[llength $existing] > 6} {
+        set shown "[join [lrange $existing 0 5] {, }], and [expr {[llength $existing] - 6}] more"
+    } else {
+        set shown [join $existing ", "]
+    }
+    set ans [tk_messageBox -icon warning -type okcancel -title "MDANCE" \
+        -message "$what will overwrite existing file(s):\n\n$shown\n\nContinue?"]
+    return [expr {$ans eq "ok"}]
+}
+
 # _busy_guard - reject a secondary backend operation (PRIME / Similarity / Frame
 # Tools / Export) while a clustering run is in flight. In CLI mode the run parks
 # in a live event loop (vwait), so these buttons would otherwise fire mid-run and
@@ -1282,6 +1302,12 @@ proc ::mdance::gui::export_reps_dialog {} {
     if {$f eq ""} return
 
     set fmt [_fmt_from_path $f]
+    if {$fmt eq "dcd"} {
+        # The companion topology is derived from $f, so the user never saw it in
+        # the save dialog and never agreed to replace it.
+        if {![_confirm_overwrite [list "[file rootname $f].pdb"] \
+                "Exporting as DCD also writes a companion .pdb topology, which"]} return
+    }
     if {[catch {set n [::mdance::export_representatives $f $fmt "all"]} err]} {
         tk_messageBox -icon error -title "MDANCE Error" -message $err
         return
@@ -1306,6 +1332,17 @@ proc ::mdance::gui::export_clusters_dialog {} {
     set use_dcd [tk_messageBox -icon question -type yesno -title "MDANCE" \
         -message "Write per-cluster trajectories as DCD?\n\nYes = DCD (+ companion .pdb topology)\nNo = multi-model PDB"]
     set fmt [expr {$use_dcd eq "yes" ? "dcd" : "pdb"}]
+
+    # Names here are generated (cluster_<id>.<fmt>), so nothing in the directory
+    # chooser told the user what is about to be replaced.
+    set targets {}
+    set nclust 0
+    catch {set nclust [dict get $::mdance::results nClusters]}
+    for {set c 0} {$c < $nclust} {incr c} {
+        lappend targets [file join $dir "cluster_$c.$fmt"]
+        if {$fmt eq "dcd"} { lappend targets [file join $dir "cluster_$c.pdb"] }
+    }
+    if {![_confirm_overwrite $targets "Writing per-cluster files"]} return
 
     if {[catch {set n [::mdance::export_clusters_split $dir $fmt "all"]} err]} {
         tk_messageBox -icon error -title "MDANCE Error" -message $err

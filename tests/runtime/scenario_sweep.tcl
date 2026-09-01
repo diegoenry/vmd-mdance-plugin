@@ -80,5 +80,66 @@ th::test "loading the K=2 run populates ::mdance::results" {
     th::eq 2 [dict get $::mdance::results nClusters]
 }
 
+# ------------------------------------------------------------------
+th::section "Sweep interlocks and cancellation"
+# ------------------------------------------------------------------
+catch {unset ::env(MDANCE_FAKE_FAIL_K)}
+
+th::test "a sweep refuses to start while a single run holds the flag" {
+    # Both operations end by calling utils::cleanup, which deletes EVERY
+    # registered temp file -- including the other one's live input CSV.
+    set ::mdance::running 1
+    set before [llength [$tv children {}]]
+    ::mdance::gui::run_parameter_sweep
+    set ::mdance::running 0
+    th::eq $before [llength [$tv children {}]] "no new rows: the sweep must not have run"
+    th::eq 0 $::mdance::gui::sweep_running
+}
+th::test "a single run refuses to start while a sweep holds the flag" {
+    set ::mdance::gui::sweep_running 1
+    set p [dict create molid $mol atomsel "name CA" nclusters 2 metric MSD \
+        kinit CompSim percentage 10 first 0 last -1 stride 1]
+    set marker [dict create marker untouched]
+    set ::mdance::results $marker
+    ::mdance::gui::run_guarded kmeans $p
+    set ::mdance::gui::sweep_running 0
+    th::eq $marker $::mdance::results "run_guarded must not have replaced the results"
+}
+th::test "secondary operations are blocked during a sweep too" {
+    set ::mdance::gui::sweep_running 1
+    th::false [::mdance::gui::_busy_guard]
+    set ::mdance::gui::sweep_running 0
+    th::true [::mdance::gui::_busy_guard]
+}
+
+th::test "a cancelled sweep stops early and restores its run state" {
+    # Cancel takes effect between configurations; the epilogue must still run.
+    set ::mdance::gui::sweep_kmin 2
+    set ::mdance::gui::sweep_kmax 12
+    set ::mdance::gui::sweep_kstep 1
+    $tv delete [$tv children {}]
+    after 200 { set ::mdance::gui::sweep_cancel 1 }
+    ::mdance::gui::run_parameter_sweep
+    th::eq 0 $::mdance::gui::sweep_running "sweep_running must be released"
+    th::eq 0 $::mdance::running "the shared run flag must be released"
+    th::match "*ancel*" $::mdance::gui::sweep_status
+    th::true [expr {[llength [$tv children {}]] < 11}] "the grid must have stopped early"
+    th::eq 0 [llength [glob -nocomplain [file join [::mdance::utils::workdir] *]]] \
+        "a cancelled sweep must not leak temp files"
+}
+
+th::test "closing the window mid-sweep does not wedge the sweep flags" {
+    # `update` inside the grid loop lets the window be destroyed mid-run; the
+    # loop notices the treeview is gone and finalizes instead of erroring out.
+    set ::mdance::gui::sweep_kmin 2
+    set ::mdance::gui::sweep_kmax 12
+    set ::mdance::gui::sweep_kstep 1
+    after 200 { catch {destroy .mdance} }
+    set rc [catch {::mdance::gui::run_parameter_sweep} err]
+    th::eq 0 $rc "the sweep must finish cleanly, not raise: $err"
+    th::eq 0 $::mdance::gui::sweep_running
+    th::eq 0 $::mdance::running
+}
+
 ::mdance::utils::cleanup
 exit [th::done "runtime:sweep"]

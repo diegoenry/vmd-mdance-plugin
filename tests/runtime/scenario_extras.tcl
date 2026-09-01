@@ -6,9 +6,12 @@ source [file join $::env(MDANCE_TESTS_DIR) runtime _setup.tcl]
 set mol [load_fixture two_state.pdb]
 
 proc tmp_count {} {
-    return [llength [glob -nocomplain [file join [::mdance::utils::tmpdir] mdance_*]]]
+    # Count inside the plugin's OWN private scratch dir. Globbing the shared
+    # system tmpdir also saw (and the cleanup below also deleted) files belonging
+    # to any other VMD session running at the same time.
+    return [llength [glob -nocomplain [file join [::mdance::utils::workdir] *]]]
 }
-foreach f [glob -nocomplain [file join [::mdance::utils::tmpdir] mdance_*]] { catch {file delete -force $f} }
+foreach f [glob -nocomplain [file join [::mdance::utils::workdir] *]] { catch {file delete -force $f} }
 
 # ------------------------------------------------------------------
 th::section "Native library mode passes coordinates in memory (no temp files)"

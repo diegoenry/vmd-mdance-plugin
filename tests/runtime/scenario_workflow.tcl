@@ -145,4 +145,32 @@ th::test "exported labels for the subset carry absolute frame numbers" {
 
 # leave no temp files behind
 ::mdance::utils::cleanup
+th::section "Colouring a result the molecule has outgrown"
+th::test "samples beyond the trajectory are counted, not silently skipped" {
+    # A result whose frame map reaches past the molecule (reloaded with fewer
+    # frames, or a session from a longer run) used to colour what it could and
+    # say nothing, leaving a partial colouring that looked complete.
+    set total [molinfo $mol get numframes]
+    set stale [dict create molid $mol atomsel "name CA" \
+        nClusters 2 nFrames 4 labels {0 1 0 1} \
+        clusterSizes {2 2} representatives {0 1} \
+        frames [list 0 1 [expr {$total + 5}] [expr {$total + 6}]]]
+    set ::mdance::results $stale
+    th::eq 2 [::mdance::apply_cluster_colors] "two of four samples are out of range"
+    th::match "*beyond the current*" $::mdance::status
+}
+th::test "frames the result does not cover are reset to unassigned" {
+    # The old code only ran the reset pass when the map was SHORTER than the
+    # trajectory, so a same-length-but-different map left stale colours behind.
+    set sel [atomselect $mol all]
+    $sel frame 3
+    set u [lindex [$sel get user] 0]
+    $sel delete
+    th::near -1.0 $u 0.0001 "frame 3 is not in the stale map, so it must be unassigned"
+}
+th::test "an in-range result reports nothing skipped" {
+    set ::mdance::results $r
+    th::eq 0 [::mdance::apply_cluster_colors]
+}
+
 exit [th::done "runtime:workflow"]

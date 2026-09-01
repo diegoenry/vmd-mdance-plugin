@@ -59,6 +59,53 @@ th::test "loading a session missing a required key is rejected" {
     catch {file delete $f}
 }
 
+th::section "load_session - internally inconsistent sessions are rejected"
+# Key presence was the only check. An inconsistent session loaded cleanly and
+# then died inside a plot, far from anything that pointed at the real cause.
+proc write_session {res} {
+    set f [tmpfile]
+    set fp [open $f w]
+    puts $fp [dict create mdanceSession 1 savedAt "2026-01-01 00:00:00" results $res]
+    close $fp
+    return $f
+}
+th::test "nClusters disagreeing with clusterSizes is rejected" {
+    set f [write_session [dict replace $sample clusterSizes {3 3 3}]]
+    th::throws {::mdance::load_session $f} "*clusterSizes*"
+    catch {file delete $f}
+}
+th::test "nClusters disagreeing with representatives is rejected" {
+    set f [write_session [dict replace $sample representatives {0}]]
+    th::throws {::mdance::load_session $f} "*representatives*"
+    catch {file delete $f}
+}
+th::test "a non-numeric nClusters is rejected" {
+    set f [write_session [dict replace $sample nClusters "two"]]
+    th::throws {::mdance::load_session $f} "*nClusters*"
+    catch {file delete $f}
+}
+th::test "a non-integer cluster label is rejected" {
+    set f [write_session [dict replace $sample labels {0 1 0 x 0 1}]]
+    th::throws {::mdance::load_session $f} "*non-integer cluster label*"
+    catch {file delete $f}
+}
+th::test "a frame map shorter than the labels is rejected" {
+    set f [write_session [dict replace $sample frames {0 1 2}]]
+    th::throws {::mdance::load_session $f} "*only 3 frames*"
+    catch {file delete $f}
+}
+th::test "an empty label list is rejected" {
+    set f [write_session [dict replace $sample labels {} clusterSizes {} \
+        representatives {} nClusters 0]]
+    th::throws {::mdance::load_session $f} "*no labels*"
+    catch {file delete $f}
+}
+th::test "the consistent sample session still loads" {
+    set f [write_session $sample]
+    th::ok { ::mdance::load_session $f }
+    catch {file delete $f}
+}
+
 th::section "load_session - the saved molecule must still BE that molecule"
 th::test "a changed frame count marks the session not-live" {
     # A molid is just a slot number and VMD reuses it, so "molid 0 exists" is not

@@ -18,6 +18,11 @@ Test hooks via environment variables:
   MDANCE_FAKE_FAIL=1     -> print to stderr and exit non-zero (simulate a crash)
   MDANCE_FAKE_SLEEP=SEC  -> stream progress to stderr while sleeping SEC seconds
                             (lets the cancel path interrupt a "long" run)
+  MDANCE_FAKE_IGNORE_TERM=1 -> ignore SIGTERM, so the plugin's cancel escalation
+                            (TERM -> KILL) is exercised rather than assumed
+  MDANCE_FAKE_TRUNCATE=1 -> exit 0 having written HALF a JSON document, the way a
+                            backend killed mid-write leaves it
+  MDANCE_FAKE_EXTRA_LABELS=N -> exit 0 with N more labels than there are frames
 """
 import sys, os, json, time, math
 
@@ -182,6 +187,10 @@ def write(path, obj):
 def main():
     args, flags = parse_args(sys.argv[1:])
 
+    if os.environ.get("MDANCE_FAKE_IGNORE_TERM"):
+        import signal
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
     if os.environ.get("MDANCE_FAKE_FAIL"):
         print("fake_mdance_cli: simulated backend failure", file=sys.stderr)
         sys.exit(2)
@@ -203,6 +212,13 @@ def main():
     out_path = args["output"]
     frames = read_csv(args["input"])
     nframes = len(frames)
+
+    # A backend killed part-way through its write leaves a valid PREFIX, not an
+    # error: it exits 0 and the file parses "successfully" into a partial dict.
+    if os.environ.get("MDANCE_FAKE_TRUNCATE"):
+        with open(out_path, "w") as f:
+            f.write('{"algorithm": "kmeans", "nClusters": 2, "labels": [0, 1, 0')
+        return
 
     if "analysis" in flags:
         labels = read_labels(args["labels"])
@@ -292,6 +308,11 @@ def main():
         "clusterMSD": cmsd,
         "scores": {"calinskiHarabasz": ch, "daviesBouldin": db},
     }
+    # A label list that does not match the frame count is the silent-corruption
+    # case: every sample's cluster shifts, but nothing errors.
+    extra = int(os.environ.get("MDANCE_FAKE_EXTRA_LABELS", "0"))
+    if extra:
+        out["labels"] = labels + [0] * extra
     write(out_path, out)
 
 
