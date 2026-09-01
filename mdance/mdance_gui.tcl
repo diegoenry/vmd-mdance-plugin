@@ -47,6 +47,7 @@ namespace eval ::mdance::gui {
     variable prime_trim 0.1
     variable prime_weighted 1
     variable prime_results ""
+    variable prime_molid ""   ;# molecule prime_results were computed against
 
     # Frame Tools (diversity / outlier / representative selection)
     variable ft_method "diversity"
@@ -54,6 +55,7 @@ namespace eval ::mdance::gui {
     variable ft_param 10
     variable ft_nbins 10
     variable ft_frames ""
+    variable ft_molid ""      ;# molecule ft_frames were computed against
 
     # HELM
     variable helm_nclusters 10
@@ -83,6 +85,9 @@ proc ::mdance::gui::create_window {} {
     wm title $w "MDANCE Clustering"
     wm geometry $w 560x720
     wm resizable $w 1 1
+    # Closing the window mid-run would take the Cancel button with it, leaving a
+    # backend child running with nothing able to stop it.
+    wm protocol $w WM_DELETE_WINDOW ::mdance::gui::on_close
 
     # Create notebook (tabbed interface)
     ttk::notebook $w.nb
@@ -150,6 +155,23 @@ proc ::mdance::gui::busy_stop {} {
     catch {pack forget $s.pb}
     catch {$s.cancel configure -state disabled}
     catch {pack forget $s.cancel}
+}
+
+# on_close - Window-manager close handler. A CLI run parks in a live event loop,
+# so the window can be closed while one is still going; the run itself survives
+# (its results still land in ::mdance::results), but the user would have no way
+# to cancel it. Offer to cancel, and never destroy silently mid-run.
+proc ::mdance::gui::on_close {} {
+    variable sweep_running
+    variable sweep_cancel
+    if {$::mdance::running || $sweep_running} {
+        set ans [tk_messageBox -icon question -type okcancel -title "MDANCE" \
+            -message "A run is still in progress.\n\nClose the window and cancel it?"]
+        if {$ans ne "ok"} return
+        set sweep_cancel 1
+        catch {::mdance::request_cancel}
+    }
+    destroy .mdance
 }
 
 # run_guarded - shared entry for single clustering runs: prevents concurrent
@@ -1041,8 +1063,13 @@ proc ::mdance::gui::goto_selected_rep {} {
 }
 
 proc ::mdance::gui::color_by_cluster {} {
-    if {[catch {::mdance::apply_cluster_colors} err]} {
-        tk_messageBox -icon error -title "MDANCE Error" -message $err
+    if {[catch {::mdance::apply_cluster_colors} res]} {
+        tk_messageBox -icon error -title "MDANCE Error" -message $res
+        return
+    }
+    if {$res > 0} {
+        tk_messageBox -icon warning -title "MDANCE" -message \
+            "$res sample(s) map to frames beyond the current trajectory and were left uncoloured. Was the molecule reloaded since the analysis?"
     }
 }
 
@@ -1134,6 +1161,7 @@ proc ::mdance::gui::run_prime_analysis {} {
     variable prime_trim
     variable prime_weighted
     variable prime_results
+    variable prime_molid
 
     if {![_busy_guard]} return
     # prime_trim is passed straight through to the backend as --trim-frac.
@@ -1163,6 +1191,7 @@ proc ::mdance::gui::run_prime_analysis {} {
 
     set ::mdance::status "Running PRIME analysis..."
     update idletasks
+    set prime_molid $molid
     if {[catch {set prime_results [::mdance::run_prime $molid $sel_text $frames $labels \
             $prime_metric $prime_trim $prime_weighted]} err]} {
         set ::mdance::status "Ready"
@@ -1191,6 +1220,7 @@ proc ::mdance::gui::run_prime_analysis {} {
 }
 
 proc ::mdance::gui::goto_prime_frame {} {
+    variable prime_molid
     set tv .mdance.nb.prime.res.tv
     set sel [$tv selection]
     if {$sel eq ""} {
@@ -1202,9 +1232,19 @@ proc ::mdance::gui::goto_prime_frame {} {
         tk_messageBox -icon warning -title "MDANCE" -message "That method has no valid frame."
         return
     }
-    set molid [dict get $::mdance::results molid]
-    if {[lsearch -exact [molinfo list] $molid] < 0} {
-        tk_messageBox -icon error -title "MDANCE" -message "Source molecule $molid is no longer loaded."
+    # Validate against the run that PRODUCED this table. ::mdance::results may
+    # since have been replaced (a new clustering, or a loaded session), in which
+    # case its molid has nothing to do with the frames shown here.
+    set molid $prime_molid
+    if {$molid eq "" || [lsearch -exact [molinfo list] $molid] < 0} {
+        tk_messageBox -icon error -title "MDANCE" \
+            -message "The molecule these predictions were computed from (molid $molid) is no longer loaded. Re-run PRIME."
+        return
+    }
+    set total [molinfo $molid get numframes]
+    if {$fr < 0 || $fr >= $total} {
+        tk_messageBox -icon error -title "MDANCE" \
+            -message "Frame $fr is outside the current trajectory ($total frames). Re-run PRIME."
         return
     }
     animate goto $fr
@@ -1353,6 +1393,7 @@ proc ::mdance::gui::frame_tools_run {} {
     variable ft_param
     variable ft_nbins
     variable ft_frames
+    variable ft_molid
 
     if {![_busy_guard]} return
     if {![_chknum $ft_param "Param" double]} return
@@ -1379,6 +1420,7 @@ proc ::mdance::gui::frame_tools_run {} {
     }
 
     set ft_frames {}
+    set ft_molid $molid
     foreach si $samples {
         set af [lindex $frames $si]
         if {$af ne ""} { lappend ft_frames $af }
@@ -1391,15 +1433,22 @@ proc ::mdance::gui::frame_tools_run {} {
 }
 
 proc ::mdance::gui::frame_tools_export {} {
-    variable mol_selection
     variable ft_frames
+    variable ft_molid
     if {![_busy_guard]} return
     if {$ft_frames eq ""} {
         tk_messageBox -icon info -title "MDANCE" -message "Run a selection first."
         return
     }
-    set molid $mol_selection
-    if {$molid eq "top"} { set molid [molinfo top] }
+    # Use the molecule the frames were COMPUTED against, not whatever "top" now
+    # resolves to: re-resolving here wrote frame indices from one molecule out of
+    # a different one as soon as the user loaded or reordered anything.
+    set molid $ft_molid
+    if {$molid eq "" || [lsearch -exact [molinfo list] $molid] < 0} {
+        tk_messageBox -icon error -title "MDANCE" \
+            -message "The molecule these frames were selected from (molid $molid) is no longer loaded. Re-run the selection."
+        return
+    }
     set f [tk_getSaveFile -defaultextension ".pdb" \
         -filetypes {{"PDB structure" ".pdb"} {"DCD trajectory" ".dcd"} {"All files" "*"}} \
         -title "Export Selected Frames" -initialfile "selected_frames.pdb"]

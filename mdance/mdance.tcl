@@ -127,7 +127,13 @@ proc ::mdance::abs_frame {results subset_idx} {
     if {$subset_idx eq "" || $subset_idx < 0} { return -1 }
     if {![dict exists $results frames]} { return $subset_idx }
     set af [lindex [dict get $results frames] $subset_idx]
-    if {$af eq ""} { return $subset_idx }
+    if {$af eq ""} {
+        # A map exists but does not reach this sample, so the result is
+        # internally inconsistent. Returning $subset_idx here silently pointed
+        # the caller at an unrelated absolute frame; -1 routes into the same
+        # "no such frame" handling every caller already has for empty clusters.
+        return -1
+    }
     return $af
 }
 
@@ -227,6 +233,52 @@ proc ::mdance::extract_coordinates_flat {molid sel_text {first 0} {last -1} {str
     if {$rc} { return -options $opts $res }
 
     return [list $flat_coords $natoms [llength $frames] $frames]
+}
+
+# read_labels_file - Read a per-sample cluster-label file into a list.
+#
+# Accepts both the bare one-label-per-line form and the plugin's OWN exported
+# "frame,cluster" CSV (header included) -- feeding that straight back used to
+# push "frame,cluster" and "0,3" through as labels, so a user round-tripping
+# their own export got silent garbage. Takes the last column and validates it.
+proc ::mdance::read_labels_file {path} {
+    set fp [open $path r]
+    set rc [catch {read $fp} content opts]
+    catch {close $fp}
+    if {$rc} { return -options $opts $content }
+
+    set labels {}
+    set lineno 0
+    foreach line [split $content "\n"] {
+        incr lineno
+        set line [string trim $line]
+        if {$line eq ""} continue
+        set val [string trim [lindex [split $line ","] end]]
+        if {$lineno == 1 && ![string is integer -strict $val]} {
+            continue    ;# a header row such as "frame,cluster"
+        }
+        if {![string is integer -strict $val]} {
+            error "Initial-labels file $path: line $lineno is not an integer label (\"$line\")."
+        }
+        lappend labels $val
+    }
+    if {[llength $labels] == 0} {
+        error "Initial-labels file $path contains no labels."
+    }
+    return $labels
+}
+
+# _need_cli - Guarantee a usable CLI path, or fail with a message that says what
+# to do. Callers used to run `if {$cli_path eq ""} { init }` and carry on: when
+# init loaded the LIBRARY instead, cli_path stayed empty and the command list
+# began with an empty word, producing a baffling exec error.
+proc ::mdance::_need_cli {} {
+    variable cli_path
+    if {$cli_path eq ""} { catch {init} }
+    if {$cli_path eq ""} {
+        error "This operation needs the mdance-cli backend, which was not found. Set the MDANCE_CLI environment variable to its path."
+    }
+    return $cli_path
 }
 
 # run_clustering - Execute clustering via library or CLI
@@ -349,16 +401,10 @@ proc ::mdance::run_clustering_library {algorithm params} {
             if {[dict exists $params initial-labels-list]} {
                 set init_labels [dict get $params initial-labels-list]
             } elseif {[dict exists $params initial-labels]} {
-                # Read from file
-                set lfp [open [dict get $params initial-labels] r]
-                set init_labels {}
-                while {[gets $lfp line] >= 0} {
-                    set line [string trim $line]
-                    if {$line ne ""} {
-                        lappend init_labels $line
-                    }
+                set init_labels [read_labels_file [dict get $params initial-labels]]
+                if {[llength $init_labels] != $nframes} {
+                    error "Initial-labels file has [llength $init_labels] labels but $nframes frames were extracted."
                 }
-                close $lfp
             } else {
                 # Auto pre-cluster with KMeans
                 set status "Pre-clustering with KMeans (library)..."
@@ -493,18 +539,54 @@ proc ::mdance::_async_read {status_cb} {
 # In-process library-mode runs cannot be interrupted and are unaffected.
 proc ::mdance::request_cancel {} {
     variable async_pid
+    variable async_fh
     variable cancel_requested
     set cancel_requested 1
-    if {$async_pid ne ""} {
-        foreach p $async_pid {
-            if {$::tcl_platform(platform) eq "windows"} {
-                # `kill` does not exist on Windows; taskkill /T ends the tree, /F forces it.
-                catch {exec taskkill /F /T /PID $p}
-            } else {
-                catch {exec kill $p}
-            }
+    if {$async_pid eq ""} return
+
+    _signal_children $async_pid term
+
+    # A child that ignores TERM -- or a wrapper script whose grandchild still
+    # holds the pipe open -- would leave run_cli_capture parked in its vwait
+    # forever, with the whole VMD session frozen and no way out. Escalate on a
+    # timer, then abandon the channel so the run always terminates.
+    # The channel handle is passed along and re-checked so a stale timer from a
+    # previous run can never touch a later one.
+    after 3000 [list ::mdance::_cancel_escalate $async_pid $async_fh]
+}
+
+# _signal_children - TERM or KILL a list of child pids, portably.
+proc ::mdance::_signal_children {pids how} {
+    foreach p $pids {
+        if {$::tcl_platform(platform) eq "windows"} {
+            # `kill` does not exist on Windows; taskkill /T ends the tree, /F forces it.
+            catch {exec taskkill /F /T /PID $p}
+        } elseif {$how eq "kill"} {
+            catch {exec kill -9 $p}
+        } else {
+            catch {exec kill $p}
         }
     }
+}
+
+# _cancel_escalate - TERM was not enough; send an uncatchable KILL.
+proc ::mdance::_cancel_escalate {pids fh} {
+    variable async_done
+    variable async_fh
+    if {$async_done || $async_fh ne $fh} return
+    _signal_children $pids kill
+    after 1000 [list ::mdance::_cancel_giveup $fh]
+}
+
+# _cancel_giveup - Even KILL did not close the pipe (a grandchild still holds
+# it). Stop listening and unblock the vwait; a leaked child beats a frozen VMD.
+proc ::mdance::_cancel_giveup {fh} {
+    variable async_done
+    variable async_fh
+    if {$async_done || $async_fh ne $fh} return
+    catch {fileevent $fh readable {}}
+    catch {close $fh}
+    set async_done 1
 }
 
 # _exec_cli - Run a CLI command list synchronously, capturing stderr so a failure
@@ -619,9 +701,25 @@ proc ::mdance::run_clustering_cli {algorithm params} {
                 lappend cmd --trim-start
             }
 
-            # Handle initial labels
+            # Handle initial labels. Normalize the user's file first so both
+            # backends accept the same inputs -- including the plugin's own
+            # exported "frame,cluster" CSV -- and so a wrong label count is
+            # reported here rather than misinterpreted by the backend.
             if {[dict exists $params initial-labels]} {
-                lappend cmd --initial-labels [dict get $params initial-labels]
+                set init_labels [read_labels_file [dict get $params initial-labels]]
+                if {[llength $init_labels] != $nframes} {
+                    error "Initial-labels file has [llength $init_labels] labels but $nframes frames were extracted."
+                }
+                set norm_csv [::mdance::utils::mktmp "_init.csv"]
+                set nfp [open $norm_csv w]
+                set nrc [catch {foreach l $init_labels { puts $nfp $l }} nres nopts]
+                if {$nrc} {
+                    catch {close $nfp}
+                } else {
+                    set nrc [catch {close $nfp} nres nopts]
+                }
+                if {$nrc} { return -options $nopts $nres }
+                lappend cmd --initial-labels $norm_csv
             } else {
                 # Auto pre-cluster with KMeans
                 set status "Pre-clustering with KMeans..."
@@ -682,6 +780,22 @@ proc ::mdance::run_clustering_cli {algorithm params} {
         error $err
     }
 
+    # parse_json is a regex scraper: truncated or malformed output yields a
+    # PARTIAL dict rather than an error, and a short label list then mis-colours
+    # frames by silently shifting every sample's cluster. Check the shape before
+    # anything downstream trusts it.
+    foreach key {labels nClusters clusterSizes representatives} {
+        if {![dict exists $result $key]} {
+            set status "Error: incomplete backend output"
+            error "Backend output is missing '$key' -- the run was probably truncated or the JSON is malformed."
+        }
+    }
+    set nlab [llength [dict get $result labels]]
+    if {$nlab != $nframes} {
+        set status "Error: backend label count mismatch"
+        error "Backend returned $nlab labels for $nframes extracted frames; refusing to map them onto the trajectory."
+    }
+
     # Store molecule info in results
     dict set result molid $molid
     dict set result atomsel $sel_text
@@ -696,37 +810,51 @@ proc ::mdance::run_clustering_cli {algorithm params} {
 # apply_cluster_colors - Set VMD User field and coloring by cluster
 proc ::mdance::apply_cluster_colors {} {
     variable results
+    variable status
 
     if {$results eq ""} {
         error "No clustering results available."
     }
 
     set molid [dict get $results molid]
+    if {[lsearch -exact [molinfo list] $molid] < 0} {
+        error "Source molecule $molid is no longer loaded."
+    }
     set labels [dict get $results labels]
     set nsub [llength $labels]
     set nclusters [dict get $results nClusters]
     set total [molinfo $molid get numframes]
 
-    set sel [atomselect $molid all]
+    # Resolve every sample to its absolute frame FIRST, so we know exactly which
+    # frames this result paints. The old code decided whether to run the
+    # "reset everything to unassigned" pass from the frame map's LENGTH, which is
+    # wrong whenever the trajectory changed length after the analysis: the map can
+    # still be as long as the molecule while covering different frames, leaving
+    # stale colours on frames this result says nothing about.
+    array set painted {}
+    set skipped 0
+    for {set i 0} {$i < $nsub} {incr i} {
+        set af [::mdance::abs_frame $results $i]
+        if {$af < 0} continue
+        if {$af >= $total} { incr skipped; continue }
+        set painted($af) [lindex $labels $i]
+    }
 
-    # If clustering ran on a subset (frame range/stride), mark every frame as
-    # unassigned (-1.0) first so non-clustered frames don't keep a stale color.
-    set frames [expr {[dict exists $results frames] ? [dict get $results frames] : ""}]
-    if {$frames ne "" && [llength $frames] < $total} {
+    set sel [atomselect $molid all]
+    set rc [catch {
+        # Anything this result does not paint is explicitly unassigned.
+        foreach f [lsort -integer [array names painted]] {
+            $sel frame $f
+            $sel set user [expr {double($painted($f))}]
+        }
         for {set f 0} {$f < $total} {incr f} {
+            if {[info exists painted($f)]} continue
             $sel frame $f
             $sel set user -1.0
         }
-    }
-
-    # Set User field for each clustered sample on its absolute VMD frame
-    for {set i 0} {$i < $nsub} {incr i} {
-        set af [::mdance::abs_frame $results $i]
-        if {$af < 0 || $af >= $total} continue
-        $sel frame $af
-        $sel set user [expr {double([lindex $labels $i])}]
-    }
-    $sel delete
+    } res opts]
+    catch {$sel delete}
+    if {$rc} { return -options $opts $res }
 
     # Configure representation for cluster coloring. Ensure rep 0 exists (the
     # user may have deleted all reps), and keep the scale range non-degenerate
@@ -738,6 +866,13 @@ proc ::mdance::apply_cluster_colors {} {
     mol scaleminmax $molid 0 0.0 [expr {max(1.0, double($nclusters - 1))}]
     color scale method BGR
     display update
+
+    # Never let a partial colouring look complete. Returns the number of samples
+    # that could not be placed so the GUI can say so.
+    if {$skipped > 0} {
+        set status "Coloured [array size painted] frames; $skipped sample(s) fall beyond the current $total-frame trajectory."
+    }
+    return $skipped
 }
 
 # goto_representative - Navigate to a representative frame
@@ -834,6 +969,11 @@ proc ::mdance::run_analysis {molid sel_text frames labels metric} {
     variable use_library
     variable cli_path
 
+    # Resolve a backend BEFORE choosing a path. With neither loaded yet
+    # use_library is still 0, so the CLI branch was taken even when init was
+    # about to load the library -- leaving cli_path empty.
+    if {!$use_library && $cli_path eq ""} { catch {init} }
+
     if {$use_library} {
         set sel [atomselect $molid $sel_text]
         set natoms [$sel num]
@@ -851,7 +991,7 @@ proc ::mdance::run_analysis {molid sel_text frames labels metric} {
         return [::mdance::analysis $flat [llength $frames] $natoms -metric $metric -labels $labels]
     }
 
-    if {$cli_path eq ""} { init }
+    _need_cli
     lassign [extract_csv_for_frames $molid $sel_text $frames] csv natoms
     set lcsv [::mdance::utils::mktmp "_lab.csv"]
     set lfp [open $lcsv w]
@@ -878,6 +1018,11 @@ proc ::mdance::run_prime {molid sel_text frames labels metric trimFrac weighted}
     variable use_library
     variable cli_path
 
+    # Resolve a backend BEFORE choosing a path. With neither loaded yet
+    # use_library is still 0, so the CLI branch was taken even when init was
+    # about to load the library -- leaving cli_path empty.
+    if {!$use_library && $cli_path eq ""} { catch {init} }
+
     if {$use_library} {
         set sel [atomselect $molid $sel_text]
         set natoms [$sel num]
@@ -898,7 +1043,7 @@ proc ::mdance::run_prime {molid sel_text frames labels metric trimFrac weighted}
         return [eval $cmd]
     }
 
-    if {$cli_path eq ""} { init }
+    _need_cli
     lassign [extract_csv_for_frames $molid $sel_text $frames] csv natoms
     set lcsv [::mdance::utils::mktmp "_lab.csv"]
     set lfp [open $lcsv w]
@@ -924,6 +1069,11 @@ proc ::mdance::run_select {molid sel_text frames method metric param nbins} {
     variable use_library
     variable cli_path
 
+    # Resolve a backend BEFORE choosing a path. With neither loaded yet
+    # use_library is still 0, so the CLI branch was taken even when init was
+    # about to load the library -- leaving cli_path empty.
+    if {!$use_library && $cli_path eq ""} { catch {init} }
+
     if {$use_library} {
         set sel [atomselect $molid $sel_text]
         set natoms [$sel num]
@@ -942,7 +1092,7 @@ proc ::mdance::run_select {molid sel_text frames method metric param nbins} {
             -metric $metric -method $method -param $param -nbins $nbins]
     }
 
-    if {$cli_path eq ""} { init }
+    _need_cli
     lassign [extract_csv_for_frames $molid $sel_text $frames] csv natoms
     set out [::mdance::utils::mktmp ".json"]
     set cmd [list $cli_path --select --input $csv --output $out \
@@ -1139,7 +1289,7 @@ proc ::mdance::run_one_config {extract config} {
     }
 
     # CLI mode
-    if {$cli_path eq ""} { init }
+    _need_cli
     set csv    [dict get $extract csv]
     set natoms [dict get $extract natoms]
     set out [::mdance::utils::mktmp ".json"]
@@ -1230,6 +1380,36 @@ proc ::mdance::load_session {filename} {
             error "Session results are missing '$key' -- file may be corrupt."
         }
     }
+
+    # Key presence is not enough. An internally inconsistent session loads fine
+    # here and then dies much later inside a plot, where the real cause is
+    # invisible -- so reject it now, while we can still name the problem.
+    set nclust [dict get $res nClusters]
+    if {![string is integer -strict $nclust] || $nclust < 0} {
+        error "Session results have a non-numeric nClusters ('$nclust') -- file may be corrupt."
+    }
+    foreach key {clusterSizes representatives} {
+        set n [llength [dict get $res $key]]
+        if {$n != $nclust} {
+            error "Session results are inconsistent: nClusters is $nclust but '$key' has $n entries."
+        }
+    }
+    set slabels [dict get $res labels]
+    if {[llength $slabels] == 0} {
+        error "Session results contain no labels -- file may be corrupt."
+    }
+    foreach l $slabels {
+        if {![string is integer -strict $l]} {
+            error "Session results contain a non-integer cluster label ('$l')."
+        }
+    }
+    if {[dict exists $res frames]} {
+        set nf [llength [dict get $res frames]]
+        if {$nf < [llength $slabels]} {
+            error "Session results are inconsistent: [llength $slabels] labels but only $nf frames in the map."
+        }
+    }
+
     set results $res
 
     set molid [expr {[dict exists $res molid] ? [dict get $res molid] : ""}]

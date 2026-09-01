@@ -189,6 +189,15 @@ proc ::mdance::plots::on_plot_destroy {name W w} {
     foreach a {redraw_cmds redraw_after csv_data font_sizes} {
         catch {unset ::mdance::plots::${a}($name)}
     }
+    # Release the computed-data cache too. These entries hold whole distance
+    # matrices, and leaving them behind pinned that memory for the rest of the
+    # VMD session -- and served stale numbers to a later re-open of the plot.
+    variable data
+    switch -- $name {
+        mdance_dendro  { catch {unset data(dendro)} }
+        mdance_cdist   { catch {unset data(cdist)} }
+        mdance_reprmsd { catch {unset data(reprmsd)} }
+    }
 }
 
 proc ::mdance::plots::export_csv {name} {
@@ -263,6 +272,16 @@ proc ::mdance::plots::export_image {name fmt} {
             tk_messageBox -icon info -title "MDANCE" -message "PNG saved to $f"
         } else {
             set psout [file rootname $f].ps
+            # The user chose a .png path; this .ps is derived, so it can silently
+            # land on top of an unrelated existing file. Ask first.
+            if {[file exists $psout]} {
+                set ans [tk_messageBox -icon question -type okcancel -title "MDANCE" \
+                    -message "PNG export needs ImageMagick or GraphicsMagick, which were not found.\n\nSave as PostScript instead? This would overwrite the existing file:\n$psout"]
+                if {$ans ne "ok"} {
+                    tk_messageBox -icon info -title "MDANCE" -message "Export cancelled."
+                    return
+                }
+            }
             if {[catch {$c postscript -file $psout -colormode color} err]} {
                 tk_messageBox -icon error -title "MDANCE" \
                     -message "PNG export failed and the PostScript fallback also failed:\n$err"
@@ -329,7 +348,12 @@ proc ::mdance::plots::nice_ticks {vmin vmax nticks} {
     return $ticks
 }
 
-proc ::mdance::plots::draw_yticks {c x0 y0 y1 vmin vmax nticks} {
+proc ::mdance::plots::draw_yticks {c x0 y0 y1 vmin vmax nticks {x1 ""}} {
+    if {$x1 eq ""} {
+        # Fall back to the drawn x-axis extent rather than the -width option.
+        set bbox [$c bbox all]
+        set x1 [expr {$bbox eq "" ? $x0 : [lindex $bbox 2]}]
+    }
     set ticks [nice_ticks $vmin $vmax $nticks]
     set plot_h [expr {$y1 - $y0}]
     set range [expr {$vmax - $vmin}]
@@ -337,8 +361,11 @@ proc ::mdance::plots::draw_yticks {c x0 y0 y1 vmin vmax nticks} {
     foreach v $ticks {
         set py [expr {$y1 - ($v - $vmin) / $range * $plot_h}]
         $c create line [expr {$x0 - 5}] $py $x0 $py -fill gray60
-        $c create line $x0 $py [expr {$x0 + [expr {[lindex [$c configure -width] end]}]}] $py \
-            -fill gray90 -dash {2 4}
+        # Span the ACTUAL plot width. This used to read the canvas's -width
+        # *option*, which is the creation-time request (a "10c" default), so the
+        # gridlines were unrelated to the real plot and stopped short of, or ran
+        # past, the axes on every resized window.
+        $c create line $x0 $py $x1 $py -fill gray90 -dash {2 4}
         if {abs($v) < 0.001 && $vmax > 1} {
             set label [format "%.0f" $v]
         } elseif {$vmax >= 100} {
@@ -547,10 +574,26 @@ proc ::mdance::plots::timeline_chart {results} {
     draw_title $c $cw "Cluster Assignment Timeline"
     draw_axes $c $x0 $y0 $x1 $y1
 
-    # Y-axis: cluster IDs (integer ticks)
-    set band_h [expr {double($plot_h) / $nclusters}]
+    # Y-axis: cluster IDs (integer ticks).
+    #
+    # Noise (-1) needs a lane of its own. Plotting it at lane index -1 put it
+    # BELOW the x-axis, on top of the frame-number labels, where it read as a
+    # rendering glitch rather than as data. When noise is present every cluster
+    # shifts up one lane and noise takes the bottom one.
+    set has_noise 0
+    foreach lbl $labels {
+        if {$lbl < 0} { set has_noise 1; break }
+    }
+    set lane_offset [expr {$has_noise ? 1 : 0}]
+    set nlanes [expr {$nclusters + $lane_offset}]
+    set band_h [expr {double($plot_h) / $nlanes}]
+    if {$has_noise} {
+        set py [expr {$y1 - 0.5 * $band_h}]
+        $c create text [expr {$x0 - 8}] $py -text "noise" -anchor e -font [plot_font -2]
+        $c create line $x0 $py [expr {$x0 - 4}] $py -fill black
+    }
     for {set cl 0} {$cl < $nclusters} {incr cl} {
-        set py [expr {$y1 - ($cl + 0.5) * $band_h}]
+        set py [expr {$y1 - ($cl + $lane_offset + 0.5) * $band_h}]
         $c create text [expr {$x0 - 8}] $py -text $cl -anchor e -font [plot_font -1]
         $c create line $x0 $py [expr {$x0 - 4}] $py -fill black
     }
@@ -585,7 +628,8 @@ proc ::mdance::plots::timeline_chart {results} {
         # Draw colored rectangle for each unique label
         set sx [expr {$x0 + $px_col}]
         foreach lbl [array names seen] {
-            set cy [expr {$y1 - ($lbl + 0.5) * $band_h}]
+            set lane [expr {$lbl < 0 ? 0 : $lbl + $lane_offset}]
+            set cy [expr {$y1 - ($lane + 0.5) * $band_h}]
             set color [cluster_color $lbl $nclusters]
             $c create rectangle $sx [expr {$cy - $rect_h / 2.0}] \
                 [expr {$sx + 1}] [expr {$cy + $rect_h / 2.0}] \
@@ -1134,7 +1178,12 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     variable ::mdance::plots::elbow::k_max
     variable ::mdance::plots::elbow::k_step
 
-    # Validate
+    # Validate. A K step of 0 (or a non-numeric field -- these are plain entries)
+    # turns the scan below into an unbounded loop that freezes VMD with no way to
+    # interrupt it, so every field is checked before anything starts.
+    if {![::mdance::gui::_chknum $k_min "K min" int 2]} return
+    if {![::mdance::gui::_chknum $k_max "K max" int 2]} return
+    if {![::mdance::gui::_chknum $k_step "K step" int 1]} return
     if {$k_min >= $k_max} {
         tk_messageBox -icon error -title "MDANCE" -message "K min must be less than K max."
         return
@@ -1280,18 +1329,30 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     set k_max [lindex $ks end]
     if {$k_max <= $k_min} { set k_max [expr {$k_min + 1}] }
 
-    # CH range
-    set ch_min 1e30; set ch_max 0
+    # CH range.
+    # A single point, or several points that happen to share one value, gives a
+    # zero-width range. Resetting that to [0,1] pushed the real value (say 4200)
+    # far above the top of the plot; pad around the value instead so it lands in
+    # the middle of the axis where it can actually be read.
+    set ch_min 1e30; set ch_max -1e30
     foreach v $chs { if {$v < $ch_min} { set ch_min $v }; if {$v > $ch_max} { set ch_max $v } }
-    if {$ch_max <= $ch_min} { set ch_min 0; set ch_max 1 }
+    if {$ch_max <= $ch_min} {
+        set span [expr {abs($ch_min) > 0 ? abs($ch_min) * 0.1 : 1.0}]
+        set ch_max [expr {$ch_min + $span}]
+        set ch_min [expr {$ch_min - $span}]
+    }
     set ch_pad [expr {($ch_max - $ch_min) * 0.1}]
     set ch_min [expr {$ch_min - $ch_pad}]
     set ch_max [expr {$ch_max + $ch_pad}]
 
-    # DB range
-    set db_min 1e30; set db_max 0
+    # DB range (same degenerate-range reasoning as CH above).
+    set db_min 1e30; set db_max -1e30
     foreach v $dbs { if {$v < $db_min} { set db_min $v }; if {$v > $db_max} { set db_max $v } }
-    if {$db_max <= $db_min} { set db_min 0; set db_max 1 }
+    if {$db_max <= $db_min} {
+        set span [expr {abs($db_min) > 0 ? abs($db_min) * 0.1 : 1.0}]
+        set db_max [expr {$db_min + $span}]
+        set db_min [expr {$db_min - $span}]
+    }
     set db_pad [expr {($db_max - $db_min) * 0.1}]
     set db_min [expr {$db_min - $db_pad}]
     set db_max [expr {$db_max + $db_pad}]
@@ -1420,13 +1481,27 @@ proc ::mdance::plots::transition_heatmap {results} {
         incr tcount($from,$to)
     }
 
-    # Normalize rows to probabilities
+    # Normalize rows to probabilities.
+    #
+    # The denominator must count EVERY transition leaving cluster i, including
+    # those into noise (-1). Summing only columns 0..nclusters-1 divided by a
+    # too-small total and inflated every probability on display -- with enough
+    # noise, a rare transition could read as near-certain. Noise has no column of
+    # its own, so rows now legitimately sum to less than 1 and the title says so.
+    set has_noise 0
     set max_prob 0.0
     for {set i 0} {$i < $nclusters} {incr i} {
         set row_sum 0
         for {set j 0} {$j < $nclusters} {incr j} {
             incr row_sum $tcount($i,$j)
         }
+        set noise_out($i) 0
+        if {[info exists tcount($i,-1)] && $tcount($i,-1) > 0} {
+            set noise_out($i) $tcount($i,-1)
+            incr row_sum $noise_out($i)
+            set has_noise 1
+        }
+        set row_total($i) $row_sum
         for {set j 0} {$j < $nclusters} {incr j} {
             if {$row_sum > 0} {
                 set tprob($i,$j) [expr {double($tcount($i,$j)) / $row_sum}]
@@ -1450,7 +1525,11 @@ proc ::mdance::plots::transition_heatmap {results} {
     set y0 $top_margin; set y1 [expr {$ch - $bottom_margin}]
     set plot_w [expr {$x1 - $x0}]; set plot_h [expr {$y1 - $y0}]
 
-    draw_title $c $cw "Cluster Transition Probabilities"
+    if {$has_noise} {
+        draw_title $c $cw "Cluster Transition Probabilities (rows sum to <1: transitions into noise are counted, not shown)"
+    } else {
+        draw_title $c $cw "Cluster Transition Probabilities"
+    }
 
     # Draw heatmap cells
     set cell_w [expr {double($plot_w) / $nclusters}]
@@ -1497,6 +1576,13 @@ proc ::mdance::plots::transition_heatmap {results} {
     for {set i 0} {$i < $nclusters} {incr i} {
         for {set j 0} {$j < $nclusters} {incr j} {
             append csv "$i,$j,[format "%.6f" $tprob($i,$j)]\n"
+        }
+        # Emit the noise destination explicitly so the exported rows sum to 1
+        # and nobody has to guess where the missing probability went.
+        if {$has_noise} {
+            set denom $row_total($i)
+            set pn [expr {$denom > 0 ? double($noise_out($i)) / $denom : 0.0}]
+            append csv "$i,-1,[format "%.6f" $pn]\n"
         }
     }
     set ::mdance::plots::csv_data(mdance_trans) $csv
@@ -1575,13 +1661,35 @@ proc ::mdance::plots::residence_chart {results} {
     set y0 $top_margin; set y1 [expr {$ch - $bottom_margin}]
     set plot_w [expr {$x1 - $x0}]; set plot_h [expr {$y1 - $y0}]
 
+    # Name the unit honestly: samples, and the frame equivalent when a stride
+    # means the two differ.
+    set res_stride 1
+    if {[dict exists $results frames]} {
+        set fl [dict get $results frames]
+        if {[llength $fl] > 1} {
+            set res_stride [expr {[lindex $fl 1] - [lindex $fl 0]}]
+            if {$res_stride < 1} { set res_stride 1 }
+        }
+    }
+    if {$res_stride > 1} {
+        set res_unit_label "Residence Time (samples; 1 sample = $res_stride frames)"
+    } else {
+        set res_unit_label "Residence Time (frames)"
+    }
+
     draw_title $c $cw "Cluster Residence Times"
     draw_axes $c $x0 $y0 $x1 $y1
-    draw_yticks $c $x0 $y0 $y1 0 $max_val 6
+    draw_yticks $c $x0 $y0 $y1 0 $max_val 6 $x1
 
     # Draw bars (mean) with min/max whiskers
     set gap 4
+    # Clamp: with many clusters the gaps alone exceed the plot width and this
+    # goes negative, producing inverted rectangles Tk draws as artifacts.
     set bar_w [expr {($plot_w - ($nclusters + 1) * $gap) / double($nclusters)}]
+    if {$bar_w < 1.0} {
+        set gap 0
+        set bar_w [expr {max(1.0, $plot_w / double($nclusters))}]
+    }
 
     for {set i 0} {$i < $nclusters} {incr i} {
         set bx0 [expr {$x0 + $gap + $i * ($bar_w + $gap)}]
@@ -1608,12 +1716,15 @@ proc ::mdance::plots::residence_chart {results} {
 
     $c create text [expr {$cw / 2}] [expr {$ch - 5}] -text "Cluster ID" \
         -anchor s -font [plot_font 0]
-    $c create text 12 [expr {$ch / 2}] -text "Residence Time (frames)" \
+    # These are run lengths in SAMPLES (consecutive rows of the clustered
+    # matrix). With a stride they are not frames: 3 samples at stride 10 spans 30
+    # frames, so calling the axis "frames" understated every residence time.
+    $c create text 12 [expr {$ch / 2}] -text $res_unit_label \
         -anchor w -angle 90 -font [plot_font 0]
 
     # Store redraw command and CSV data
     set ::mdance::plots::redraw_cmds(mdance_residence) [list ::mdance::plots::residence_chart $results]
-    set csv "cluster_id,mean_residence,min_residence,max_residence\n"
+    set csv "cluster_id,mean_residence_samples,min_residence_samples,max_residence_samples\n"
     for {set i 0} {$i < $nclusters} {incr i} {
         append csv "$i,[format "%.2f" $rmean($i)],$rmin($i),$rmax($i)\n"
     }

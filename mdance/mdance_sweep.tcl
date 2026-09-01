@@ -559,8 +559,18 @@ proc ::mdance::gui::draw_sweep_heatmap {} {
     # Toggle button (CH <-> DB) inside the toolbar area
     if {![winfo exists $w.toolbar.sw]} {
         ttk::button $w.toolbar.sw -text "Toggle CH/DB" -command {
+            # sweep_heatmap re-reads the sweep treeview, which lives in the main
+            # window -- and this plot window outlives it. Redraw from the data
+            # already captured in sweep_hm_data when the table is gone.
             set ::mdance::gui::sweep_score [expr {$::mdance::gui::sweep_score eq "DB" ? "CH" : "DB"}]
-            ::mdance::gui::sweep_heatmap
+            if {[winfo exists .mdance.nb.sweep.res.tv]} {
+                ::mdance::gui::sweep_heatmap
+            } elseif {[info exists ::mdance::gui::sweep_hm_data]} {
+                lassign $::mdance::gui::sweep_hm_data cl cb kl sc
+                set ::mdance::gui::sweep_hm_data \
+                    [list $cl $cb $kl $::mdance::gui::sweep_score]
+                ::mdance::gui::draw_sweep_heatmap
+            }
         }
         pack $w.toolbar.sw -side left -padx 6
     }
