@@ -1,0 +1,10 @@
+# Generated / large artifacts. Everything here is rebuilt by bootstrap.sh.
+.venv/
+narration/audio/
+narration/beats.json
+narration/manifest.tcl
+out/
+__pycache__/
+*.swp
+*.swo
+.DS_Store

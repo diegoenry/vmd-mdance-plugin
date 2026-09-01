@@ -7,7 +7,7 @@ context. Written 2026-08-31.
 
 ## 1. What this is
 
-`/Users/deb0054/work/vmd-plugin-projects/VMD-MDANCE` — the **standalone,
+`~/work/vmd-plugin-projects/VMD-MDANCE` — the **standalone,
 plugin-only Tcl/Tk copy** of the MDANCE VMD plugin. ~6.4k lines of Tcl in
 `mdance/`, plus a test suite in `tests/`.
 
@@ -16,7 +16,7 @@ It drives the MDANCE clustering backend two ways:
 - **Library mode** (preferred) — a loaded Tcl C extension, `load … Mdance`
 - **CLI mode** (fallback) — `exec`ing `mdance-cli`, CSV in / JSON out
 
-The backend itself lives in a different checkout: `/Users/deb0054/github/CPP-MDANCE`.
+The backend itself lives in a different checkout: `~/github/CPP-MDANCE`.
 
 ---
 
@@ -98,7 +98,7 @@ colouring, navigation, export and every plot depend on it.
 ## 5. How to verify a change
 
 ```bash
-cd /Users/deb0054/work/vmd-plugin-projects/VMD-MDANCE
+cd ~/work/vmd-plugin-projects/VMD-MDANCE
 ./tests/run_tests.sh            # everything (needs VMD)
 ./tests/run_tests.sh unit       # fast, no VMD
 ./tests/run_tests.sh runtime    # headless VMD scenarios
@@ -124,7 +124,7 @@ Everything below is outside this repo or is a standing limitation.
 
 1. **CPP-MDANCE PR is still unpushed.** Verified 2026-08-31: branch
    `feat-vmd-plugin` exists locally at commit `15875f3` in
-   `/Users/deb0054/github/CPP-MDANCE`, and `git ls-remote --heads origin` shows
+   `~/github/CPP-MDANCE`, and `git ls-remote --heads origin` shows
    no such branch on the remote. It is based on `origin/feat-divine`
    — PR target is `feat-divine`, **not** `main`. Resume from
    `CPP-MDANCE/TODO_vmd_plugin.md`. Re-confirm the base before pushing: `main`
@@ -163,6 +163,14 @@ notes/
   HARDENING_BACKLOG.md   what the review found and fixed — READ FIRST
   REVIEW_NOTES.md        backend bug write-ups (DIVINE crash) + verification status
   *.md                   background notes on port scope, C-API, headless verification
+demo/
+  README.md          the narrated walkthrough: what it is and how to run it
+  SCENE_AUTHORING.md how to write/edit a chapter
+  tcl/scenes/*.tcl   12 chapters; each beat pairs a spoken line with the Tcl
+                     that drives the plugin while it plays
+  tcl/demo_*.tcl     engine, captions, control panel, dialog stand-ins
+  narration/         Kokoro TTS build; manifest.tcl carries MEASURED durations
+  run_demo.sh        launch | --check | --rehearse | --narrate
 tests/
   README.md          layout + fake-backend hooks
   run_tests.sh       driver

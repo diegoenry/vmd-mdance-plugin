@@ -42,6 +42,23 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
 > *PRISM/CADENCE* has no public reference implementation; MDANCE's density/quality
 > clustering on a coordinate matrix is **eQUAL**, which is included above.
 
+## Guided walkthrough
+
+`demo/` contains a live, narrated tour of everything above. It opens this plugin
+in a real VMD session and drives it — setting parameters, running the backend,
+opening plots — while a synthesized voice-over explains what is happening and
+captions track along the bottom of the screen. Nothing is pre-recorded; every
+clustering it shows is computed live.
+
+```bash
+./demo/bootstrap.sh      # once: Python env + local text-to-speech + narration
+./demo/run_demo.sh       # launch
+```
+
+Twelve chapters, ~40 minutes in total, each playable on its own — one per
+clustering method, plus Setup, PRIME, Sweep, the plot gallery, Frame Tools and
+exports. See [demo/README.md](demo/README.md).
+
 ## Prerequisites
 
 - VMD (1.9.3 or later)
