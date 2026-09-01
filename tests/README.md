@@ -60,7 +60,7 @@ tests/
     single_state.pdb     10 frames, 5 CA, one state (degenerate / k=1)
   unit/
     test_utils.tcl       parse_json (incl. NaN/Infinity/sci-notation), mktmp/cleanup,
-                         tmpdir, find_cli/find_library
+                         tmpdir, the private 0700 workdir, find_cli/find_library
     test_frames_index.tcl frame_list, range_params, abs_frame (subset/stride mapping)
     test_validation.tcl  _chknum, fmt_score, _busy_guard
     test_plot_math.tcl   cluster_color, nice_ticks (integer-range regression), heatmap_color
@@ -72,6 +72,11 @@ tests/
     scenario_sweep.tcl       parameter sweep with one failing config (isolation + best-pick)
     scenario_cancel.tcl      cancel a long run; backend failure; no temp/process leaks
     scenario_extras.tcl      library mode (no temp files), iSIM / PRIME / Frame-Tools, sessions
+    scenario_selection.tcl   frame-dependent atom selections are refused, not mis-extracted
+    scenario_dendrogram.tcl  HELM's zMatrix is a FOREST; every tree must be laid out
+    scenario_helm_divine.tcl HELM pre-cluster handoff + initial-label files, DIVINE args, k=1
+    scenario_backend_output.tcl  backend exits 0 with truncated JSON / a wrong label count
+    scenario_noise_math.tcl  transition probabilities and timeline lanes account for noise
 ```
 
 ## Fake backend test hooks
@@ -82,6 +87,11 @@ tests/
 - `MDANCE_FAKE_FAIL_K=<k>` — fail only for `--nclusters <k>` (one bad sweep config)
 - `MDANCE_FAKE_SLEEP=<s>`  — stream progress to stderr for `<s>` seconds (so a run
                               can be cancelled mid-flight)
+- `MDANCE_FAKE_IGNORE_TERM=1` — ignore SIGTERM, so the cancel escalation
+                              (TERM → KILL) is exercised rather than assumed
+- `MDANCE_FAKE_TRUNCATE=1` — exit 0 having written only HALF a JSON document,
+                              the way a backend killed mid-write leaves it
+- `MDANCE_FAKE_EXTRA_LABELS=<n>` — exit 0 with `<n>` more labels than frames
 
 ## What the scenarios cover (and which hardening they guard)
 
