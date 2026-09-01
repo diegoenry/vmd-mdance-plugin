@@ -4,9 +4,11 @@ Record of the 2026-08-31 review of the Tcl plugin (9 dimension-scoped finders
 over `mdance/*.tcl` + `tests/`; 74 raw findings, 55 after dedup) and the two
 hardening passes that followed.
 
-**Every finding from that review is now fixed.** Each was reproduced before
-being changed, and each fix is pinned by a test that was confirmed to fail
-without it. Test suite: 126 → 208 checks, all passing (`./tests/run_tests.sh`).
+**Every finding from that review is now fixed**, and so are the defects a
+follow-up adversarial review found in the fixes themselves (see Pass 3). Each was
+reproduced before being changed, and each fix is pinned by a test confirmed to
+fail without it. Test suite: 126 → 213 checks, all passing
+(`./tests/run_tests.sh`).
 
 Baseline for a full diff of the work: `git diff 5251368..HEAD`.
 
@@ -89,6 +91,35 @@ Commits `36a0790`, `ead60e9`, `84c90dc`.
   molecule, six inconsistent-session shapes, and the private workdir.
 - The temp-file assertions no longer glob the shared system tmpdir, where they
   counted and deleted files belonging to concurrent VMD sessions.
+
+## Pass 3 — defects in the hardening itself
+
+Commit `8694996`. An 8-area adversarial review of passes 1 and 2 found that two
+fixes had introduced new defects and several were incomplete:
+
+- **Cancel escalation killed the *next* run.** The timers identified their run by
+  the Tcl channel name, and Tcl recycles those, so a cancelled run's timer
+  matched its successor, closed its live channel and unblocked its vwait. Timers
+  now carry a monotonic run id and are disarmed when the run ends.
+- **The sweep heatmap's CH/DB toggle relabelled cached values** once the main
+  window was closed, showing one score's numbers under the other's legend —
+  trading a visible error for silently wrong values. It now recomputes from
+  `sweep_rows`, which outlives the widget.
+- `apply_cluster_colors` counted only samples past the end of the trajectory, not
+  those the frame map cannot reach.
+- An empty `molSignature` bypassed the molecule-identity check entirely.
+- HELM's own pre-clustering output skipped the validation applied to user input.
+- `frame_tools_export` checked molecule identity but not frame range.
+- A window closed during the sweep's confirmation dialog wedged both run flags.
+- `workdir` was named by pid alone, so a stale directory owned by another user
+  was refused forever; it now includes the user and is reclaimed when empty.
+- Plus: `prime_molid` set before the run, `data(silhouette)` never evicted,
+  `draw_yticks` measuring the title, residence bars pushed off-canvas, two
+  labels clipped off the canvas, and a non-integer label folded into the noise
+  lane by a string comparison.
+
+The lesson worth keeping: hardening changes need the same adversarial scrutiny as
+the code they harden. Two of these were strictly worse than the bug being fixed.
 
 ## Known limitation, not a finding
 

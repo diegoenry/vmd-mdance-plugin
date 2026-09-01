@@ -153,7 +153,7 @@ Mat groupB = data(splinterGroup, Eigen::placeholders::all);
   the `mdance_*` symbols (visibility fix). The Tcl extension only links when these
   are exported.
 - **VMD plugin (Tcl)**: covered by an automated suite — `./tests/run_tests.sh`
-  runs 208 checks (103 unit under plain `tclsh` with VMD/Tk stubbed, 105 runtime
+  runs 213 checks (104 unit under plain `tclsh` with VMD/Tk stubbed, 109 runtime
   scenarios inside headless VMD against `tests/fake_mdance_cli`). See
   `tests/README.md` for the layout and `notes/HARDENING_BACKLOG.md` for what the
   2026-08-31 review found and fixed. Trust that suite for verification status,
