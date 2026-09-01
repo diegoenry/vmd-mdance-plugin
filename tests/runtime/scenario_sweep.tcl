@@ -88,11 +88,14 @@ catch {unset ::env(MDANCE_FAKE_FAIL_K)}
 th::test "a sweep refuses to start while a single run holds the flag" {
     # Both operations end by calling utils::cleanup, which deletes EVERY
     # registered temp file -- including the other one's live input CSV.
+    # Clear first and assert ZERO rows: comparing against the previous count is
+    # not decisive, because a sweep that wrongly runs clears the table and
+    # rebuilds it to the same size.
+    $tv delete [$tv children {}]
     set ::mdance::running 1
-    set before [llength [$tv children {}]]
     ::mdance::gui::run_parameter_sweep
     set ::mdance::running 0
-    th::eq $before [llength [$tv children {}]] "no new rows: the sweep must not have run"
+    th::eq 0 [llength [$tv children {}]] "a blocked sweep must produce no rows at all"
     th::eq 0 $::mdance::gui::sweep_running
 }
 th::test "a single run refuses to start while a sweep holds the flag" {
