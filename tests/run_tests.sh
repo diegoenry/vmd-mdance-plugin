@@ -20,12 +20,13 @@ if [ -z "$TCLSH" ]; then
 fi
 VMD="${VMD:-}"
 if [ -z "$VMD" ]; then
-    if [ -x "/Users/deb0054/software/VMD2.app/Contents/vmd2/bin/vmd" ]; then
-        VMD="/Users/deb0054/software/VMD2.app/Contents/vmd2/bin/vmd"
-    else
-        VMD="vmd"
-    fi
+    for c in "$HOME/software/VMD2.app/Contents/vmd2/bin/vmd" \
+             /Applications/VMD*2.0*.app/Contents/vmd2/bin/vmd \
+             /Applications/VMD*.app/Contents/vmd/vmd_MACOSX* ; do
+        if [ -x "$c" ]; then VMD="$c"; break; fi
+    done
 fi
+[ -z "$VMD" ] && VMD="vmd"
 VMD_TIMEOUT="${VMD_TIMEOUT:-180}"
 
 WHICH="${1:-all}"

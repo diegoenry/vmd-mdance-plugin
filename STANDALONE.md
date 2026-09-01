@@ -11,14 +11,14 @@ The plugin calls a built MDANCE backend:
 - `mdance_tcl.{so,dylib}` (native library mode).
 
 Both are produced by building the **CPP-MDANCE** C++ project
-(`/Users/deb0054/github/CPP-MDANCE`). Because this copy lives outside that repo,
+(`~/github/CPP-MDANCE`). Because this copy lives outside that repo,
 the plugin's relative-path search (`../../build/...`) will not find them. Point the
 plugin at a built backend in one of these ways:
 
 1. **Environment variables** (recommended):
    ```sh
-   export MDANCE_CLI="/Users/deb0054/github/CPP-MDANCE/build/cli/mdance-cli"
-   export MDANCE_LIB="/Users/deb0054/github/CPP-MDANCE/build/tcl/mdance_tcl.dylib"
+   export MDANCE_CLI="~/github/CPP-MDANCE/build/cli/mdance-cli"
+   export MDANCE_LIB="~/github/CPP-MDANCE/build/tcl/mdance_tcl.dylib"
    ```
    (or set them in `~/.vmdrc`). The Setup tab also has a **Browse...** button for the CLI.
 2. **Copy the built binaries into `mdance/`** — the plugin searches its own directory.
