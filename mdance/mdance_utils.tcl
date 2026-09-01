@@ -214,29 +214,43 @@ proc ::mdance::utils::workdir {} {
     if {$workdir_path ne "" && [file isdirectory $workdir_path]} {
         return $workdir_path
     }
-    set dir [file join [tmpdir] "mdance-[pid]"]
+    # Include the user: /tmp is shared, and pids repeat across users and reboots,
+    # so a bare mdance-<pid> could collide with a directory another user owns --
+    # which the ownership check below would then refuse forever, permanently
+    # breaking the plugin for this session. Try a few suffixes before giving up.
+    set user "u"
+    if {[info exists ::tcl_platform(user)] && $::tcl_platform(user) ne ""} {
+        set user $::tcl_platform(user)
+    }
+    set base [file join [tmpdir] "mdance-$user-[pid]"]
 
-    # `file type` does not follow symlinks, so this catches a planted link that
-    # would otherwise redirect every temp write somewhere else.
-    if {[file exists $dir] || ![catch {file lstat $dir st}]} {
-        set t ""
-        catch {set t [file type $dir]}
-        if {$t ne "directory"} {
-            error "Refusing to use temp directory $dir: it exists and is not a directory (type: $t)."
-        }
-        if {$::tcl_platform(platform) ne "windows"} {
-            if {![catch {file attributes $dir -owner} owner] \
-                    && [info exists ::tcl_platform(user)] \
-                    && $owner ne $::tcl_platform(user)} {
-                error "Refusing to use temp directory $dir: it is owned by $owner, not $::tcl_platform(user)."
-            }
+    for {set attempt 0} {$attempt < 20} {incr attempt} {
+        set dir [expr {$attempt == 0 ? $base : "$base-$attempt"}]
+        if {![_usable_workdir $dir]} continue
+        if {[catch {file mkdir $dir}]} continue
+        catch {file attributes $dir -permissions 0700}   ;# no-op on Windows
+        set workdir_path $dir
+        return $dir
+    }
+    error "Could not create a private temp directory under [tmpdir]."
+}
+
+# _usable_workdir - True if $dir is safe to use (absent, or a directory we own).
+# `file type` deliberately does NOT follow symlinks, so a planted link that would
+# redirect every temp write is rejected rather than followed.
+proc ::mdance::utils::_usable_workdir {dir} {
+    if {[catch {file lstat $dir st}]} { return 1 }   ;# absent -> fine to create
+    set t ""
+    catch {set t [file type $dir]}
+    if {$t ne "directory"} { return 0 }
+    if {$::tcl_platform(platform) ne "windows"} {
+        if {![catch {file attributes $dir -owner} owner] \
+                && [info exists ::tcl_platform(user)] \
+                && $owner ne $::tcl_platform(user)} {
+            return 0
         }
     }
-
-    file mkdir $dir
-    catch {file attributes $dir -permissions 0700}   ;# no-op on Windows
-    set workdir_path $dir
-    return $dir
+    return 1
 }
 
 # mktmp - Create a temp file path and register it for cleanup
@@ -252,8 +266,17 @@ proc ::mdance::utils::mktmp {suffix} {
 # cleanup - Remove all registered temp files
 proc ::mdance::utils::cleanup {} {
     variable tmpfiles
+    variable workdir_path
     foreach f $tmpfiles {
         catch {file delete -force $f}
     }
     set tmpfiles {}
+    # Reclaim the scratch directory once it is empty, so a long-lived VMD session
+    # does not leave one directory per process behind forever. `file delete`
+    # WITHOUT -force fails on a non-empty directory, which is exactly the guard
+    # we want: anything still holding files there keeps it. workdir recreates it
+    # lazily on the next mktmp.
+    if {$workdir_path ne "" && [catch {file delete $workdir_path}] == 0} {
+        set workdir_path ""
+    }
 }

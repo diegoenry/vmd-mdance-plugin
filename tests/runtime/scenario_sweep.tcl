@@ -144,5 +144,67 @@ th::test "closing the window mid-sweep does not wedge the sweep flags" {
     th::eq 0 $::mdance::running
 }
 
+# ------------------------------------------------------------------
+th::section "The score heatmap survives the main window and shows the right score"
+# ------------------------------------------------------------------
+# Rebuild a small grid to draw from.
+set ::mdance::gui::sweep_kmin 2
+set ::mdance::gui::sweep_kmax 4
+set ::mdance::gui::sweep_kstep 1
+catch {unset ::env(MDANCE_FAKE_FAIL_K)}
+if {![winfo exists .mdance]} { ::mdance::gui::create_window }
+set ::mdance::gui::mol_selection $mol
+::mdance::gui::run_parameter_sweep
+
+proc hm_cells {} {
+    lassign $::mdance::gui::sweep_hm_data cell_list combos ks score
+    array set cell $cell_list
+    return [list [array get cell] $score]
+}
+
+th::test "the heatmap captures the currently selected score" {
+    set ::mdance::gui::sweep_score CH
+    ::mdance::gui::sweep_heatmap
+    lassign [hm_cells] ch_cells score
+    th::eq CH $score
+    th::gt [llength $ch_cells] 0 "some CH cells must be captured"
+    set ::CH_CELLS $ch_cells
+}
+th::test "toggling to DB re-reads the DB values, it does not relabel the CH ones" {
+    # Regression: the toggle used to keep the cached CH cell array and merely
+    # change the score LABEL, so the plot showed Calinski-Harabasz numbers under
+    # a Davies-Bouldin legend -- silently wrong values rather than a visible error.
+    set ::mdance::gui::sweep_score DB
+    ::mdance::gui::sweep_heatmap
+    lassign [hm_cells] db_cells score
+    th::eq DB $score
+    th::ne $::CH_CELLS $db_cells "DB cells must differ from the CH cells"
+    # The fake backend's DB scores are < 10 while CH are >= 10, so this is decisive.
+    array set dbc $db_cells
+    foreach k [array names dbc] { th::true [expr {$dbc($k) < 10.0}] "DB value $dbc($k) looks like a CH value" }
+}
+th::test "the heatmap still works after the main window is closed" {
+    destroy .mdance
+    set ::mdance::gui::sweep_score CH
+    th::ok { ::mdance::gui::sweep_heatmap }
+    lassign [hm_cells] cells score
+    th::eq CH $score
+    th::eq $::CH_CELLS $cells "the same CH values must be recovered without the treeview"
+}
+th::test "toggling with the main window closed shows real DB values, not relabelled CH ones" {
+    # This is the exact path the buggy fallback took: it kept the cached CH cell
+    # array and only changed the score label, so the plot presented CH numbers
+    # under a Davies-Bouldin legend.
+    th::false [winfo exists .mdance] "fixture check: the main window is gone"
+    set ::mdance::gui::sweep_score DB
+    th::ok { ::mdance::gui::sweep_heatmap }
+    lassign [hm_cells] cells score
+    th::eq DB $score
+    th::ne $::CH_CELLS $cells "DB cells must not be the CH cells wearing a DB label"
+    array set c2 $cells
+    foreach k [array names c2] { th::true [expr {$c2($k) < 10.0}] "value $c2($k) is a CH score, not a DB score" }
+}
+catch {destroy .mdance_sweep_hm}
+
 ::mdance::utils::cleanup
 exit [th::done "runtime:sweep"]

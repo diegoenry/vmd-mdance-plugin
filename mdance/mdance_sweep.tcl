@@ -215,8 +215,12 @@ proc ::mdance::gui::run_parameter_sweep {} {
     # concurrent run whose cleanup deletes this sweep's input CSV mid-grid.
     set ::mdance::running 1
     set sweep_cancel 0
-    .mdance.nb.sweep.run.cancel configure -state normal
-    .mdance.nb.sweep.run.go configure -state disabled
+    # Guard the widget calls: the confirmation dialog above runs a nested event
+    # loop, so the window can already be gone by the time we get here. An error
+    # raised at this point would escape past the epilogue that clears these
+    # flags, wedging both of them for the rest of the session.
+    catch {.mdance.nb.sweep.run.cancel configure -state normal}
+    catch {.mdance.nb.sweep.run.go configure -state disabled}
 
     set sweep_status "Extracting coordinates..."
     update idletasks
@@ -441,7 +445,11 @@ proc ::mdance::gui::sweep_heatmap {} {
     variable sweep_rows
     variable sweep_score
 
-    set items [.mdance.nb.sweep.res.tv children {}]
+    # Read the run data from sweep_rows, not from the treeview. sweep_rows is a
+    # plain array, so it outlives the main window -- which the "Toggle CH/DB"
+    # button on this plot needs, since that button is still live after the main
+    # window is closed.
+    set items [lsort [array names sweep_rows]]
     if {[llength $items] == 0} {
         tk_messageBox -icon info -title "MDANCE" -message "Run a sweep first."
         return
@@ -452,7 +460,6 @@ proc ::mdance::gui::sweep_heatmap {} {
     array unset cell
     set nvals 0
     foreach it $items {
-        if {![info exists sweep_rows($it)]} continue
         set r $sweep_rows($it)
         if {[dict get $r status] ne "ok"} continue
         set combo "[dict get $r algo]|[dict get $r metric]|[dict get $r kinit]"
@@ -477,6 +484,8 @@ proc ::mdance::gui::sweep_heatmap {} {
         tk_messageBox -icon info -title "MDANCE" -message "No successful runs to plot."
         return
     }
+    # array names has no useful order, so sort for a stable row layout.
+    set combos [lsort $combos]
     if {$nvals == 0} {
         tk_messageBox -icon info -title "MDANCE" \
             -message "No numeric $sweep_score scores in this sweep, so there is nothing to shade."
@@ -559,18 +568,12 @@ proc ::mdance::gui::draw_sweep_heatmap {} {
     # Toggle button (CH <-> DB) inside the toolbar area
     if {![winfo exists $w.toolbar.sw]} {
         ttk::button $w.toolbar.sw -text "Toggle CH/DB" -command {
-            # sweep_heatmap re-reads the sweep treeview, which lives in the main
-            # window -- and this plot window outlives it. Redraw from the data
-            # already captured in sweep_hm_data when the table is gone.
+            # sweep_heatmap reads sweep_rows, which survives the main window, so
+            # it can always recompute the cells for the newly selected score.
+            # Re-labelling the CACHED cells instead would show one score's
+            # numbers under the other score's name.
             set ::mdance::gui::sweep_score [expr {$::mdance::gui::sweep_score eq "DB" ? "CH" : "DB"}]
-            if {[winfo exists .mdance.nb.sweep.res.tv]} {
-                ::mdance::gui::sweep_heatmap
-            } elseif {[info exists ::mdance::gui::sweep_hm_data]} {
-                lassign $::mdance::gui::sweep_hm_data cl cb kl sc
-                set ::mdance::gui::sweep_hm_data \
-                    [list $cl $cb $kl $::mdance::gui::sweep_score]
-                ::mdance::gui::draw_sweep_heatmap
-            }
+            ::mdance::gui::sweep_heatmap
         }
         pack $w.toolbar.sw -side left -padx 6
     }

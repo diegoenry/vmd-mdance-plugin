@@ -144,7 +144,11 @@ th::section "workdir - a private scratch directory, not the shared temp dir"
 th::test "temp files live inside a per-process directory" {
     set d [::mdance::utils::workdir]
     th::true [file isdirectory $d]
-    th::match "*mdance-[pid]" $d "the directory is scoped to this process"
+    # Scoped to BOTH user and pid: /tmp is shared and pids repeat across users,
+    # so a bare mdance-<pid> could collide with a directory owned by someone else
+    # and be refused forever.
+    th::match "*mdance-*[pid]*" $d "the directory is scoped to this process"
+    th::match "*$::tcl_platform(user)*" $d "and to this user"
     set p [::mdance::utils::mktmp .csv]
     th::match "$d/*" $p "mktmp must place files inside it"
 }
@@ -161,13 +165,27 @@ th::test "the directory is not readable by other users" {
 th::test "workdir is stable across calls" {
     th::eq [::mdance::utils::workdir] [::mdance::utils::workdir]
 }
-th::test "cleanup removes the registered files but keeps the directory" {
+th::test "cleanup removes the registered files and reclaims an empty directory" {
     set p [::mdance::utils::mktmp .csv]
     set fp [open $p w]; puts $fp "x"; close $fp
+    set d [::mdance::utils::workdir]
     th::true [file exists $p]
     ::mdance::utils::cleanup
     th::false [file exists $p]
+    th::false [file exists $d] "an emptied scratch dir must not be left behind"
+    # ...and it comes back lazily, so the plugin keeps working afterwards.
+    set p2 [::mdance::utils::mktmp .csv]
     th::true [file isdirectory [::mdance::utils::workdir]]
+    th::match "[::mdance::utils::workdir]/*" $p2
+    ::mdance::utils::cleanup
+}
+th::test "a directory that still holds files is kept" {
+    set keep [file join [::mdance::utils::workdir] "not_registered.txt"]
+    set fp [open $keep w]; puts $fp "x"; close $fp
+    ::mdance::utils::cleanup
+    th::true [file isdirectory [::mdance::utils::workdir]] "a non-empty dir must survive"
+    catch {file delete -force $keep}
+    ::mdance::utils::cleanup
 }
 
 exit [th::done "unit:utils"]

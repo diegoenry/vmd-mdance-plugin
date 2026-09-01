@@ -102,4 +102,24 @@ th::test "the run flag is cleared after an escalated cancel" {
     th::eq 0 $::mdance::running
 }
 
+th::test "a run started right after a cancel is not killed by the previous run's timer" {
+    # Regression: the escalation timers identified their run by the Tcl CHANNEL
+    # NAME, and Tcl recycles pipe channel names -- so the cancelled run's timer
+    # matched the NEXT run, closed its live channel and unblocked its vwait as if
+    # the backend had finished. The follow-up run died with a bogus "couldn't
+    # open <output>" while its backend child kept running.
+    catch {unset ::env(MDANCE_FAKE_IGNORE_TERM)}
+    set ::env(MDANCE_FAKE_SLEEP) 6
+    after 300 { catch {::mdance::request_cancel} }
+    catch {::mdance::run_clustering kmeans $params}     ;# run 1: cancelled
+
+    # Start run 2 immediately, well inside the 3s+1s escalation window, and make
+    # it outlive that window so a stale timer would have something to destroy.
+    set ::env(MDANCE_FAKE_SLEEP) 5
+    set rc [catch {::mdance::run_clustering kmeans $params} err]
+    catch {unset ::env(MDANCE_FAKE_SLEEP)}
+    th::eq 0 $rc "the follow-up run must complete: $err"
+    th::eq 24 [llength [dict get $::mdance::results labels]]
+}
+
 exit [th::done "runtime:cancel"]

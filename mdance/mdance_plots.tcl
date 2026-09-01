@@ -194,9 +194,10 @@ proc ::mdance::plots::on_plot_destroy {name W w} {
     # VMD session -- and served stale numbers to a later re-open of the plot.
     variable data
     switch -- $name {
-        mdance_dendro  { catch {unset data(dendro)} }
-        mdance_cdist   { catch {unset data(cdist)} }
-        mdance_reprmsd { catch {unset data(reprmsd)} }
+        mdance_dendro     { catch {unset data(dendro)} }
+        mdance_cdist      { catch {unset data(cdist)} }
+        mdance_reprmsd    { catch {unset data(reprmsd)} }
+        mdance_silhouette { catch {unset data(silhouette)} }
     }
 }
 
@@ -312,8 +313,14 @@ proc ::mdance::plots::draw_axes {c x0 y0 x1 y1} {
     $c create line $x0 $y1 $x1 $y1 -width 2 -fill black
 }
 
-proc ::mdance::plots::draw_title {c width title} {
-    $c create text [expr {$width / 2}] 20 -text $title -font [plot_font 2 bold] -anchor n
+proc ::mdance::plots::draw_title {c width title {subtitle ""}} {
+    # -width lets Tk wrap a long title instead of running it off both edges.
+    $c create text [expr {$width / 2}] 20 -text $title -font [plot_font 2 bold] \
+        -anchor n -width [expr {$width - 20}] -justify center
+    if {$subtitle ne ""} {
+        $c create text [expr {$width / 2}] 40 -text $subtitle -font [plot_font -1] \
+            -anchor n -width [expr {$width - 20}] -justify center -fill "#666666"
+    }
 }
 
 # Compute "nice" tick values for a numeric axis
@@ -350,7 +357,9 @@ proc ::mdance::plots::nice_ticks {vmin vmax nticks} {
 
 proc ::mdance::plots::draw_yticks {c x0 y0 y1 vmin vmax nticks {x1 ""}} {
     if {$x1 eq ""} {
-        # Fall back to the drawn x-axis extent rather than the -width option.
+        # Last resort only -- every in-tree caller passes the real right edge.
+        # `bbox all` measures whatever is already drawn, which includes the
+        # centred title, so it overshoots the plot area.
         set bbox [$c bbox all]
         set x1 [expr {$bbox eq "" ? $x0 : [lindex $bbox 2]}]
     }
@@ -503,7 +512,7 @@ proc ::mdance::plots::population_chart {results} {
     foreach s $sizes { if {$s > $max_size} { set max_size $s } }
     if {$max_size == 0} { set max_size 1 }
 
-    draw_yticks $c $x0 $y0 $y1 0 $max_size 6
+    draw_yticks $c $x0 $y0 $y1 0 $max_size 6 $x1
 
     # Draw bars
     set gap 4
@@ -628,6 +637,12 @@ proc ::mdance::plots::timeline_chart {results} {
         # Draw colored rectangle for each unique label
         set sx [expr {$x0 + $px_col}]
         foreach lbl [array names seen] {
+            # Explicit integer test: `$lbl < 0` on a non-numeric label falls back
+            # to STRING comparison, which would silently park it in the noise
+            # lane instead of surfacing the malformed result.
+            if {![string is integer -strict $lbl]} {
+                error "Cluster label \"$lbl\" is not an integer; the result is malformed."
+            }
             set lane [expr {$lbl < 0 ? 0 : $lbl + $lane_offset}]
             set cy [expr {$y1 - ($lane + 0.5) * $band_h}]
             set color [cluster_color $lbl $nclusters]
@@ -693,7 +708,7 @@ proc ::mdance::plots::msd_chart {results} {
     foreach m $msds { if {$m > $max_msd} { set max_msd $m } }
     if {$max_msd <= 0} { set max_msd 1.0 }
 
-    draw_yticks $c $x0 $y0 $y1 0 $max_msd 6
+    draw_yticks $c $x0 $y0 $y1 0 $max_msd 6 $x1
 
     # Draw bars
     set gap 4
@@ -1022,7 +1037,7 @@ proc ::mdance::plots::dendrogram {results {use_cache 0}} {
     $c create line $x0 $y1 $x1 $y1 -width 2 -fill black
 
     # Y-axis ticks
-    draw_yticks $c $x0 $y0 $y1 0 $max_height 6
+    draw_yticks $c $x0 $y0 $y1 0 $max_height 6 $x1
 
     # Map node x-positions and heights to canvas coordinates
     set x_scale [expr {$nLeaves > 1 ? double($plot_w) / ($nLeaves - 1) : $plot_w}]
@@ -1526,7 +1541,8 @@ proc ::mdance::plots::transition_heatmap {results} {
     set plot_w [expr {$x1 - $x0}]; set plot_h [expr {$y1 - $y0}]
 
     if {$has_noise} {
-        draw_title $c $cw "Cluster Transition Probabilities (rows sum to <1: transitions into noise are counted, not shown)"
+        draw_title $c $cw "Cluster Transition Probabilities" \
+            "rows sum to <1: transitions into noise are counted but have no column"
     } else {
         draw_title $c $cw "Cluster Transition Probabilities"
     }
@@ -1672,12 +1688,16 @@ proc ::mdance::plots::residence_chart {results} {
         }
     }
     if {$res_stride > 1} {
-        set res_unit_label "Residence Time (samples; 1 sample = $res_stride frames)"
+        # The long form does not fit the rotated y-axis slot and gets clipped off
+        # the canvas, so the qualifier goes in the title where there is room.
+        set res_unit_label "Residence Time (samples)"
+        set res_title "Cluster Residence Times (1 sample = $res_stride frames)"
     } else {
         set res_unit_label "Residence Time (frames)"
+        set res_title "Cluster Residence Times"
     }
 
-    draw_title $c $cw "Cluster Residence Times"
+    draw_title $c $cw $res_title
     draw_axes $c $x0 $y0 $x1 $y1
     draw_yticks $c $x0 $y0 $y1 0 $max_val 6 $x1
 
@@ -1687,8 +1707,11 @@ proc ::mdance::plots::residence_chart {results} {
     # goes negative, producing inverted rectangles Tk draws as artifacts.
     set bar_w [expr {($plot_w - ($nclusters + 1) * $gap) / double($nclusters)}]
     if {$bar_w < 1.0} {
+        # Drop the gaps rather than forcing a minimum width: a 1px floor would
+        # push the last bars past the right axis and off the canvas, silently
+        # hiding clusters instead of just drawing them thin.
         set gap 0
-        set bar_w [expr {max(1.0, $plot_w / double($nclusters))}]
+        set bar_w [expr {$plot_w / double($nclusters)}]
     }
 
     for {set i 0} {$i < $nclusters} {incr i} {
@@ -2069,7 +2092,7 @@ proc ::mdance::plots::msd_vs_population {results} {
 
     draw_title $c $cw "Cluster Compactness vs. Population"
     draw_axes $c $x0 $y0 $x1 $y1
-    draw_yticks $c $x0 $y0 $y1 $y_min $y_max 6
+    draw_yticks $c $x0 $y0 $y1 $y_min $y_max 6 $x1
     draw_xticks $c $x0 $y1 $x1 $x_min $x_max 6
 
     set x_range [expr {$x_max - $x_min}]
@@ -2391,7 +2414,7 @@ proc ::mdance::plots::similarity_chart {results analysis} {
     set max_c 0
     foreach v $comp { if {$v > $max_c} { set max_c $v } }
     if {$max_c <= 0} { set max_c 1.0 }
-    draw_yticks $c $x0 $y0 $y1 0 $max_c 6
+    draw_yticks $c $x0 $y0 $y1 0 $max_c 6 $x1
 
     set gap 4
     set bar_w [expr {(double($plot_w) - $gap * ($nclusters + 1)) / $nclusters}]

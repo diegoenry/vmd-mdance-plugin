@@ -1211,7 +1211,6 @@ proc ::mdance::gui::run_prime_analysis {} {
 
     set ::mdance::status "Running PRIME analysis..."
     update idletasks
-    set prime_molid $molid
     if {[catch {set prime_results [::mdance::run_prime $molid $sel_text $frames $labels \
             $prime_metric $prime_trim $prime_weighted]} err]} {
         set ::mdance::status "Ready"
@@ -1219,6 +1218,11 @@ proc ::mdance::gui::run_prime_analysis {} {
         return
     }
     set ::mdance::status "Ready"
+
+    # Record the molecule only once the run SUCCEEDED, so prime_molid always
+    # describes the run whose rows are actually on screen -- a failed attempt
+    # against a different molecule must not repoint the existing table.
+    set prime_molid $molid
 
     set tv .mdance.nb.prime.res.tv
     $tv delete [$tv children {}]
@@ -1485,6 +1489,17 @@ proc ::mdance::gui::frame_tools_export {} {
         tk_messageBox -icon error -title "MDANCE" \
             -message "The molecule these frames were selected from (molid $molid) is no longer loaded. Re-run the selection."
         return
+    }
+    # Same molecule, but it may have been re-read with fewer frames since the
+    # selection ran. write_frames_to_file would then export whatever VMD clamps
+    # those indices to, with no indication anything was wrong.
+    set total [molinfo $molid get numframes]
+    foreach af $ft_frames {
+        if {$af < 0 || $af >= $total} {
+            tk_messageBox -icon error -title "MDANCE" \
+                -message "Frame $af is outside the current trajectory ($total frames). Re-run the selection."
+            return
+        }
     }
     set f [tk_getSaveFile -defaultextension ".pdb" \
         -filetypes {{"PDB structure" ".pdb"} {"DCD trajectory" ".dcd"} {"All files" "*"}} \

@@ -157,7 +157,18 @@ th::test "samples beyond the trajectory are counted, not silently skipped" {
         frames [list 0 1 [expr {$total + 5}] [expr {$total + 6}]]]
     set ::mdance::results $stale
     th::eq 2 [::mdance::apply_cluster_colors] "two of four samples are out of range"
-    th::match "*beyond the current*" $::mdance::status
+    th::match "*could not be placed*" $::mdance::status
+}
+th::test "samples the frame map cannot reach are counted too" {
+    # abs_frame returns -1 both for an empty cluster and for "the map does not
+    # reach this sample". The second case was dropped without being counted, so
+    # a partial colouring still reported as complete.
+    set stale [dict create molid $mol atomsel "name CA" \
+        nClusters 2 nFrames 4 labels {0 1 0 1} \
+        clusterSizes {2 2} representatives {0 1} \
+        frames {0 1}]
+    set ::mdance::results $stale
+    th::eq 2 [::mdance::apply_cluster_colors] "two samples have no frame-map entry"
 }
 th::test "frames the result does not cover are reset to unassigned" {
     # The old code only ran the reset pass when the map was SHORTER than the

@@ -26,6 +26,13 @@ namespace eval ::mdance {
     # Last few lines the child printed, kept so a failure can say what the
     # backend actually complained about (see _async_read).
     variable async_tail {}
+    # Monotonic id identifying the CURRENT streaming run, plus the `after` ids it
+    # armed. Cancel escalation used to identify its run by the channel name, but
+    # Tcl derives pipe channel names from the fd number and hands the same name
+    # straight back to the next open -- so a timer left over from a cancelled run
+    # matched the next run and killed it. See request_cancel.
+    variable async_run_id 0
+    variable async_timers {}
 }
 
 # Source companion files from same directory
@@ -466,6 +473,8 @@ proc ::mdance::run_cli_capture {cmd status_cb} {
     set async_err ""
     set cancel_requested 0
     set ::mdance::async_tail {}
+    incr ::mdance::async_run_id
+    set ::mdance::async_timers {}
 
     # "2>@1" merges the child's stderr (where the CLI prints progress) into the
     # readable pipe. Paths here live under the temp dir and contain no spaces.
@@ -476,6 +485,12 @@ proc ::mdance::run_cli_capture {cmd status_cb} {
 
     vwait ::mdance::async_done
 
+    # Disarm this run's escalation timers before anyone can start another run.
+    # Leaving them pending is what let a cancelled run reach forward and kill its
+    # successor; the run-id guard is the backstop, this is the actual cure.
+    variable async_timers
+    foreach t $async_timers { catch {after cancel $t} }
+    set async_timers {}
     set async_pid ""
     set async_fh ""
     if {$cancel_requested} {
@@ -539,7 +554,8 @@ proc ::mdance::_async_read {status_cb} {
 # In-process library-mode runs cannot be interrupted and are unaffected.
 proc ::mdance::request_cancel {} {
     variable async_pid
-    variable async_fh
+    variable async_run_id
+    variable async_timers
     variable cancel_requested
     set cancel_requested 1
     if {$async_pid eq ""} return
@@ -550,9 +566,11 @@ proc ::mdance::request_cancel {} {
     # holds the pipe open -- would leave run_cli_capture parked in its vwait
     # forever, with the whole VMD session frozen and no way out. Escalate on a
     # timer, then abandon the channel so the run always terminates.
-    # The channel handle is passed along and re-checked so a stale timer from a
-    # previous run can never touch a later one.
-    after 3000 [list ::mdance::_cancel_escalate $async_pid $async_fh]
+    #
+    # The timer carries the RUN ID, not the channel name: Tcl recycles pipe
+    # channel names (two successive opens both come back as e.g. "file6"), so a
+    # name-based guard matched the next run and let a cancelled run destroy it.
+    lappend async_timers [after 3000 [list ::mdance::_cancel_escalate $async_pid $async_run_id]]
 }
 
 # _signal_children - TERM or KILL a list of child pids, portably.
@@ -570,22 +588,24 @@ proc ::mdance::_signal_children {pids how} {
 }
 
 # _cancel_escalate - TERM was not enough; send an uncatchable KILL.
-proc ::mdance::_cancel_escalate {pids fh} {
+proc ::mdance::_cancel_escalate {pids rid} {
     variable async_done
-    variable async_fh
-    if {$async_done || $async_fh ne $fh} return
+    variable async_run_id
+    variable async_timers
+    if {$async_done || $async_run_id != $rid} return
     _signal_children $pids kill
-    after 1000 [list ::mdance::_cancel_giveup $fh]
+    lappend async_timers [after 1000 [list ::mdance::_cancel_giveup $rid]]
 }
 
 # _cancel_giveup - Even KILL did not close the pipe (a grandchild still holds
 # it). Stop listening and unblock the vwait; a leaked child beats a frozen VMD.
-proc ::mdance::_cancel_giveup {fh} {
+proc ::mdance::_cancel_giveup {rid} {
     variable async_done
+    variable async_run_id
     variable async_fh
-    if {$async_done || $async_fh ne $fh} return
-    catch {fileevent $fh readable {}}
-    catch {close $fh}
+    if {$async_done || $async_run_id != $rid} return
+    catch {fileevent $async_fh readable {}}
+    catch {close $async_fh}
     set async_done 1
 }
 
@@ -615,6 +635,23 @@ proc ::mdance::_exec_cli {cmd} {
         return -options $opts $out
     }
     return $out
+}
+
+# _require_valid_result - Reject backend output the plugin cannot safely use.
+#
+# parse_json is a regex scraper: truncated or malformed output yields a PARTIAL
+# dict rather than an error, and a label list of the wrong length silently shifts
+# every sample's cluster when the labels are mapped back onto the trajectory.
+proc ::mdance::_require_valid_result {result nframes {what "Backend output"}} {
+    foreach key {labels nClusters clusterSizes representatives} {
+        if {![dict exists $result $key]} {
+            error "$what is missing '$key' -- the run was probably truncated or the JSON is malformed."
+        }
+    }
+    set nlab [llength [dict get $result labels]]
+    if {$nlab != $nframes} {
+        error "$what returned $nlab labels for $nframes extracted frames; refusing to map them onto the trajectory."
+    }
 }
 
 # _cli_progress - default progress sink: surface the CLI's status lines
@@ -744,15 +781,22 @@ proc ::mdance::run_clustering_cli {algorithm params} {
                     error "Pre-clustering failed: $pre_err"
                 }
 
-                # Extract labels from pre-clustering result and write as CSV
+                # Extract labels from pre-clustering result and write as CSV.
+                # Validate it exactly like the final result: this is the DEFAULT
+                # HELM path, and a truncated pre-cluster JSON would otherwise be
+                # written out as a short label file and blamed on HELM itself.
                 set pre_result [::mdance::utils::parse_json $pre_output]
+                _require_valid_result $pre_result $nframes "Pre-clustering output"
                 set pre_labels [dict get $pre_result labels]
                 set labels_csv [::mdance::utils::mktmp "_labels.csv"]
                 set lfp [open $labels_csv w]
-                foreach l $pre_labels {
-                    puts $lfp $l
+                set prc [catch {foreach l $pre_labels { puts $lfp $l }} pres popts]
+                if {$prc} {
+                    catch {close $lfp}
+                } else {
+                    set prc [catch {close $lfp} pres popts]
                 }
-                close $lfp
+                if {$prc} { return -options $popts $pres }
                 lappend cmd --initial-labels $labels_csv
 
                 set status "Running HELM clustering..."
@@ -780,21 +824,7 @@ proc ::mdance::run_clustering_cli {algorithm params} {
         error $err
     }
 
-    # parse_json is a regex scraper: truncated or malformed output yields a
-    # PARTIAL dict rather than an error, and a short label list then mis-colours
-    # frames by silently shifting every sample's cluster. Check the shape before
-    # anything downstream trusts it.
-    foreach key {labels nClusters clusterSizes representatives} {
-        if {![dict exists $result $key]} {
-            set status "Error: incomplete backend output"
-            error "Backend output is missing '$key' -- the run was probably truncated or the JSON is malformed."
-        }
-    }
-    set nlab [llength [dict get $result labels]]
-    if {$nlab != $nframes} {
-        set status "Error: backend label count mismatch"
-        error "Backend returned $nlab labels for $nframes extracted frames; refusing to map them onto the trajectory."
-    }
+    _require_valid_result $result $nframes
 
     # Store molecule info in results
     dict set result molid $molid
@@ -835,9 +865,15 @@ proc ::mdance::apply_cluster_colors {} {
     set skipped 0
     for {set i 0} {$i < $nsub} {incr i} {
         set af [::mdance::abs_frame $results $i]
-        if {$af < 0} continue
-        if {$af >= $total} { incr skipped; continue }
-        set painted($af) [lindex $labels $i]
+        # Both failures count. abs_frame returns -1 for "the frame map does not
+        # reach this sample" as well as for an empty cluster, and skipping that
+        # silently is exactly the partial-colouring-that-looks-complete this
+        # count exists to prevent.
+        if {$af < 0 || $af >= $total} { incr skipped; continue }
+        # Canonicalise: a map entry of " 7" or "007" would be painted under one
+        # key and probed under another, so the frame would be repainted -1 by
+        # the reset pass below.
+        set painted([expr {int($af)}]) [lindex $labels $i]
     }
 
     set sel [atomselect $molid all]
@@ -870,7 +906,7 @@ proc ::mdance::apply_cluster_colors {} {
     # Never let a partial colouring look complete. Returns the number of samples
     # that could not be placed so the GUI can say so.
     if {$skipped > 0} {
-        set status "Coloured [array size painted] frames; $skipped sample(s) fall beyond the current $total-frame trajectory."
+        set status "Coloured [array size painted] frames; $skipped sample(s) could not be placed in the current $total-frame trajectory."
     }
     return $skipped
 }
@@ -1322,12 +1358,19 @@ proc ::mdance::save_session {filename} {
     # slot number, and VMD hands the same number to whatever is loaded next, so
     # without this a session reloaded into a different session's molecule looks
     # perfectly live while its frame indices point into another trajectory.
-    set molSig [dict create]
+    # molKnown distinguishes "this file predates signatures" (no molSignature at
+    # all -> fall back to the old molid check) from "the molecule was already
+    # gone when we saved" (signature present but empty -> identity is
+    # unverifiable, so the session must NOT be reported as live).
+    set molSig [dict create molKnown 0]
     if {[dict exists $results molid]} {
         set mid [dict get $results molid]
         if {[lsearch -exact [molinfo list] $mid] >= 0} {
             catch {dict set molSig molName [molinfo $mid get name]}
             catch {dict set molSig molFrames [molinfo $mid get numframes]}
+            if {[dict exists $molSig molName] || [dict exists $molSig molFrames]} {
+                dict set molSig molKnown 1
+            }
         }
     }
 
@@ -1424,6 +1467,9 @@ proc ::mdance::load_session {filename} {
     # Sessions written before molSignature existed simply skip this check.
     if {[dict exists $content molSignature]} {
         set sig [dict get $content molSignature]
+        if {![dict exists $sig molKnown] || ![dict get $sig molKnown]} {
+            return 0    ;# saved without a usable identity -- cannot verify
+        }
         if {[dict exists $sig molName]} {
             if {[catch {molinfo $molid get name} nm] || $nm ne [dict get $sig molName]} {
                 return 0
