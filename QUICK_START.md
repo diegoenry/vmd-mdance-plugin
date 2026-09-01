@@ -1,21 +1,33 @@
 # MDANCE Quick Start Guide
 
-This guide covers all three clustering algorithms available in the MDANCE VMD plugin and the `mdance-cli` command-line tool: **KMeans NANI**, **DIVINE**, and **HELM**.
+This guide covers the four clustering algorithms in the MDANCE VMD plugin and the
+`mdance-cli` command-line tool — **KMeans NANI**, **DIVINE**, **HELM** and **eQUAL** —
+together with the analysis tools built around them: **PRIME** representative-frame
+prediction, **iSIM** extended-similarity analysis, **Frame Tools** selection, and the
+**Parameter Sweep**.
 
 ---
 
 ## Table of Contents
 
 1. [Getting Started](#getting-started)
-2. [Input Data Format](#input-data-format)
-3. [KMeans NANI](#kmeans-nani)
-4. [DIVINE](#divine)
-5. [HELM](#helm)
-6. [Distance Metrics](#distance-metrics)
-7. [Quality Scores](#quality-scores)
-8. [Visualizations](#visualizations)
-9. [Algorithm Selection Guide](#algorithm-selection-guide)
-10. [Recommended Parameters by Dataset Size](#recommended-parameters-by-dataset-size)
+2. [Frame Range and Stride](#frame-range-and-stride)
+3. [Input Data Format](#input-data-format)
+4. [KMeans NANI](#kmeans-nani)
+5. [DIVINE](#divine)
+6. [HELM](#helm)
+7. [eQUAL](#equal)
+8. [Distance Metrics](#distance-metrics)
+9. [Quality Scores](#quality-scores)
+10. [Parameter Sweep](#parameter-sweep)
+11. [PRIME Representative Frame Prediction](#prime-representative-frame-prediction)
+12. [iSIM Similarity Analysis](#isim-similarity-analysis)
+13. [Frame Tools](#frame-tools)
+14. [Visualizations](#visualizations)
+15. [Exports and Sessions](#exports-and-sessions)
+16. [Algorithm Selection Guide](#algorithm-selection-guide)
+17. [Recommended Parameters by Dataset Size](#recommended-parameters-by-dataset-size)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -30,26 +42,94 @@ package require mdance
 mdance::gui
 ```
 
+The window has eight tabs: **Setup**, **KMeans**, **DIVINE**, **HELM**, **eQUAL**,
+**Sweep**, **Results** and **PRIME**.
+
 1. Load a molecule with a trajectory in VMD.
-2. In the **Setup** tab, set the molecule ID (`top` for the current molecule) and an atom selection (e.g., `protein and name CA`).
-3. Click **Preview** to verify atom count and frame count.
-4. (Optional) Adjust **Display Settings**: set the app font size and the default plot font size.
-5. Select an algorithm tab, configure parameters, and click **Run**.
-6. Inspect results in the **Results** tab.
+2. In the **Setup** tab, set the molecule ID (`top` for the current molecule) and an
+   atom selection (e.g. `protein and name CA`).
+3. (Optional) Set a **Frame Range** — see [Frame Range and Stride](#frame-range-and-stride).
+4. Click **Preview Selection** to verify the atom count and how many frames are selected.
+5. Check the **MDANCE Backend** section — it reports whether native library mode or CLI
+   mode is active.
+6. (Optional) Adjust **Display Settings**: app font size, and the default plot font size.
+7. Select an algorithm tab, configure parameters, and click **Run** — or use the **Sweep**
+   tab to scan a whole grid of parameters at once.
+8. Inspect results in the **Results** tab.
+
+> **The atom selection must have the same atoms in every frame.** A coordinate-based
+> selection such as `within 5 of resname LIG` gains and loses atoms as the trajectory
+> moves, which cannot produce a fixed-width coordinate matrix. The plugin refuses such a
+> selection with an explicit message rather than clustering misaligned data. Use a static
+> selection like `protein and name CA`.
+
+### Execution modes
+
+The plugin picks a backend automatically and shows which one is in use:
+
+| Mode | How it works | Notes |
+|------|--------------|-------|
+| **Native library** (preferred) | Coordinates are passed to MDANCE directly in memory through the `mdance_tcl` Tcl extension. | No temp files, no subprocess. Install with `./install.sh --with-library`. |
+| **CLI** (fallback) | Coordinates are written to a CSV, `mdance-cli` runs as a subprocess, results come back as JSON. | Works with any VMD build. Runs are cancellable and stream live progress. |
+
+### Cancelling a run
+
+In CLI mode, long runs stream progress into the status bar and a **Cancel** button
+appears beside it. This covers the HELM pre-clustering step and the elbow K-scan as well
+as ordinary runs. The parameter sweep has its own Cancel, which takes effect after the
+current configuration finishes. Library-mode runs execute in-process and cannot be
+interrupted; the plugin says so in the status bar rather than offering a Cancel that
+would not work.
 
 ### Command-Line Tool
 
 ```bash
-mdance-cli --algorithm {kmeans|divine|helm} \
+mdance-cli --algorithm {kmeans|divine|helm|equal} \
             --input <coordinates.csv> \
             --output <results.json> \
             --natoms <int> \
-            --nclusters <int> \
+            [--nclusters <int>] \
             [--metric MSD] \
             [algorithm-specific options...]
 ```
 
-The `--natoms` parameter is the number of atoms per frame in the coordinate data. It normalizes MSD so that results are comparable across systems of different sizes. For general (non-MD) data, set `--natoms 1`.
+`--natoms` is the number of atoms per frame. It normalizes MSD so results are comparable
+across systems of different sizes. For general (non-MD) data, set `--natoms 1`.
+
+Three further modes operate on an existing clustering:
+
+```bash
+mdance-cli --analysis --input C.csv --output out.json --natoms N --metric M --labels L.csv
+mdance-cli --prime    --input C.csv --output out.json --natoms N --metric M --labels L.csv \
+                      --trim-frac 0.1 [--weighted]
+mdance-cli --select   --input C.csv --output out.json --natoms N --metric M \
+                      --method {diversity|outliers|repsample|medoid|outlier} --param P --nbins B
+```
+
+---
+
+## Frame Range and Stride
+
+The **Setup** tab's Frame Range controls let you cluster a subset of the trajectory —
+to skip equilibration, or to decimate a long dense run.
+
+| Field | Meaning |
+|-------|---------|
+| **First** | First frame to include (0-based). |
+| **Last** | Last frame to include. `-1` means the final frame. |
+| **Stride** | Keep every Nth frame. `1` keeps all of them. |
+
+All three must be whole numbers; the plugin rejects anything else by name rather than
+guessing.
+
+Everything downstream — cluster colouring, Go to Representative, every plot's frame axis,
+label export and structure export — maps back to **true VMD frame numbers**, not to
+positions within the subset. Frames outside the selected subset are marked unassigned
+(`User = -1`) when you colour by cluster, so they are visibly distinct from cluster 0.
+
+> One consequence worth knowing: with a stride, a "residence time" of 3 samples spans
+> 3 × stride frames. The Residence chart labels its axis in samples and states the
+> conversion in its title.
 
 ---
 
@@ -57,31 +137,51 @@ The `--natoms` parameter is the number of atoms per frame in the coordinate data
 
 ### Coordinate CSV
 
-Each row is one frame (snapshot). Each column is a coordinate value. For a molecular system with N atoms, each row has 3N columns (x1, y1, z1, x2, y2, z2, ..., xN, yN, zN). No header row.
+Each row is one frame. Each column is a coordinate value. For a system with N atoms each
+row has 3N columns (x1, y1, z1, x2, y2, z2, …, xN, yN, zN). No header row.
 
 ```
 1.234,5.678,9.012,3.456,...
 1.240,5.690,9.001,3.461,...
 ```
 
-When using the VMD plugin, this CSV is generated automatically from the loaded trajectory and atom selection.
+When using the VMD plugin this CSV is generated automatically from the loaded trajectory
+and atom selection (or skipped entirely in library mode).
+
+### Label CSV
+
+`--labels` (and HELM's `--initial-labels`) take one integer cluster label per line,
+in the same row order as the coordinate CSV:
+
+```
+0
+0
+1
+```
+
+The plugin also accepts its own exported `frame,cluster` file here — the header is
+skipped and the last column is used — so you can round-trip an Export Labels result
+straight back in.
 
 ### Output JSON
 
-All algorithms produce a JSON file containing:
+Clustering runs produce:
 
 | Field | Description |
 |-------|-------------|
 | `algorithm` | Algorithm name |
-| `nFrames` | Total number of frames processed |
+| `nFrames` | Number of frames processed |
 | `nClusters` | Final number of clusters |
-| `labels` | Cluster assignment for each frame (array of integers) |
+| `labels` | Cluster assignment per frame (array of integers; `-1` means noise/unassigned) |
 | `clusterSizes` | Number of frames in each cluster |
 | `representatives` | Index of the medoid (most central) frame per cluster |
 | `clusterMSD` | Within-cluster mean square deviation per cluster (compactness) |
 | `scores.calinskiHarabasz` | Calinski-Harabasz index |
 | `scores.daviesBouldin` | Davies-Bouldin index |
-| `zMatrix` | Dendrogram linkage matrix (HELM only) |
+| `zMatrix` | Merge linkage matrix (HELM only) |
+
+`--analysis` produces `isim`, `clusterISIM` and `clusterOutliers`; `--prime` produces the
+PRIME and baseline frame predictions; `--select` produces `indices`.
 
 ---
 
@@ -89,18 +189,21 @@ All algorithms produce a JSON file containing:
 
 **Type**: Partitional (flat) clustering
 
-**How it works**: Assigns every frame to the nearest of K cluster centers, then recomputes centers as the mean of assigned frames. Repeats until convergence. NANI provides intelligent initialization strategies that consistently outperform random seeding.
+**How it works**: Assigns every frame to the nearest of K cluster centers, then recomputes
+centers as the mean of assigned frames. Repeats until convergence. NANI provides
+intelligent initialization strategies that consistently outperform random seeding.
 
-**When to use**: When you know (or want to specify) the number of clusters and need fast results. Best for an initial exploratory pass.
+**When to use**: When you know (or want to specify) the number of clusters and need fast
+results. Best for an initial exploratory pass.
 
 ### Parameters
 
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
-| Number of clusters | `--nclusters` | 2 -- 200 | *(required)* | How many clusters to partition the data into. The single most important parameter. Start with the expected number of conformational states. |
-| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. MSD (mean square deviation) is standard for atomic coordinates. Other metrics are designed for binary fingerprint data. |
+| Number of clusters | `--nclusters` | 2 – 200 | *(required)* | How many clusters to partition the data into. The single most important parameter. Start with the expected number of conformational states. |
+| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. MSD is standard for atomic coordinates. |
 | Initialization | `--kinit` | See below | `StratAll` | How initial cluster centers are chosen. Strongly affects result quality and reproducibility. |
-| Sampling % | `--percentage` | 1 -- 100 | `10` | Fraction of data used during initialization. Higher values give more robust initialization at the cost of speed. 10% is a good default. |
+| Sampling % | `--percentage` | 1 – 100 | `10` | Fraction of data used during initialization. Higher is more robust but slower. |
 
 ### Initialization Strategies (`--kinit`)
 
@@ -110,9 +213,9 @@ All algorithms produce a JSON file containing:
 | `StratAll` | Stratified sampling across the full dataset; first K stratified points become centers. | Good general-purpose choice. Fast. |
 | `StratReduced` | Stratified sampling on the high-density subset only. | When data has many outlier frames. |
 | `DivSelect` | Pure diversity selection on a subset. Maximizes spread of initial centers. | When clusters are expected to be well-separated. |
-| `KmeansPP` | Greedy K-means++ (Arthur & Vassilvitskii). Probabilistically selects distant centers. | Industry-standard initialization. Slightly slower than Strat methods. |
+| `KmeansPP` | Greedy K-means++ (Arthur & Vassilvitskii). | Industry-standard initialization. Slightly slower than Strat methods. |
 | `VanillaKmeansPP` | Standard (non-greedy) K-means++. | When `KmeansPP` is too aggressive. |
-| `Random` | Random center selection. | Baseline comparison only. Not recommended for production use. |
+| `Random` | Random center selection. | Baseline comparison only. Not recommended for production. |
 
 ### Example
 
@@ -133,39 +236,49 @@ mdance-cli --algorithm kmeans \
 
 **Type**: Divisive (top-down) hierarchical clustering
 
-**How it works**: Starts with all frames in one cluster. At each step, selects the cluster with the highest internal variance (by the chosen split criterion), splits it into two sub-clusters using anchor points, and repeats until the target cluster count is reached. Optionally refines the final partition with KMeans.
+**How it works**: Starts with all frames in one cluster. At each step it selects the
+cluster with the highest internal variance (by the chosen split criterion), splits it into
+two sub-clusters using anchor points, and repeats until the stopping condition is met.
+Optionally refines the final partition with KMeans.
 
-**When to use**: When you want a hierarchical decomposition of the trajectory, or when the natural number of clusters is unknown and you want to observe how the data splits.
+**When to use**: When you want a hierarchical decomposition of the trajectory, or when the
+natural number of clusters is unknown and you want to watch how the data splits.
 
 ### Parameters
 
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
-| Number of clusters | `--nclusters` | 2 -- 200 | *(required)* | Target number of clusters. |
+| Number of clusters | `--nclusters` | 2 – 200 | `3` | Target cluster count (when stopping on K). |
 | Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. |
-| Split criterion | `--split` | `MSD`, `Radius`, `WeightedMSD` | `WeightedMSD` | How to score clusters for splitting (which cluster to split next). |
-| Anchor method | `--anchors` | `NANI`, `OutlierPair`, `SplinterPair` | `NANI` | How to choose the two seed points when splitting a cluster. |
-| Initialization | `--kinit` | Same as KMeans | `StratAll` | Initialization strategy for the KMeans refinement step. Only used when `--refine` is set. |
-| Refine | `--refine` | *(flag)* | off | Apply a KMeans refinement pass after splitting. Produces cleaner cluster boundaries. Recommended for final results. |
-| Threshold | `--threshold` | 0.0 -- 1.0 | `0` | Minimum cluster size as a fraction of total frames. A value of 0.2 prevents splitting clusters below 20% of total. Useful to avoid very small clusters. |
-| End mode | `--end-mode` | `k`, `points` | `k` | Stopping rule. `k`: stop when K clusters are reached. `points`: keep splitting until every frame is isolated (useful for full hierarchical decomposition). |
-| Sampling % | `--percentage` | 1 -- 100 | `10` | Fraction of data used during anchor selection and initialization. |
+| Split criterion | `--split` | `MSD`, `Radius`, `WeightedMSD` | `WeightedMSD` | How the next cluster to split is chosen. |
+| Anchor method | `--anchors` | `NANI`, `OutlierPair`, `SplinterPair` | `NANI` | How the two seed points for a split are picked. |
+| Initialization | `--kinit` | See KMeans table | `StratAll` | Used by the NANI anchor and by refinement. |
+| Refine | `--refine` | flag | on | Refine the final partition with KMeans. |
+| Threshold | `--threshold` | ≥ 0 | `0.0` | Minimum split quality; stops splitting clusters below it. |
+| Stopping mode | `--end-mode` | `k`, `points` | `k` | Stop at a cluster count, or when clusters get too small. |
+| Sampling % | `--percentage` | 1 – 100 | `10` | Initialization sampling fraction. |
+
+> **Known backend bug.** `OutlierPair` and `SplinterPair` anchors crash when **Refine** is
+> enabled — an out-of-bounds index in the backend's `divine.cpp`, not a plugin issue. The
+> default combination (`NANI` + refine) is unaffected. Until the backend is patched, turn
+> Refine off if you need those anchor methods. Details and a proposed fix are in
+> `notes/REVIEW_NOTES.md`.
 
 ### Split Criteria (`--split`)
 
-| Criterion | Description | When to use |
-|-----------|-------------|-------------|
-| `WeightedMSD` | MSD weighted by cluster size. Balances splitting large and high-variance clusters. | **Recommended.** Most stable across datasets. |
-| `MSD` | Raw mean square deviation within the cluster. Always splits the highest-variance cluster. | When variance is the primary concern. |
-| `Radius` | Maximum distance from center to any member. Splits the most spread-out cluster. | When spatial extent matters more than variance. |
+| Criterion | Description |
+|-----------|-------------|
+| `MSD` | Split the cluster with the highest mean square deviation. |
+| `Radius` | Split the cluster with the largest radius (furthest member from the centroid). |
+| `WeightedMSD` | MSD weighted by cluster population, so large loose clusters are preferred over small ones. **Recommended default.** |
 
 ### Anchor Methods (`--anchors`)
 
-| Method | Description | When to use |
-|--------|-------------|-------------|
-| `NANI` | Uses complementary similarity and diversity selection to find two representative anchors. | **Recommended.** Most robust, avoids outlier-driven splits. |
-| `OutlierPair` | Selects the two most dissimilar points in the cluster as anchors. | When clusters are well-separated and outliers are informative. |
-| `SplinterPair` | Selects points at the periphery of the cluster. | Alternative when `OutlierPair` produces uneven splits. |
+| Method | Description |
+|--------|-------------|
+| `NANI` | Uses NANI initialization to pick the two seeds. **Recommended default.** |
+| `OutlierPair` | Uses the two most extreme outliers as seeds. *(See the refine caveat above.)* |
+| `SplinterPair` | Splinter-group approach: grows a dissenting group away from the main body. *(See the refine caveat above.)* |
 
 ### Example
 
@@ -174,14 +287,13 @@ mdance-cli --algorithm divine \
     --input trajectory.csv \
     --output divine_result.json \
     --natoms 352 \
-    --nclusters 5 \
+    --nclusters 8 \
     --metric MSD \
     --split WeightedMSD \
     --anchors NANI \
-    --refine \
+    --kinit CompSim \
     --threshold 0.1 \
-    --end-mode k \
-    --percentage 10
+    --refine
 ```
 
 ---
@@ -190,57 +302,44 @@ mdance-cli --algorithm divine \
 
 **Type**: Agglomerative (bottom-up) hierarchical clustering
 
-**How it works**: Starts from a set of initial clusters (typically produced by KMeans pre-clustering) and iteratively merges the two most similar clusters until a stopping criterion is met. Produces a dendrogram (merge tree) showing the full merge history. Includes trimming options for removing small or diffuse clusters before merging.
+**How it works**: Starts from an initial over-partition (many small clusters) and
+repeatedly merges the two most similar clusters until the stopping criterion is met,
+recording the merge history as a Z-matrix.
 
-**When to use**: When you want to merge an existing partition into coarser clusters, when you want a dendrogram to visualize hierarchical relationships, or when the dataset has outlier frames that need trimming.
+**When to use**: When you want a genuine dendrogram, or to refine a deliberately over-split
+partition down to meaningful states.
 
 ### Parameters
 
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
-| Number of clusters | `--nclusters` | 0 -- 200 | `10` | Target cluster count. Set to 0 to use epsilon-based stopping instead. |
 | Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. |
-| Merge scheme | `--merge-scheme` | `Intra`, `Inter`, `Half` | `Inter` | Linkage criterion for deciding which clusters to merge. |
-| Epsilon | `--eps` | > 0 or -1 | `-1` | Distance threshold. When set, merging stops when all pairwise distances exceed this value. Set to -1 to disable (use `--nclusters` instead). |
-| Initial labels | `--initial-labels` | CSV path | *(auto)* | Pre-computed cluster labels. If omitted in the VMD plugin, KMeans pre-clustering runs automatically. |
-| Trim start | `--trim-start` | *(flag)* | off | Enable trimming of initial clusters before merging. |
-| Min samples | `--min-samples` | 0.0 -- 1.0 | `0.01` | Minimum population fraction. Clusters with fewer frames than `min-samples * total_frames` are removed during trimming. 0.01 = 1%. |
-| Trim value | `--trim-val` | >= 0 | `0` | Maximum allowed within-cluster MSD. Clusters with higher MSD are removed during trimming. 0 = disabled. |
-| Trim K | `--trim-k` | >= 0 | `0` | Remove the K most diffuse initial clusters during trimming. 0 = disabled. |
-
-### Merge Schemes (`--merge-scheme`)
-
-| Scheme | Description | When to use |
-|--------|-------------|-------------|
-| `Inter` | Merges clusters with the smallest between-cluster distance. Similar to single linkage. | **Recommended.** Finds well-separated clusters. |
-| `Intra` | Merges clusters that produce the smallest increase in within-cluster variance. Similar to Ward linkage. | When you want compact, equally-sized clusters. |
-| `Half` | Hybrid of Intra and Inter. | When neither pure Inter nor Intra gives satisfactory results. |
+| Merge scheme | `--merge-scheme` | `Intra`, `Inter`, `Half` | `Inter` | Which inter-cluster similarity drives the merge choice. |
+| Number of clusters | `--nclusters` | 2 – 200 | `10` | Target count when stopping on K. |
+| Epsilon | `--eps` | float | `-1` | Similarity cutoff when stopping on ε instead of K. |
+| Trim start | `--trim-start` | flag | off | Remove noise clusters before merging. |
+| Min samples | `--min-samples` | float | `0.01` | Minimum cluster population (fraction) to survive trimming. |
+| Trim value | `--trim-val` | float | `0` | Trimming threshold. |
+| Trim K | `--trim-k` | int | `0` | Number of clusters to trim. |
+| Initial labels | `--initial-labels` | file | *(auto)* | Starting partition. |
+| Pre-cluster K | *(plugin only)* | 2 – 200 | `50` | K for the automatic KMeans pre-clustering step. |
 
 ### Stopping Criteria
 
-HELM supports two mutually exclusive stopping modes:
+Choose one in the GUI (**Stop on**):
 
-1. **K-based**: Set `--nclusters N` and `--eps -1`. Merging stops when exactly N clusters remain.
-2. **Distance-based**: Set `--nclusters 0` and `--eps VALUE`. Merging stops when all remaining pairwise distances exceed VALUE.
-
-Use the **Elbow Plot** visualization to determine a good value for K or epsilon.
-
-### Trimming
-
-Trimming removes problematic initial clusters *before* the main merging phase. Enable with `--trim-start` and configure with:
-
-- `--min-samples 0.025`: Remove clusters with < 2.5% of total frames (good for removing noise clusters).
-- `--trim-val 5.0`: Remove clusters with internal MSD > 5.0 (good for removing diffuse clusters).
-- `--trim-k 3`: Remove the 3 most diffuse clusters (simple, size-independent approach).
-
-These options can be combined. Trimming is particularly useful when the pre-clustering step produces many tiny or scattered clusters.
+- **Number of clusters** — merge until exactly K clusters remain.
+- **Epsilon** — merge while similarity stays above ε; the cluster count emerges.
 
 ### Pre-Clustering
 
-HELM requires an initial partition as input. Two approaches:
+HELM needs a starting partition. The plugin offers two sources:
 
-1. **Automatic** (VMD plugin default): The plugin runs KMeans with K=50 before HELM. Configurable via the "Pre-cluster K" spinbox. Higher K gives finer initial granularity but slower HELM.
-2. **Manual**: Provide a CSV file of labels via `--initial-labels`. The file should have one label per line (or two columns: frame index and label). You can use the output of a previous KMeans or DIVINE run.
+- **Automatic** (default): runs KMeans with **Pre-cluster K** first, then merges down.
+  In CLI mode this is a second subprocess, so it also streams progress and can be
+  cancelled.
+- **From file**: supply a label file. The plugin validates it and checks the label count
+  against the number of extracted frames before the run starts.
 
 ### Example: K-based stopping
 
@@ -252,7 +351,7 @@ mdance-cli --algorithm helm \
     --nclusters 8 \
     --metric MSD \
     --merge-scheme Inter \
-    --initial-labels kmeans_labels.csv
+    --initial-labels prelabels.csv
 ```
 
 ### Example: Epsilon stopping with trimming
@@ -262,25 +361,75 @@ mdance-cli --algorithm helm \
     --input trajectory.csv \
     --output helm_result.json \
     --natoms 352 \
-    --nclusters 0 \
-    --eps 15.0 \
+    --eps 0.35 \
     --metric MSD \
     --merge-scheme Inter \
     --trim-start \
-    --min-samples 0.025 \
-    --trim-k 2 \
-    --initial-labels kmeans_labels.csv
+    --min-samples 0.01 \
+    --initial-labels prelabels.csv
+```
+
+---
+
+## eQUAL
+
+**Type**: Extended-quality radial / threshold clustering
+
+**How it works**: Grows clusters radially from seed frames, admitting frames within a
+similarity **threshold**. Frames that join no cluster are labelled **noise** (`-1`).
+
+**When to use**: When you do *not* want to preset the number of clusters. The cluster count
+emerges from the threshold, and genuine outlier frames are set aside as noise instead of
+being forced into a cluster.
+
+### Parameters
+
+| Parameter | CLI Flag | Values | Default | Description |
+|-----------|----------|--------|---------|-------------|
+| Threshold | `--threshold` | ≥ 0 | *(required)* | Radial admission threshold. The controlling parameter: smaller means tighter, more numerous clusters. |
+| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. |
+| Seed method | `--seed-method` | `medoid`, `comp_sim` | `medoid` | How each new cluster's seed frame is chosen. |
+| Seeds per iteration | `--n-seeds` | ≥ 1 | `1` | Seeds attempted per pass. |
+| Sampling % | `--percentage` | 1 – 100 | `10` | Sampling fraction for seed selection. |
+| Min samples | `--min-samples` | ≥ 0 | `10` | Minimum members for a cluster to be kept. |
+| Sim threshold | `--sim-threshold` | float | `0` | Secondary similarity gate. |
+| Check similarity | `--check-sim` | flag | off | Verify similarity before admitting a frame. |
+| Reject low density | `--reject-lowd` | flag | off | Discard low-density candidate clusters. |
+| Align method | `--align` | `none` | `none` | Trajectory alignment. |
+
+> **Alignment is not implemented.** The backend's `alignTraj` is a stub for its `uni` and
+> `kron` branches, so only `none` is offered — the parse layer rejects the others rather
+> than silently doing nothing. Align your trajectory in VMD before clustering if you need it.
+
+**Noise handling.** eQUAL is the only algorithm here that produces `-1` labels. Everything
+in the plugin understands them: noise frames get a neutral colour and an unassigned `User`
+value, the Timeline gives them their own lane at the bottom, and the Transition heatmap
+counts transitions into noise in its denominators (so its rows legitimately sum to less
+than 1, which the plot states).
+
+### Example
+
+```bash
+mdance-cli --algorithm equal \
+    --input trajectory.csv \
+    --output equal_result.json \
+    --natoms 352 \
+    --threshold 1.0 \
+    --metric MSD \
+    --seed-method medoid \
+    --n-seeds 1 \
+    --min-samples 10
 ```
 
 ---
 
 ## Distance Metrics
 
-All three algorithms accept a `--metric` parameter. The choice of metric depends on the type of data.
+All algorithms accept a `--metric` parameter.
 
 | Metric | Full Name | Best For |
 |--------|-----------|----------|
-| `MSD` | Mean Square Deviation | **Atomic coordinates (default).** Standard Euclidean-family distance, normalized by number of atoms. Use this for MD trajectory clustering. |
+| `MSD` | Mean Square Deviation | **Atomic coordinates (default).** Standard Euclidean-family distance, normalized by atom count. Use this for MD trajectory clustering. |
 | `BUB` | Baroni-Urbani-Buser | Binary fingerprint data. |
 | `Fai` | Faith | Binary fingerprint data. |
 | `Gle` | Gleason | Extended similarity for mixed data. |
@@ -292,7 +441,12 @@ All three algorithms accept a `--metric` parameter. The choice of metric depends
 | `SS1` | Sokal-Sneath 1 | Binary data. Variant of Jaccard. |
 | `SS2` | Sokal-Sneath 2 | Binary data. Variant of SM. |
 
-For molecular dynamics trajectory clustering, **use `MSD`**. The other metrics are intended for binary or fingerprint-based data representations.
+For molecular dynamics trajectory clustering, **use `MSD`**. The others are intended for
+binary or fingerprint representations and are generally not meaningful on raw XYZ
+coordinates — the Sweep tab says so next to its metric list.
+
+PRIME is the exception: it defaults to `RR`, because its scoring works on the
+extended-similarity side.
 
 ---
 
@@ -304,58 +458,190 @@ Every clustering run reports two quality metrics:
 
 Ratio of between-cluster dispersion to within-cluster dispersion.
 
-- **Higher is better.** A high CH score means clusters are dense internally and well-separated from each other.
+- **Higher is better.** Dense clusters, well separated from each other.
 - Useful for comparing different K values on the same dataset.
 - Not comparable across different datasets.
 
 ### Davies-Bouldin Index (DB)
 
-Average similarity ratio between each cluster and its most similar neighbor.
+Average similarity ratio between each cluster and its most similar neighbour.
 
-- **Lower is better.** A low DB score means clusters are compact and far from each other.
+- **Lower is better.** Compact clusters, far apart.
 - Less sensitive to the number of clusters than CH.
 - Values close to 0 indicate excellent separation.
 
+A degenerate clustering can make either score non-finite (`NaN`/`Infinity`). The plugin
+treats such a value as "no score" — it appears as `n/a` or `-` rather than being plotted
+as a number.
+
 ### Using Scores to Choose K
 
-Run the **Elbow Plot** (available in the Visualizations section of the Results tab) to plot CH and DB across a range of K values. Look for:
-- A peak in the CH curve (maximum separation/compactness ratio).
-- A valley in the DB curve (minimum cluster overlap).
-- The "elbow" where adding more clusters yields diminishing returns.
+Run the **Elbow Plot** (Visualizations, Results tab) to plot CH and DB across a range of K.
+Look for a peak in CH, a valley in DB, and the "elbow" where more clusters stop paying.
+K values whose run fails or returns a non-finite score are **skipped and reported**, not
+plotted as zero — the chart title lists any that were left out.
+
+For a broader search than one K axis, use the [Parameter Sweep](#parameter-sweep).
+
+---
+
+## Parameter Sweep
+
+The **Sweep** tab runs a grid over {algorithm × K × metric × initialization} and tabulates
+the results, so you can compare configurations instead of guessing one.
+
+1. Tick the algorithms (**KMeans**, **DIVINE**), metrics and initializations to include.
+2. Set the **K range**: min, max, step.
+3. Click **Run Sweep**. The plugin confirms the total configuration count first.
+
+Results appear in a sortable table — click any column header to sort. The best run by CH
+is highlighted green, the best by DB blue; failed configurations become a red `ERR` row
+and do not abort the rest of the grid.
+
+| Action | Effect |
+|--------|--------|
+| **Load Selected into Results** | Publishes that configuration's result into the Results tab, where every plot and export applies to it. |
+| **Score Heatmap** | Grid of (algorithm\|metric\|init) × K, shaded by score, with a **Toggle CH/DB** button. Configurations with no usable score render grey. |
+| **Export CSV...** | Writes the whole table. |
+
+Coordinates are extracted **once** and reused for every configuration, so a sweep costs far
+less than running each configuration by hand. **Cancel** takes effect after the current
+configuration finishes. A sweep and a single run cannot run at the same time — each would
+delete the other's working files — and the plugin says so rather than letting them collide.
+
+---
+
+## PRIME Representative Frame Prediction
+
+The **PRIME** tab (Protein Retrieval via Integrative Molecular Ensembles) predicts which
+frame of a clustered ensemble is the most "native-like", using extended (n-ary) similarity
+rather than a plain medoid.
+
+Run a clustering first, then open the PRIME tab and click **Run PRIME**.
+
+| Parameter | Values | Default | Description |
+|-----------|--------|---------|-------------|
+| Metric | See [metrics](#distance-metrics) | `RR` | Extended-similarity index for scoring. |
+| Trim fraction | 0 – 0.5 | `0.1` | Fraction of the least representative frames trimmed before scoring. |
+| Weighted | on/off | on | Weight contributions by cluster population. |
+
+The table reports seven frames — four PRIME predictions and three medoid baselines, so you
+can see whether PRIME actually disagrees with the naive answer:
+
+| Row | Kind |
+|-----|------|
+| **Pairwise** | PRIME prediction |
+| **Union** | PRIME prediction |
+| **Medoid** | PRIME prediction |
+| **Outlier** | PRIME prediction |
+| **Medoid (all frames)** | Baseline |
+| **Medoid (c0)** | Baseline |
+| **Medoid (c0 trimmed)** | Baseline |
+
+Double-click a row (or select it and click **Go to Frame**) to navigate VMD to that frame.
+Frame numbers are absolute VMD frames, honouring any frame range/stride.
+
+---
+
+## iSIM Similarity Analysis
+
+**Results tab → Similarity** computes extended-similarity (iSIM) statistics for the current
+clustering:
+
+- **Ensemble iSIM** — how self-similar the whole selected ensemble is.
+- **Per-cluster iSIM** — compactness of each cluster in similarity terms, a complement to
+  the MSD view.
+- **Per-cluster outlier frame** — the *least* representative member of each cluster, which
+  is often where a cluster is really two states.
+
+Results are shown as a chart plus a table, and the underlying numbers export as CSV like
+any other plot.
+
+---
+
+## Frame Tools
+
+**Setup tab → Frame Tools...** selects frames *without* clustering. Useful for picking a
+representative subset for expensive downstream work (QM, docking, figure-making).
+
+| Method | Selects |
+|--------|---------|
+| `diversity` | The most diverse subset of frames — maximum spread. |
+| `outliers` | The most extreme / least representative frames. |
+| `repsample` | A representative density sample across the ensemble. |
+| `medoid` | The single most central frame. |
+| `outlier` | The single most extreme frame. |
+
+`Param` sets the count (or fraction, per method) and `Bins` the histogram resolution for
+density-based methods. The result is a list of absolute VMD frame numbers: double-click one
+to jump to it, or use **Export Selected...** to write the selection as PDB or DCD.
 
 ---
 
 ## Visualizations
 
-The Results tab provides eleven visualization options, organized in two rows of buttons. Every plot window includes an interactive toolbar with:
+The Results tab provides twelve visualizations. Every plot window includes a toolbar with:
 
-- **Font size spinner** — adjust the text size within the figure (each window has its own setting)
-- **Export CSV** — save the underlying data (cluster IDs, scores, distances, etc.) as a comma-separated file
-- **Export PS** — save the figure as a PostScript file (always available)
-- **Export PNG** — save the figure as a PNG image (requires ImageMagick or GraphicsMagick; falls back to PostScript if unavailable)
+- **Font size spinner** — adjust text size within the figure (per window)
+- **Export CSV** — save the underlying data
+- **Export PS** — save the figure as PostScript (always available)
+- **Export PNG** — save as PNG (requires ImageMagick or GraphicsMagick; offers a
+  PostScript fallback, asking first if that would overwrite an existing file)
 
-All plot windows **auto-resize**: when you drag the window border, the figure redraws to fill the new dimensions. Computationally expensive plots (Silhouette, Distances, Rep. RMSD, Dendrogram) cache their results so resizing is fast.
+All plot windows **auto-resize**. Expensive plots (Silhouette, Distances, Rep. RMSD,
+Dendrogram) cache their computation so resizing stays fast; the cache is released when the
+window closes.
 
 ### Core Plots
 
-| Plot | Description | Available For |
-|------|-------------|---------------|
-| **Population** | Bar chart of cluster sizes, colored by cluster. Reveals imbalanced partitions. | All algorithms |
-| **Timeline** | Cluster assignment vs. frame number. Shows temporal transitions between conformational states along the trajectory. | All algorithms |
-| **Cluster MSD** | Bar chart of within-cluster MSD. Lower bars indicate tighter, more homogeneous clusters. | All algorithms |
-| **Dendrogram** | Hierarchical merge tree. For HELM, shows the native merge history from the Z-matrix. For KMeans and DIVINE, computes a post-hoc dendrogram from centroid distances using average linkage. | All algorithms |
-| **Elbow Plot** | CH and DB scores plotted against K. Runs clustering for a range of K values to find the optimal number of clusters. | All algorithms |
-| **Silhouette** | Per-frame silhouette coefficients grouped by cluster. Each horizontal bar shows how well a frame fits its assigned cluster vs. the nearest neighbor cluster. A vertical red dashed line marks the mean silhouette value. Uses a centroid-based approximation for speed; frames are sampled if the trajectory exceeds 2000 frames. | All algorithms |
+| Plot | Description |
+|------|-------------|
+| **Population** | Bar chart of cluster sizes, coloured by cluster. Reveals imbalanced partitions. |
+| **Timeline** | Cluster assignment vs. frame number, showing transitions between states along the trajectory. Noise (`-1`) gets its own labelled lane at the bottom. |
+| **Cluster MSD** | Bar chart of within-cluster MSD. Lower bars are tighter clusters. |
+| **Dendrogram** | Merge tree. For HELM this is the native merge history from the Z-matrix — which is a *forest* of one tree per final cluster, and all of them are drawn. For KMeans/DIVINE/eQUAL a post-hoc tree is computed from centroid distances with average linkage. |
+| **Elbow Plot** | CH and DB against K, re-running the clustering across a K range. Failed or non-finite K values are skipped and named, never plotted as zero. |
+| **Silhouette** | Per-frame silhouette coefficients grouped by cluster, with a dashed line at the mean. Centroid-based approximation; frames are sampled above 2000. |
 
 ### Analysis Plots
 
-| Plot | Description | Available For |
-|------|-------------|---------------|
-| **Distances** | Heatmap of pairwise inter-cluster distances (centroid MSD). Quickly shows which clusters are similar (potential merge candidates) and which are well-separated. | All algorithms |
-| **MSD/Pop** | Scatter plot of within-cluster MSD (y) vs. cluster population (x). Identifies problematic clusters: large + high MSD suggests a cluster should be split; tiny clusters may be noise. Dashed lines mark the median on each axis. | All algorithms (requires MSD) |
-| **Rep. RMSD** | Heatmap of pairwise RMSD between representative (medoid) frames. Shows how structurally distinct the cluster centers are. Cheap to compute since only one frame per cluster is compared. | All algorithms |
-| **Transitions** | Heatmap of cluster-to-cluster transition probabilities computed from consecutive frame pairs. Reveals kinetic relationships: which conformational states interconvert directly. | All algorithms |
-| **Residence** | Bar chart of mean residence time (consecutive frames) per cluster, with min/max whiskers. Distinguishes stable conformational states (long residence) from transient visits. | All algorithms |
+| Plot | Description |
+|------|-------------|
+| **Distances** | Heatmap of pairwise inter-cluster centroid MSD. Shows merge candidates and well-separated pairs. |
+| **MSD/Pop** | Within-cluster MSD (y) vs. population (x). Large + high MSD suggests a cluster to split; tiny clusters may be noise. Dashed lines mark the medians. |
+| **Rep. RMSD** | Pairwise RMSD between representative frames — how structurally distinct the cluster centres are. Needs the source molecule loaded. |
+| **Transitions** | Cluster-to-cluster transition probabilities from consecutive frame pairs. Transitions into noise are counted in each row's denominator but have no column, so rows sum to less than 1 when noise is present; the plot says so and the CSV carries an explicit `-1` column. |
+| **Residence** | Mean residence time per cluster with min/max whiskers. Measured in **samples**; under a stride the title gives the frame conversion. |
+| **Similarity** | iSIM ensemble/per-cluster compactness and outlier frames — see [iSIM Similarity Analysis](#isim-similarity-analysis). |
+
+---
+
+## Exports and Sessions
+
+### Exports
+
+| Action | Output |
+|--------|--------|
+| **Export Labels...** | `frame,cluster` CSV over absolute VMD frame numbers. Re-importable as HELM initial labels. |
+| **Export Representatives...** | Each cluster's medoid frame as a single multi-model **PDB** or **DCD**. A DCD has no topology, so a companion `.pdb` is written alongside it. |
+| **Export Clusters...** | One trajectory file per cluster (`cluster_<id>.<fmt>`) in a directory you choose. |
+| **Export Selected...** | The Frame Tools selection as PDB or DCD. |
+| Plot toolbars | Per-plot CSV, PS and PNG. |
+
+Files the plugin derives rather than you naming them — a DCD's companion `.pdb`, the
+generated per-cluster set, a PostScript fallback — ask before overwriting anything.
+
+### Sessions
+
+**Save Session...** writes the current result, its input parameters, its frame map and a
+signature of the source molecule to a `.mdance` file. **Load Session...** restores it.
+
+Score, table and label-based views work from a loaded session on their own. Views that
+re-read coordinates — Color by Cluster, Go to Representative, structure export, and the
+centroid/silhouette/RMSD/similarity plots — need the original molecule loaded. The plugin
+checks the molecule's identity, not just its ID number: if the ID now holds a *different*
+molecule (VMD reuses IDs), the session is reported as not-live rather than silently
+colouring the wrong trajectory.
 
 ---
 
@@ -363,14 +649,17 @@ All plot windows **auto-resize**: when you drag the window border, the figure re
 
 | Scenario | Recommended | Reasoning |
 |----------|-------------|-----------|
-| Quick exploration of a new trajectory | **KMeans NANI** | Fast, simple, gives immediate results. Use the Elbow Plot to determine K. |
-| Unknown number of conformational states | **DIVINE** | Hierarchical splitting reveals natural cluster structure. Start with a large K and use threshold to control minimum cluster size. |
-| Refining a coarse partition | **HELM** | Merges over-split clusters while preserving meaningful distinctions. Pre-cluster with KMeans (K=50), then merge down. |
-| Noisy trajectory with outliers | **HELM** with trimming | Trim options remove noise clusters before merging, producing cleaner results. |
-| Dendrogram visualization needed | **HELM** | HELM produces a native Z-matrix for exact merge history. KMeans/DIVINE can also show post-hoc dendrograms from centroid distances. |
-| Reproducibility across runs | **KMeans NANI** with `CompSim` | CompSim initialization is deterministic given the same data. |
-| Very large trajectories (>10K frames) | **KMeans NANI** | O(n * k * iterations) scales well. HELM's pairwise distance matrix is O(k^2) on initial clusters, not on frames. |
-| Pipeline: coarse-to-fine analysis | **KMeans** then **HELM** | KMeans for fast initial partition, HELM for hierarchical refinement with dendrogram. |
+| Quick exploration of a new trajectory | **KMeans NANI** | Fast and simple. Use the Elbow Plot to find K. |
+| You do not want to preset K | **eQUAL** | The cluster count emerges from a radial threshold, and outliers become noise rather than being forced into a cluster. |
+| Unknown number of conformational states | **DIVINE** | Hierarchical splitting reveals natural structure. Start with a large K and use `--threshold` to control minimum cluster quality. |
+| Refining a coarse partition | **HELM** | Merges over-split clusters while keeping meaningful distinctions. Pre-cluster with KMeans (K=50), then merge down. |
+| Noisy trajectory with outliers | **HELM** with trimming, or **eQUAL** | HELM trims noise clusters before merging; eQUAL labels outliers as noise directly. |
+| Dendrogram needed | **HELM** | Native Z-matrix, exact merge history. The others get a post-hoc tree from centroid distances. |
+| Reproducibility across runs | **KMeans NANI** with `CompSim` | Deterministic given the same data. |
+| Very large trajectories (>10K frames) | **KMeans NANI** | Scales as O(n·k·iterations). Consider a stride as well. |
+| Comparing many settings at once | **Sweep tab** | Extracts coordinates once and scores the whole grid. |
+| Choosing a frame for downstream work | **PRIME**, or **Frame Tools** | PRIME for the most native-like frame of a clustering; Frame Tools for a diverse subset without clustering at all. |
+| Coarse-to-fine pipeline | **KMeans** then **HELM** | Fast initial partition, then hierarchical refinement with a dendrogram. |
 
 ---
 
@@ -382,23 +671,47 @@ All plot windows **auto-resize**: when you drag the window border, the figure re
 KMeans:  --nclusters 3-5   --kinit CompSim  --percentage 10
 DIVINE:  --nclusters 2-4   --split WeightedMSD  --anchors NANI  --refine
 HELM:    --nclusters 2-5   (pre-cluster K=15-25)
+eQUAL:   --threshold (start near the median pairwise MSD)  --min-samples 5
 ```
 
-### Medium trajectories (500 -- 5,000 frames)
+### Medium trajectories (500 – 5,000 frames)
 
 ```
 KMeans:  --nclusters 5-15  --kinit CompSim  --percentage 10
 DIVINE:  --nclusters 3-10  --split WeightedMSD  --anchors NANI  --refine  --threshold 0.1
 HELM:    --nclusters 5-15  --merge-scheme Inter  (pre-cluster K=30-50)
+eQUAL:   --threshold tuned to give 5-15 clusters  --min-samples 10
 ```
 
-### Large trajectories (5,000 -- 50,000 frames)
+### Large trajectories (5,000 – 50,000 frames)
 
 ```
 KMeans:  --nclusters 10-30 --kinit CompSim  --percentage 10
 DIVINE:  --nclusters 5-20  --split WeightedMSD  --anchors NANI  --refine  --threshold 0.2
 HELM:    --nclusters 5-20  --merge-scheme Inter  --trim-start  --min-samples 0.01
          (pre-cluster K=50-100)
+eQUAL:   --threshold tuned  --min-samples 25  --percentage 10
 ```
 
-For all sizes, start with the defaults and iterate based on quality scores and visual inspection of the timeline and population plots.
+For very long trajectories, a **stride** on the Setup tab is usually a better first move
+than a bigger K: clustering every 10th frame of a 100k-frame run is 10× cheaper and rarely
+changes the conformational picture.
+
+Start with the defaults and iterate on the quality scores plus a look at the Timeline and
+Population plots.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---------|---------------|
+| *"Atom selection '…' is frame-dependent"* | The selection changes membership between frames (e.g. `within 5 of …`). Use a static selection such as `protein and name CA`. |
+| *"First frame / Last frame / Stride must be a whole number"* | A Frame Range field contains something that is not an integer. These are rejected rather than guessed, because a silent misread would cluster the wrong frames. |
+| *"Backend output is missing 'labels'"* or *"returned N labels for M extracted frames"* | The backend exited without writing a complete result. The run is refused rather than mapped onto the trajectory; check the accompanying backend message. |
+| *"This operation needs the mdance-cli backend"* | Library mode is active but this feature needs the CLI. Set `MDANCE_CLI` to the binary. |
+| DIVINE crashes with `OutlierPair`/`SplinterPair` | Known backend bug; turn **Refine** off, or use the `NANI` anchor. See `notes/REVIEW_NOTES.md`. |
+| Elbow chart is missing some K values | Those runs failed or produced a non-finite score. The chart title names them. |
+| Transition probabilities do not sum to 1 | Expected when noise is present: transitions into noise are counted but have no column. |
+| A session loads but Color by Cluster is disabled | The source molecule is not loaded, or the ID now holds a different molecule. Reload the original trajectory. |
+| PNG export says ImageMagick is required | Install ImageMagick (`magick`/`convert`) or GraphicsMagick (`gm`), or accept the PostScript fallback. |

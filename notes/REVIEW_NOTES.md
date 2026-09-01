@@ -165,7 +165,9 @@ Mat groupB = data(splinterGroup, Eigen::placeholders::all);
   reference above stands in for it. If you install the real upstream MDANCE, add a
   cross-check (eQUAL `ExtendedQuality` is deterministic with `seed_method=medoid`;
   PRIME's pipeline is file-based and harder to drive).
-- **Docs**: `vmd_plugin/README.md` is current; the Sphinx tree under `docs/` and
-  `vmd_plugin/QUICK_START.*` have not been updated for the features added this
-  session (eQUAL, PRIME, sweep, frame range/stride, structure export, iSIM,
-  frame tools, cancel/progress, session save/load).
+- **Docs**: `README.md` and `QUICK_START.md` / `QUICK_START.html` are current as of
+  2026-08-31 — they cover all four algorithms plus PRIME, iSIM, Sweep, Frame
+  Tools, frame range/stride, exports, sessions, cancellation and library mode,
+  and they document the two known backend limitations (DIVINE OutlierPair /
+  SplinterPair + refine, and the `alignTraj` stub). The Sphinx tree under
+  `docs/` in the parent repo has NOT been refreshed.
