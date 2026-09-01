@@ -8,7 +8,7 @@ context. Written 2026-08-31.
 ## 1. What this is
 
 `/Users/deb0054/work/vmd-plugin-projects/VMD-MDANCE` — the **standalone,
-plugin-only Tcl/Tk copy** of the MDANCE VMD plugin. ~5.5k lines of Tcl in
+plugin-only Tcl/Tk copy** of the MDANCE VMD plugin. ~6.4k lines of Tcl in
 `mdance/`, plus a test suite in `tests/`.
 
 It drives the MDANCE clustering backend two ways:
@@ -122,8 +122,10 @@ Tcl semantics questions: settle them by running `/usr/bin/tclsh8.5` or `tclsh8.6
 
 Everything below is outside this repo or is a standing limitation.
 
-1. **CPP-MDANCE PR is still unpushed.** Branch `feat-vmd-plugin` (commit
-   `15875f3`) in `/Users/deb0054/github/CPP-MDANCE`, based on `origin/feat-divine`
+1. **CPP-MDANCE PR is still unpushed.** Verified 2026-08-31: branch
+   `feat-vmd-plugin` exists locally at commit `15875f3` in
+   `/Users/deb0054/github/CPP-MDANCE`, and `git ls-remote --heads origin` shows
+   no such branch on the remote. It is based on `origin/feat-divine`
    — PR target is `feat-divine`, **not** `main`. Resume from
    `CPP-MDANCE/TODO_vmd_plugin.md`. Re-confirm the base before pushing: `main`
    has since moved divine to a dev branch.
@@ -152,11 +154,11 @@ anchors, every CSS class defined); the Chrome extension was not connected.
 ```
 mdance/
   mdance.tcl         core: backend detection, extraction, job control, frame mapping,
-                     sessions, exports          (~1300 lines)
-  mdance_gui.tcl     Tk GUI, 8 tabs             (~1550)
-  mdance_plots.tcl   12 plot windows + export   (~2400)
-  mdance_sweep.tcl   parameter sweep + heatmap  (~600)
-  mdance_utils.tcl   parse_json, discovery, temp files, is_finite  (~250)
+                     sessions, exports          (1528 lines)
+  mdance_gui.tcl     Tk GUI, 8 tabs             (1558)
+  mdance_plots.tcl   12 plot windows + export   (2452)
+  mdance_sweep.tcl   parameter sweep + heatmap  (589)
+  mdance_utils.tcl   parse_json, discovery, temp files, is_finite  (282)
 notes/
   HARDENING_BACKLOG.md   what the review found and fixed — READ FIRST
   REVIEW_NOTES.md        backend bug write-ups (DIVINE crash) + verification status
