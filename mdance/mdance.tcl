@@ -1675,15 +1675,21 @@ proc ::mdance::export_clusters_split {dir fmt {seltext "all"}} {
 #   extract: dict, one of
 #       {mode library flat <flatlist> natoms N nframes M}
 #       {mode cli     csv  <path>     natoms N}
-#   config:  dict {algorithm a nclusters k ?metric m? ?kinit ki? ?percentage p?}
+#   config:  dict {algorithm a nclusters k ?metric m? ?kinit ki? ?percentage p?
+#                   ?merge-scheme ms? ?initial-labels csv? ?initial-labels-list l?}
+#
+# HELM needs initial labels, which the caller supplies ONCE and reuses for every
+# k -- HELM's k is a cut of a single dendrogram, so re-deriving the starting
+# partition per k would be both slower and a different question.
 proc ::mdance::run_one_config {extract config} {
     variable cli_path
 
     set algorithm [dict get $config algorithm]
     set k         [dict get $config nclusters]
     set metric [expr {[dict exists $config metric]     ? [dict get $config metric]     : "MSD"}]
-    set kinit  [expr {[dict exists $config kinit]      ? [dict get $config kinit]      : "CompSim"}]
+    set kinit  [expr {[dict exists $config kinit]      ? [dict get $config kinit]      : "StratAll"}]
     set pct    [expr {[dict exists $config percentage] ? [dict get $config percentage] : 10}]
+    set merge  [expr {[dict exists $config merge-scheme] ? [dict get $config merge-scheme] : "Inter"}]
 
     if {[dict get $extract mode] eq "library"} {
         set flat    [dict get $extract flat]
@@ -1698,7 +1704,15 @@ proc ::mdance::run_one_config {extract config} {
                 return [::mdance::divine $flat $nframes $natoms $k \
                     -metric $metric -kinit $kinit]
             }
-            default { error "Unsupported sweep algorithm: $algorithm" }
+            helm {
+                if {![dict exists $config initial-labels-list]} {
+                    error "HELM needs initial labels; none were supplied."
+                }
+                return [::mdance::helm $flat $nframes $natoms $k \
+                    [dict get $config initial-labels-list] \
+                    -metric $metric -merge-scheme $merge]
+            }
+            default { error "Unsupported algorithm: $algorithm" }
         }
     }
 
@@ -1717,6 +1731,13 @@ proc ::mdance::run_one_config {extract config} {
     switch $algorithm {
         kmeans { lappend cmd --kinit $kinit --percentage $pct }
         divine { lappend cmd --kinit $kinit }
+        helm {
+            if {![dict exists $config initial-labels]} {
+                error "HELM needs initial labels; none were supplied."
+            }
+            lappend cmd --merge-scheme $merge \
+                --initial-labels [dict get $config initial-labels]
+        }
     }
     set rc [catch {_exec_cli $cmd; ::mdance::utils::parse_json $out} result opts]
     catch {file delete $out}
@@ -1865,14 +1886,18 @@ proc ::mdance::load_session {filename} {
 # run_single_k - Run clustering for a single K value (used by the elbow plot).
 # Takes a pre-extracted csv_path; delegates to run_one_config (MSD + CompSim, to
 # preserve the elbow's historical behavior) and does NOT extract coordinates.
-proc ::mdance::run_single_k {algorithm csv_path natoms nclusters} {
+# _extract_from_csv - Build the $extract dict run_one_config expects from a CSV
+# the caller already wrote. In library mode the file is read back into a flat
+# list; in CLI mode the path is handed straight through.
+proc ::mdance::_extract_from_csv {csv_path natoms} {
     variable use_library
-
-    if {$use_library} {
-        # Read the pre-extracted CSV back into a flat list for library mode
-        set fp [open $csv_path r]
-        set flat_coords {}
-        set nframes 0
+    if {!$use_library} {
+        return [dict create mode cli csv $csv_path natoms $natoms]
+    }
+    set fp [open $csv_path r]
+    set flat_coords {}
+    set nframes 0
+    set rc [catch {
         while {[gets $fp line] >= 0} {
             set line [string trim $line]
             if {$line ne ""} {
@@ -1882,16 +1907,65 @@ proc ::mdance::run_single_k {algorithm csv_path natoms nclusters} {
                 incr nframes
             }
         }
-        close $fp
-        set extract [dict create mode library flat $flat_coords natoms $natoms nframes $nframes]
-    } else {
-        set extract [dict create mode cli csv $csv_path natoms $natoms]
-    }
+    } res opts]
+    catch {close $fp}
+    if {$rc} { return -options $opts $res }
+    return [dict create mode library flat $flat_coords natoms $natoms nframes $nframes]
+}
+
+proc ::mdance::run_single_k {algorithm csv_path natoms nclusters {extra {}}} {
+    set extract [_extract_from_csv $csv_path $natoms]
 
     # kinit tracks the KMeans tab default (StratAll), so an elbow curve is
-    # comparable with the single runs the user makes from that tab.
+    # comparable with the single runs the user makes from that tab. $extra
+    # carries whatever the algorithm additionally needs -- for HELM, the shared
+    # initial labels the caller derived once for the whole scan.
     return [run_one_config $extract \
-        [dict create algorithm $algorithm nclusters $nclusters metric MSD kinit StratAll]]
+        [dict merge [dict create algorithm $algorithm nclusters $nclusters \
+                         metric MSD kinit StratAll] $extra]]
+}
+
+# elbow_prepare - Whatever an elbow scan must compute ONCE, before the per-k
+# loop, and pass to every run_single_k call as its $extra.
+#
+# For HELM that is the starting partition. HELM's k is a cut of one dendrogram
+# built from an initial set of clusters, so the pre-cluster step belongs outside
+# the k loop: doing it per k would re-answer a different question at every point
+# and make the curve incomparable, besides costing a KMeans run per k.
+# Returns a dict suitable as run_single_k's $extra ({} for algorithms that need
+# nothing).
+proc ::mdance::elbow_prepare {algorithm csv_path natoms params} {
+    if {$algorithm ne "helm"} { return {} }
+    set extract [_extract_from_csv $csv_path $natoms]
+
+    set pre_k  [expr {[dict exists $params pre-k] ? [dict get $params pre-k] : 50}]
+    set kinit  [expr {[dict exists $params pre-kinit] ? [dict get $params pre-kinit] : "StratAll"}]
+    set pct    [expr {[dict exists $params pre-percentage] ? [dict get $params pre-percentage] : 10}]
+    set merge  [expr {[dict exists $params merge-scheme] ? [dict get $params merge-scheme] : "Inter"}]
+
+    set pre [run_one_config $extract [dict create algorithm kmeans \
+        nclusters $pre_k metric MSD kinit $kinit percentage $pct]]
+    if {![dict exists $pre labels]} {
+        error "Pre-clustering produced no labels, so HELM cannot be scanned."
+    }
+    set labels [dict get $pre labels]
+
+    set extra [dict create merge-scheme $merge initial-labels-list $labels]
+    if {[dict get $extract mode] ne "library"} {
+        # The CLI takes the labels as a file. It is registered as a temp file, so
+        # the caller's ::mdance::utils::cleanup reclaims it after the scan.
+        set lcsv [::mdance::utils::mktmp "_elbow_init.csv"]
+        set fp [open $lcsv w]
+        set rc [catch {foreach l $labels { puts $fp $l }} res opts]
+        if {$rc} {
+            catch {close $fp}
+        } else {
+            set rc [catch {close $fp} res opts]
+        }
+        if {$rc} { return -options $opts $res }
+        dict set extra initial-labels $lcsv
+    }
+    return $extra
 }
 
 # gui - Main entry point called by VMD extension registration

@@ -409,6 +409,19 @@ proc ::mdance::gui::apply_metric_lock {} {
     if {!$metric_unlocked} { set sweep_metric(MSD) 1 }
 }
 
+# elbow_algo_params - The algorithm-specific settings an elbow scan needs,
+# taken from that algorithm's own tab so the scan matches the single runs the
+# user makes there. Only HELM needs anything today.
+proc ::mdance::gui::elbow_algo_params {algorithm} {
+    variable helm_pre_k
+    variable helm_pre_kinit
+    variable helm_pre_percentage
+    variable helm_merge
+    if {$algorithm ne "helm"} { return {} }
+    return [dict create pre-k $helm_pre_k pre-kinit $helm_pre_kinit \
+        pre-percentage $helm_pre_percentage merge-scheme $helm_merge]
+}
+
 # _citation_footer - Put a reference footer at the bottom of an algorithm tab.
 #
 # A read-only text widget rather than a label so the DOI can be selected and
@@ -567,10 +580,17 @@ proc ::mdance::gui::build_setup_tab {parent} {
     ttk::spinbox $parent.display.pfs -from 6 -to 24 -width 4 -increment 1 \
         -textvariable ::mdance::plots::plot_font_size
 
+    # Off by default: the window title bar already names the plot. Exports still
+    # get the title, since an exported image has no title bar (see export_image).
+    ttk::checkbutton $parent.display.titles -text "Titles inside plots" \
+        -variable ::mdance::plots::plot_titles \
+        -command ::mdance::plots::redraw_all
+
     grid $parent.display.afl -row 0 -column 0 -sticky w -padx {0 10}
     grid $parent.display.afs -row 0 -column 1 -sticky w
     grid $parent.display.pfl -row 0 -column 2 -sticky w -padx {20 10}
     grid $parent.display.pfs -row 0 -column 3 -sticky w
+    grid $parent.display.titles -row 1 -column 0 -columnspan 4 -sticky w -pady {6 0}
 
     # Advanced
     ttk::labelframe $parent.adv -text "Advanced" -padding 10
@@ -730,6 +750,9 @@ proc ::mdance::gui::build_kmeans_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run KMeans" -command ::mdance::gui::run_kmeans
     pack $parent.run.btn -side left
+    ttk::button $parent.run.elbow -text "Elbow Plot..." \
+        -command {::mdance::plots::elbow_plot kmeans}
+    pack $parent.run.elbow -side left -padx {6 0}
 
     _citation_footer $parent [_refs_nani]
 }
@@ -816,6 +839,9 @@ proc ::mdance::gui::build_divine_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run DIVINE" -command ::mdance::gui::run_divine
     pack $parent.run.btn -side left
+    ttk::button $parent.run.elbow -text "Elbow Plot..." \
+        -command {::mdance::plots::elbow_plot divine}
+    pack $parent.run.elbow -side left -padx {6 0}
 
     _citation_footer $parent [_refs_none "DIVINE"]
 }
@@ -1002,6 +1028,9 @@ proc ::mdance::gui::build_helm_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run HELM" -command ::mdance::gui::run_helm
     pack $parent.run.btn -side left
+    ttk::button $parent.run.elbow -text "Elbow Plot..." \
+        -command {::mdance::plots::elbow_plot helm}
+    pack $parent.run.elbow -side left -padx {6 0}
 
     _citation_footer $parent [_refs_helm]
 
@@ -1375,8 +1404,9 @@ proc ::mdance::gui::build_results_tab {parent} {
         -command {::mdance::plots::msd_chart $::mdance::results} -state disabled
     ttk::button $parent.plots.dendro -text "Dendrogram" \
         -command {::mdance::plots::dendrogram $::mdance::results} -state disabled
-    ttk::button $parent.plots.elbow -text "Elbow Plot..." \
-        -command {::mdance::plots::elbow_plot}
+    # No Elbow button here: it lives on each algorithm tab now, where the
+    # algorithm it scans is unambiguous. It also used to sit in column 4 of 6
+    # and was clipped until the window was resized.
     ttk::button $parent.plots.silhouette -text "Silhouette" \
         -command {::mdance::plots::silhouette_plot $::mdance::results} -state disabled
 
@@ -1394,21 +1424,15 @@ proc ::mdance::gui::build_results_tab {parent} {
     ttk::button $parent.plots.isim -text "Similarity" \
         -command ::mdance::gui::run_similarity_analysis -state disabled
 
-    grid $parent.plots.pop        -row 0 -column 0 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.timeline   -row 0 -column 1 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.msd        -row 0 -column 2 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.dendro     -row 0 -column 3 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.elbow      -row 0 -column 4 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.silhouette -row 0 -column 5 -padx 3 -pady 2 -sticky ew
-
-    grid $parent.plots.cdist      -row 1 -column 0 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.msdpop     -row 1 -column 1 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.reprmsd    -row 1 -column 2 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.trans      -row 1 -column 3 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.residence  -row 1 -column 4 -padx 3 -pady 2 -sticky ew
-    grid $parent.plots.isim       -row 1 -column 5 -padx 3 -pady 2 -sticky ew
-
-    for {set col 0} {$col < 6} {incr col} {
+    # Six buttons across two rows of five: the old 6-wide grid clipped its last
+    # column until the user resized the window.
+    set pcol 0
+    foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
+        grid $parent.plots.$b -row [expr {$pcol / 4}] -column [expr {$pcol % 4}] \
+            -padx 3 -pady 2 -sticky ew
+        incr pcol
+    }
+    for {set col 0} {$col < 4} {incr col} {
         grid columnconfigure $parent.plots $col -weight 1
     }
 }

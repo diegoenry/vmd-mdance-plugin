@@ -16,6 +16,17 @@ namespace eval ::mdance::plots {
     # Font size for new plots (default baseline)
     variable plot_font_size 10
 
+    # Draw the plot's NAME inside the canvas? Off by default: the window title
+    # bar already shows it, so on screen it is redundant. An EXPORTED image has
+    # no title bar, so export_image turns this on for the duration of the export
+    # (see there) rather than shipping an unidentifiable picture.
+    variable plot_titles 0
+
+    # Timeline bar thickness as a fraction of each cluster's lane. Was a fixed
+    # 0.7, which on a long trajectory with few clusters drew slabs so thick that
+    # neighbouring lanes nearly touched.
+    variable timeline_thickness 0.35
+
     # Per-plot state
     variable current_plot ""
     variable font_sizes
@@ -28,6 +39,11 @@ namespace eval ::mdance::plots {
     array set redraw_cmds {}
     array set redraw_after {}
     array set csv_data {}
+    # Per-K partitions from the last elbow scan: K -> {kActual clusterSizes}.
+    # The scan used to keep only (K, CH, DB) and throw each K's partition away,
+    # so the two scores were all the user could ever see.
+    variable elbow_partitions
+    array set elbow_partitions {}
     array set data {}
 }
 
@@ -180,6 +196,16 @@ proc ::mdance::plots::on_font_change {name} {
     do_redraw $name
 }
 
+# redraw_all - Re-render every open plot, for a preference that affects all of
+# them (the in-plot title switch). Each redraw goes through redraw_cmds, so a
+# plot with no registered command is simply skipped.
+proc ::mdance::plots::redraw_all {} {
+    variable redraw_cmds
+    foreach name [array names redraw_cmds] {
+        if {[winfo exists .$name]} { do_redraw $name }
+    }
+}
+
 # on_plot_destroy - clear a closed plot's per-name cached state (which can pin a
 # whole results dict / per-frame CSV) and cancel any queued resize redraw.
 proc ::mdance::plots::on_plot_destroy {name W w} {
@@ -229,6 +255,25 @@ proc ::mdance::plots::export_image {name fmt} {
     if {![winfo exists $w]} return
     set c $w.c
 
+    # An exported image has no window title bar, so a titleless export would be
+    # an unidentifiable picture. Draw the title for the export regardless of the
+    # on-screen preference, then put the canvas back the way the user had it.
+    variable plot_titles
+    set titles_were $plot_titles
+    if {!$plot_titles} {
+        set plot_titles 1
+        do_redraw $name
+    }
+    set rc [catch {_export_image_body $name $fmt $w $c} res opts]
+    if {!$titles_were} {
+        set plot_titles 0
+        do_redraw $name
+    }
+    if {$rc} { return -options $opts $res }
+    return $res
+}
+
+proc ::mdance::plots::_export_image_body {name fmt w c} {
     if {$fmt eq "ps"} {
         set f [tk_getSaveFile -defaultextension ".ps" \
             -filetypes {{"PostScript" ".ps"} {"All files" "*"}} \
@@ -313,12 +358,27 @@ proc ::mdance::plots::draw_axes {c x0 y0 x1 y1} {
     $c create line $x0 $y1 $x1 $y1 -width 2 -fill black
 }
 
+# draw_title - The plot heading.
+#
+# $title is the plot's NAME, which the window title bar already shows, so it is
+# drawn only when "Titles inside plots" is enabled (off by default).
+#
+# $subtitle is a different thing and is ALWAYS drawn: it carries information
+# that exists nowhere else on the canvas -- a skipped-K caveat, a units
+# qualifier, a computed mean. Suppressing it along with the name would silently
+# drop a warning from an exported figure, so when the name is hidden the
+# subtitle moves up into its slot instead of disappearing.
 proc ::mdance::plots::draw_title {c width title {subtitle ""}} {
-    # -width lets Tk wrap a long title instead of running it off both edges.
-    $c create text [expr {$width / 2}] 20 -text $title -font [plot_font 2 bold] \
-        -anchor n -width [expr {$width - 20}] -justify center
+    variable plot_titles
+    set y 20
+    if {$plot_titles} {
+        # -width lets Tk wrap a long title instead of running it off both edges.
+        $c create text [expr {$width / 2}] $y -text $title -font [plot_font 2 bold] \
+            -anchor n -width [expr {$width - 20}] -justify center
+        set y 40
+    }
     if {$subtitle ne ""} {
-        $c create text [expr {$width / 2}] 40 -text $subtitle -font [plot_font -1] \
+        $c create text [expr {$width / 2}] $y -text $subtitle -font [plot_font -1] \
             -anchor n -width [expr {$width - 20}] -justify center -fill "#666666"
     }
 }
@@ -573,6 +633,19 @@ proc ::mdance::plots::timeline_chart {results} {
 
     set w [create_plot_window mdance_timeline "Cluster Assignment Timeline" 800 450]
     set c $w.c
+    # Bar thickness belongs on this plot's own window: how thin is readable
+    # depends on the trajectory length and cluster count in front of the user.
+    if {![winfo exists $w.toolbar.lth]} {
+        ttk::separator $w.toolbar.sep2 -orient vertical
+        ttk::label $w.toolbar.lth -text "Bar:"
+        ttk::spinbox $w.toolbar.th -from 0.05 -to 1.0 -increment 0.05 -width 4 \
+            -textvariable ::mdance::plots::timeline_thickness \
+            -command [list ::mdance::plots::do_redraw mdance_timeline]
+        bind $w.toolbar.th <Return> [list ::mdance::plots::do_redraw mdance_timeline]
+        pack $w.toolbar.sep2 -side left -fill y -padx 4 -pady 2
+        pack $w.toolbar.lth -side left -padx {0 2}
+        pack $w.toolbar.th -side left -padx {0 4}
+    }
     variable left_margin; variable right_margin; variable top_margin; variable bottom_margin
 
     lassign [canvas_dims $c 800 450] cw ch
@@ -618,7 +691,8 @@ proc ::mdance::plots::timeline_chart {results} {
     }
 
     # Pixel-binning: map frames to pixel columns
-    set rect_h [expr {max(2, $band_h * 0.7)}]
+    variable timeline_thickness
+    set rect_h [expr {max(2, $band_h * $timeline_thickness)}]
     set pixels $plot_w
     for {set px_col 0} {$px_col < $pixels} {incr px_col} {
         # Frame range for this pixel column
@@ -1132,29 +1206,42 @@ proc ::mdance::plots::dendro_draw {c left_arr right_arr height_arr x_arr leaf_ar
 # Plot 5: Elbow Plot (Multi-K quality scores)
 # ============================================================
 
-proc ::mdance::plots::elbow_plot {} {
+# elbow_plot - Configure and launch an elbow scan.
+#
+# $algorithm pre-selects the method and hides the chooser, so the button on each
+# algorithm tab scans THAT algorithm. Called with no argument the chooser is
+# shown, which is what a generic entry point needs.
+proc ::mdance::plots::elbow_plot {{algorithm ""}} {
     # Configuration dialog
     set w .mdance_elbow_cfg
     catch {destroy $w}
     toplevel $w
-    wm title $w "Elbow Plot Configuration"
-    wm geometry $w 350x280
+    wm title $w [expr {$algorithm eq "" ? "Elbow Plot Configuration" \
+                                        : "Elbow Plot: [string toupper $algorithm]"}]
+    wm geometry $w 400x340
 
+    # Seed the defaults only the FIRST time. `variable name value` inside
+    # namespace eval re-assigns on every call, so reopening the dialog used to
+    # throw away the K range the user had just chosen.
     namespace eval ::mdance::plots::elbow {
-        variable algorithm "kmeans"
-        variable k_min 2
-        variable k_max 15
-        variable k_step 1
+        foreach {v d} {algorithm kmeans k_min 2 k_max 15 k_step 1} {
+            variable $v
+            if {![info exists $v]} { set $v $d }
+        }
     }
+    if {$algorithm ne ""} { set ::mdance::plots::elbow::algorithm $algorithm }
 
     ttk::labelframe $w.params -text "Parameters" -padding 10
     pack $w.params -fill x -padx 10 -pady 10
 
-    ttk::label $w.params.l_algo -text "Algorithm:"
-    ttk::combobox $w.params.algo -textvariable ::mdance::plots::elbow::algorithm \
-        -values {kmeans divine} -state readonly -width 15
-    grid $w.params.l_algo -row 0 -column 0 -sticky w -padx {0 10} -pady 3
-    grid $w.params.algo -row 0 -column 1 -sticky w -pady 3
+    # Only offer the chooser when the caller did not fix the algorithm.
+    if {$algorithm eq ""} {
+        ttk::label $w.params.l_algo -text "Algorithm:"
+        ttk::combobox $w.params.algo -textvariable ::mdance::plots::elbow::algorithm \
+            -values {kmeans divine helm} -state readonly -width 15
+        grid $w.params.l_algo -row 0 -column 0 -sticky w -padx {0 10} -pady 3
+        grid $w.params.algo -row 0 -column 1 -sticky w -pady 3
+    }
 
     ttk::label $w.params.l_kmin -text "K min:"
     ttk::spinbox $w.params.kmin -textvariable ::mdance::plots::elbow::k_min \
@@ -1174,8 +1261,13 @@ proc ::mdance::plots::elbow_plot {} {
     grid $w.params.l_kstep -row 3 -column 0 -sticky w -padx {0 10} -pady 3
     grid $w.params.kstep -row 3 -column 1 -sticky w -pady 3
 
-    ttk::label $w.note -text "Uses current Setup tab settings for\nmolecule and atom selection." \
-        -justify left -wraplength 300
+    set note "Uses the current Setup tab molecule, atom selection and frame range."
+    if {$::mdance::plots::elbow::algorithm eq "helm"} {
+        # Say plainly what HELM's k means here, because it is not the same
+        # operation the other two perform per k.
+        append note "\n\nHELM is scanned by pre-clustering once with KMeans (using the HELM tab's pre-cluster settings) and then cutting the dendrogram at each K, so every point comes from the same starting partition."
+    }
+    ttk::label $w.note -text $note -justify left -wraplength 360
     pack $w.note -padx 10 -pady 5
 
     ttk::frame $w.btns -padding 10
@@ -1249,6 +1341,26 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     }
     lassign $extract csv_path natoms nframes frame_list
 
+    # Anything the algorithm needs computed once for the whole scan. For HELM
+    # that is the starting partition -- its k is a cut of one dendrogram, so the
+    # pre-cluster step belongs outside the loop.
+    set extra {}
+    if {[catch {
+        set ::mdance::status "Elbow plot: preparing $algorithm..."
+        update
+        set extra [::mdance::elbow_prepare $algorithm $csv_path $natoms \
+            [::mdance::gui::elbow_algo_params $algorithm]]
+    } perr]} {
+        ::mdance::gui::busy_stop
+        catch {file delete $csv_path}
+        ::mdance::utils::cleanup
+        set ::mdance::running 0
+        set ::mdance::status "Ready"
+        tk_messageBox -icon error -title "MDANCE" \
+            -message "Could not prepare the $algorithm scan: $perr"
+        return
+    }
+
     # Run for each K (cancellable between K values via the shared status-bar
     # Cancel).
     set ::mdance::status "Elbow plot: starting..."
@@ -1256,6 +1368,11 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     set data_points {}
     set failed_ks {}
     set first_err ""
+    # Per-K partitions, kept so the user can inspect the population split at
+    # every K rather than only reading two scores off the curve. Keyed by K.
+    variable elbow_partitions
+    array unset elbow_partitions
+    array set elbow_partitions {}
     set rc [catch {
         for {set k $k_min} {$k <= $k_max} {set k [expr {$k + $k_step}]} {
             if {$::mdance::cancel_requested} { set cancelled 1; break }
@@ -1263,7 +1380,7 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
             update
 
             if {[catch {
-                set result [::mdance::run_single_k $algorithm $csv_path $natoms $k]
+                set result [::mdance::run_single_k $algorithm $csv_path $natoms $k $extra]
                 set ch [dict get $result score_calinskiHarabasz]
                 set db [dict get $result score_daviesBouldin]
                 # A degenerate clustering yields NaN/Infinity scores. They must
@@ -1273,6 +1390,12 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
                     error "backend returned a non-finite score (CH=$ch DB=$db)"
                 }
                 lappend data_points [list $k $ch $db]
+                # Keep the partition, not the whole result: cluster sizes are
+                # all the population view needs, and holding every K's labels
+                # for a long scan would pin a lot of memory for the session.
+                set sizes [expr {[dict exists $result clusterSizes] ? [dict get $result clusterSizes] : {}}]
+                set kact  [expr {[dict exists $result nClusters] ? [dict get $result nClusters] : $k}]
+                set elbow_partitions($k) [list $kact $sizes]
             } err]} {
                 # Record the failure -- do NOT fabricate a data point. Appending
                 # (K,0,0) here used to plot a real dot at zero, and since the
@@ -1324,6 +1447,14 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
 
     set w [create_plot_window mdance_elbow "Cluster Quality vs. K" 750 500]
     set c $w.c
+    # The shared toolbar has always exported this plot's data, but a generic
+    # "Export CSV" does not read as "the scores" -- which is why the reviewer
+    # asked for a button that already existed. Name it, reusing the same export.
+    if {![winfo exists $w.toolbar.scores]} {
+        ttk::button $w.toolbar.scores -text "Export Scores..." \
+            -command [list ::mdance::plots::export_csv mdance_elbow]
+        pack $w.toolbar.scores -side left -padx 2
+    }
     variable left_margin; variable right_margin; variable top_margin; variable bottom_margin
 
     lassign [canvas_dims $c 750 500] cw ch
@@ -1335,7 +1466,8 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     # Carry the skipped-K caveat on the chart itself, so it survives being saved
     # or shown to someone who never saw the warning dialog.
     if {[llength $failed_ks] > 0} {
-        draw_title $c $cw "Cluster Quality vs. K  (K = [join $failed_ks {, }] skipped: no usable score)"
+        draw_title $c $cw "Cluster Quality vs. K" \
+            "K = [join $failed_ks {, }] skipped: no usable score"
     } else {
         draw_title $c $cw "Cluster Quality vs. K"
     }
@@ -1425,6 +1557,12 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
         }
         $c create oval [expr {$px - 4}] [expr {$py - 4}] [expr {$px + 4}] [expr {$py + 4}] \
             -fill "#2255cc" -outline "#2255cc"
+        # A generous invisible hit area over the whole column at this K, so the
+        # partition view is reachable without pixel-hunting a 8px dot.
+        set hit [$c create rectangle [expr {$px - 6}] $y0 [expr {$px + 6}] $y1 \
+            -fill "" -outline ""]
+        $c bind $hit <Enter> [list ::mdance::plots::elbow_show_partition $c $k $px $y0]
+        $c bind $hit <Leave> [list ::mdance::plots::elbow_hide_partition $c]
         set prev_px $px; set prev_py $py
     }
 
@@ -1456,20 +1594,97 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     # Axis labels
     $c create text [expr {$cw / 2}] [expr {$ch - 5}] -text "Number of Clusters (K)" \
         -anchor s -font [plot_font 0]
+    # Say that the curve is interactive; a hover affordance nobody knows about
+    # is the same as not having one.
+    $c create text [expr {$cw - 8}] [expr {$ch - 5}] \
+        -text "hover a K for its population split" \
+        -anchor se -font [plot_font -3] -fill "#888888"
 
     # Store redraw command and CSV data
     set ::mdance::plots::redraw_cmds(mdance_elbow) \
         [list ::mdance::plots::draw_elbow_chart $data_points $failed_ks]
-    set csv "k,calinski_harabasz,davies_bouldin\n"
+    variable elbow_partitions
+    set csv "k,k_actual,calinski_harabasz,davies_bouldin,cluster_sizes\n"
     foreach pt $data_points {
-        append csv "[lindex $pt 0],[format "%.6f" [lindex $pt 1]],[format "%.6f" [lindex $pt 2]]\n"
+        set k [lindex $pt 0]
+        set kact ""; set sizes {}
+        if {[info exists elbow_partitions($k)]} {
+            lassign $elbow_partitions($k) kact sizes
+        }
+        # The population split goes in the export as well, so the numbers behind
+        # the hover view leave the plugin with the scores.
+        append csv "$k,$kact,[format "%.6f" [lindex $pt 1]],[format "%.6f" [lindex $pt 2]],\"[join $sizes { }]\"\n"
     }
     # Skipped K values are recorded as blanks rather than dropped, so the CSV
     # cannot be mistaken for a complete scan.
     foreach k $failed_ks {
-        append csv "$k,,\n"
+        append csv "$k,,,,\n"
     }
     set ::mdance::plots::csv_data(mdance_elbow) $csv
+}
+
+# elbow_show_partition - Draw the population split for one K next to the curve.
+#
+# The reviewer asked for a pie chart on hover. Horizontal population bars are
+# used instead: at K = 30 a pie's slices are thin wedges with nowhere to put a
+# label, whereas bars stay readable and directly comparable, and they reuse
+# cluster_color so a cluster keeps the colour it has in every other plot.
+#
+# Everything is tagged so Leave can delete exactly this overlay, and nothing is
+# cached on the canvas: a redraw or a resize rebuilds the chart from
+# redraw_cmds, and an exported image therefore never depends on hover state.
+proc ::mdance::plots::elbow_show_partition {c k px y0} {
+    variable elbow_partitions
+    if {![winfo exists $c]} return
+    elbow_hide_partition $c
+    if {![info exists elbow_partitions($k)]} return
+    lassign $elbow_partitions($k) kact sizes
+    if {[llength $sizes] == 0} return
+
+    set total 0
+    foreach n $sizes { incr total $n }
+    if {$total <= 0} return
+
+    set bw 130
+    set bh 9
+    set pad 6
+    set n [llength $sizes]
+    set boxh [expr {$n * $bh + 2 * $pad + 16}]
+    # Flip to the left of the hovered column when the panel would run off the
+    # right edge of the canvas.
+    set bx [expr {$px + 12}]
+    if {$bx + $bw + 2 * $pad > [winfo width $c]} {
+        set bx [expr {$px - 12 - $bw - 2 * $pad}]
+    }
+    set by [expr {$y0 + 4}]
+
+    $c create rectangle $bx $by [expr {$bx + $bw + 2 * $pad}] [expr {$by + $boxh}] \
+        -fill "#ffffff" -outline "#888888" -tags elbowpart
+    set label "K=$k"
+    if {$kact ne "" && $kact ne $k} { append label " (got $kact)" }
+    $c create text [expr {$bx + $pad}] [expr {$by + $pad}] -text $label \
+        -anchor nw -font [plot_font -1] -tags elbowpart
+
+    set ty [expr {$by + $pad + 16}]
+    for {set i 0} {$i < $n} {incr i} {
+        set frac [expr {double([lindex $sizes $i]) / $total}]
+        set wpx [expr {$frac * $bw}]
+        # Always leave a visible sliver: a cluster holding 0.1% of frames must
+        # not vanish from a view whose whole purpose is showing the split.
+        if {$wpx < 1} { set wpx 1 }
+        set col [cluster_color $i $n]
+        $c create rectangle [expr {$bx + $pad}] $ty \
+            [expr {$bx + $pad + $wpx}] [expr {$ty + $bh - 2}] \
+            -fill $col -outline $col -tags elbowpart
+        $c create text [expr {$bx + $pad + $bw + 2}] [expr {$ty + ($bh - 2) / 2}] \
+            -text [format "%.1f%%" [expr {100.0 * $frac}]] \
+            -anchor w -font [plot_font -3] -tags elbowpart
+        incr ty $bh
+    }
+}
+
+proc ::mdance::plots::elbow_hide_partition {c} {
+    if {[winfo exists $c]} { catch {$c delete elbowpart} }
 }
 
 # ============================================================
@@ -1705,13 +1920,15 @@ proc ::mdance::plots::residence_chart {results} {
         # The long form does not fit the rotated y-axis slot and gets clipped off
         # the canvas, so the qualifier goes in the title where there is room.
         set res_unit_label "Residence Time (samples)"
-        set res_title "Cluster Residence Times (1 sample = $res_stride frames)"
+        set res_title "Cluster Residence Times"
+        set res_sub "1 sample = $res_stride frames"
     } else {
         set res_unit_label "Residence Time (frames)"
         set res_title "Cluster Residence Times"
+        set res_sub ""
     }
 
-    draw_title $c $cw $res_title
+    draw_title $c $cw $res_title $res_sub
     draw_axes $c $x0 $y0 $x1 $y1
     draw_yticks $c $x0 $y0 $y1 0 $max_val 6 $x1
 
@@ -2316,9 +2533,9 @@ proc ::mdance::plots::silhouette_plot {results {use_cache 0}} {
     set y0 $top_margin; set y1 [expr {$ch - $bottom_margin}]
     set plot_w [expr {$x1 - $x0}]; set plot_h [expr {$y1 - $y0}]
 
-    set title_txt [format "Silhouette Plot (mean = %.3f)" $mean_sil]
-    if {$sampled} { append title_txt " \[sampled\]" }
-    draw_title $c $cw $title_txt
+    set sil_sub [format "mean = %.3f" $mean_sil]
+    if {$sampled} { append sil_sub " (sampled)" }
+    draw_title $c $cw "Silhouette Plot" $sil_sub
 
     # X-axis: silhouette coefficient [-1, 1]
     set sil_min -1.0; set sil_max 1.0
@@ -2422,7 +2639,8 @@ proc ::mdance::plots::similarity_chart {results analysis} {
     set y0 $top_margin; set y1 [expr {$ch - $bottom_margin}]
     set plot_w [expr {$x1 - $x0}]; set plot_h [expr {$y1 - $y0}]
 
-    draw_title $c $cw [format "Per-Cluster Compactness  (ensemble iSIM = %.4g)" $isim]
+    draw_title $c $cw "Per-Cluster Compactness" \
+        [format "ensemble iSIM = %.4g" $isim]
     draw_axes $c $x0 $y0 $x1 $y1
 
     set max_c 0
