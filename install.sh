@@ -94,6 +94,12 @@ mkdir -p "$VMD_PLUGIN_DIR"
 
 # Step 3: Copy Tcl files
 cp "$SCRIPT_DIR/mdance/"*.tcl "$VMD_PLUGIN_DIR/"
+# Plot thumbnails for the Visualizations buttons. Missing icons are not fatal --
+# plot_icon falls back to a text-only button -- but the GUI looks unfinished.
+if [ -d "$SCRIPT_DIR/mdance/icons" ]; then
+    mkdir -p "$VMD_PLUGIN_DIR/icons"
+    cp "$SCRIPT_DIR/mdance/icons/"*.png "$VMD_PLUGIN_DIR/icons/" 2>/dev/null || true
+fi
 echo "   Copied Tcl files"
 
 # Step 4: Copy CLI binary if one is available

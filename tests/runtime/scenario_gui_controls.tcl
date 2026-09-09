@@ -32,6 +32,10 @@ th::test "PRIME is deliberately NOT locked (its metric is a similarity index)" {
 }
 th::test "while locked, the combobox is not mapped and a plain MSD label is" {
     th::false $::mdance::gui::metric_unlocked "fixture check: locked by default"
+    # The parameter sections ship folded, and nothing inside a folded section is
+    # managed by grid, so open them before reading any child's geometry. This
+    # tests the metric lock, not the fold state.
+    ::mdance::gui::set_all_folded 0
     foreach cb [array names ::mdance::gui::metric_slots] {
         th::eq "" [grid info $cb] "the combobox must be out of the grid"
         th::ne "" [grid info ${cb}L] "the MSD label must occupy its cell"

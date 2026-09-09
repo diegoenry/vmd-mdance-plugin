@@ -4,6 +4,13 @@
 # algorithms on molecular dynamics trajectories loaded in VMD.
 
 namespace eval ::mdance::gui {
+    # Resolved at source time on purpose: [info script] inside a proc returns
+    # whatever file is being sourced when the proc is CALLED, not this one.
+    # (It has to sit inside the namespace block -- setting a qualified variable
+    # before the namespace exists is an error, which took every unit test with
+    # it when this was one line higher.)
+    variable plugin_dir [file dirname [file normalize [info script]]]
+
     # Algorithm parameters (linked to GUI widgets via -textvariable)
     variable mol_selection "top"
     variable atom_selection "protein and name CA"
@@ -141,6 +148,30 @@ namespace eval ::mdance::gui {
     variable algo_panels
     array set algo_panels {}
     variable algo_host ""
+
+    # Plot thumbnails for the Visualizations buttons, keyed by plot suffix.
+    # Cached photo images; a missing file just means no icon.
+    variable plot_icons
+    array set plot_icons {}
+}
+
+# plot_icon - the thumbnail for a plot button, or "" when there is none.
+#
+# The icons are 28 px renderings of each plot drawn from a real clustering, so
+# the button shows the shape of the thing it opens -- stripes for the timeline,
+# a grid for the heatmaps, a tree for the dendrogram.
+proc ::mdance::gui::plot_icon {key} {
+    variable plot_icons
+    variable plugin_dir
+    if {[info exists plot_icons($key)]} { return $plot_icons($key) }
+    set f [file join $plugin_dir icons mdance_$key.png]
+    set img ""
+    if {[file readable $f]} {
+        # Tk 8.6 reads PNG natively; older builds simply get no icon.
+        catch {set img [image create photo -file $f]}
+    }
+    set plot_icons($key) $img
+    return $img
 }
 
 # create_window - the plugin shell: setup and algorithm parameters down the
@@ -168,12 +199,111 @@ namespace eval ::mdance::gui {
 # so everything here is prefixed and applied per widget.
 proc ::mdance::gui::init_styles {} {
     catch {
+        # One interface font for the whole plugin. VMD's theme leaves every ttk
+        # class on TkDefaultFont 10 (Noto Sans) but sets Treeview to
+        # "Helvetica 14" and its heading to "Helvetica 14 bold" -- a different
+        # family, four points larger -- so the tables read as a different app
+        # from the panel three pixels to their left. These derive from
+        # TkDefaultFont so they follow the desktop, rather than hard-coding a
+        # family that may not exist.
+        set fam [font actual TkDefaultFont -family]
+        set sz  [font actual TkDefaultFont -size]
+        foreach {name weight} {MdanceUI normal MdanceUIBold bold} {
+            if {[lsearch -exact [font names] $name] < 0} {
+                font create $name -family $fam -size $sz -weight $weight
+            } else {
+                font configure $name -family $fam -size $sz -weight $weight
+            }
+        }
+        set line [font metrics MdanceUI -linespace]
+
+        ttk::style configure Mdance.Treeview \
+            -font MdanceUI -rowheight [expr {$line + 4}]
         ttk::style configure Mdance.Treeview.Heading \
-            -background "#37474f" -foreground "#ffffff" -relief flat -padding {6 5}
+            -font MdanceUIBold \
+            -background "#37474f" -foreground "#ffffff" -relief flat -padding {5 3}
         ttk::style map Mdance.Treeview.Heading \
             -background [list active "#455a64" pressed "#263238"] \
             -foreground [list active "#ffffff" pressed "#ffffff"]
-        ttk::style configure Mdance.Treeview -rowheight 22
+
+        # Toolbar buttons: the glyph carries the meaning, the text confirms it.
+        ttk::style configure Mdance.Toolbutton.TButton -font MdanceUI -padding {8 3}
+        ttk::style configure Mdance.Run.TButton -font MdanceUIBold -padding {10 3}
+    }
+}
+
+# ============================================================
+# Foldable sections
+#
+# Adapted from interactions/gui/widgets.tcl collapsible/_render_section/toggle.
+# The difference: that one owns the frame it creates, which would have moved
+# every child widget one level deeper. This folds a labelframe that ALREADY
+# exists, by remembering each child's geometry options and restoring them, so
+# not one widget path changes -- including the HELM trim/labels paths the test
+# suite pins.
+# ============================================================
+
+proc ::mdance::gui::foldable {lf {collapsed 0}} {
+    variable fold_state
+    if {![winfo exists $lf]} return
+    set title [$lf cget -text]
+    set hdr [ttk::frame $lf.__hdr]
+    ttk::label $hdr.a -text "\u25BC" -cursor hand2 -foreground "#2050c8"
+    ttk::label $hdr.t -text $title -cursor hand2
+    pack $hdr.a -side left
+    pack $hdr.t -side left -padx {4 0}
+    $lf configure -labelwidget $hdr
+    foreach w [list $hdr $hdr.a $hdr.t] {
+        bind $w <Button-1> [list ::mdance::gui::fold_toggle $lf]
+    }
+    set fold_state($lf) 0
+    if {$collapsed} { fold_toggle $lf }
+    return $lf
+}
+
+proc ::mdance::gui::fold_toggle {lf} {
+    variable fold_state
+    variable fold_saved
+    if {![winfo exists $lf] || ![info exists fold_state($lf)]} return
+    if {$fold_state($lf)} {
+        foreach {w how info} $fold_saved($lf) {
+            if {$how eq "grid"} {
+                catch {grid $w}
+            } else {
+                catch {pack $w {*}$info}
+            }
+        }
+        catch {unset fold_saved($lf)}
+        set fold_state($lf) 0
+        catch {$lf.__hdr.a configure -text "\u25BC"}
+        catch {pack propagate $lf 1}
+    } else {
+        set saved {}
+        foreach w [winfo children $lf] {
+            if {$w eq "$lf.__hdr"} continue
+            set m [winfo manager $w]
+            if {$m eq "grid"} {
+                # `grid remove` rather than `grid forget`: it remembers the
+                # cell so a bare `grid $w` restores it. Note that `grid info`
+                # still reports empty for a removed widget -- it is unmanaged
+                # either way -- so anything inspecting a section's geometry has
+                # to expand it first (see set_all_folded).
+                lappend saved $w grid {}; grid remove $w
+            } elseif {$m eq "pack"} {
+                lappend saved $w pack [pack info $w]; pack forget $w
+            }
+        }
+        set fold_saved($lf) $saved
+        set fold_state($lf) 1
+        catch {$lf.__hdr.a configure -text "\u25B6"}
+        # With every child gone the labelframe requests no size at all and the
+        # -labelwidget header is clipped to a bare line, so the section appears
+        # to vanish rather than fold. Hold the height open for the header.
+        catch {
+            update idletasks
+            pack propagate $lf 0
+            $lf configure -height [expr {[winfo reqheight $lf.__hdr] + 8}]
+        }
     }
 }
 
@@ -189,8 +319,8 @@ proc ::mdance::gui::create_window {} {
     catch {destroy $w}
     toplevel $w
     wm title $w "MDANCE Clustering"
-    wm geometry $w 1180x780
-    wm minsize $w 900 560
+    wm geometry $w 820x600
+    wm minsize $w 640 420
     wm resizable $w 1 1
     # Closing the window mid-run would take the Cancel button with it, leaving a
     # backend child running with nothing able to stop it.
@@ -208,20 +338,49 @@ proc ::mdance::gui::create_window {} {
     ttk::label $w.status.label -textvariable ::mdance::status -anchor w
     pack $w.status.label -side left -fill x -expand 1
 
-    # A slim toolbar, the one piece of the interactions shell that transfers
-    # cleanly: a fixed home for window-level actions that belong to no tab.
+    # Toolbar. Run is here rather than under each algorithm's parameters, as in
+    # the RMSD2 and Interactions plugins: one primary action in one fixed place.
+    #
+    # An earlier review argued against a global Run on the grounds that it would
+    # have to mean "run whichever tab is showing". That objection does not apply
+    # to this layout -- the algorithm is now an explicit radio selection in the
+    # input column, so Run has an unambiguous subject and says which one it is.
+    #
+    # Icons are Unicode glyphs, not the 13 PNG assets the interactions icon layer
+    # ships: they need no files, no image loader and no scaling pass, and every
+    # one is present in the default desktop fonts.
     ttk::frame $w.tools
     pack $w.tools -side top -fill x -padx 5 -pady {5 0}
-    ttk::button $w.tools.settings -text "Settings..." \
-        -command ::mdance::gui::settings_dialog
-    ttk::label $w.tools.title -text "MDANCE Clustering" -anchor w
-    pack $w.tools.title -side left
+
+    ttk::button $w.tools.hide -style Mdance.Toolbutton.TButton \
+        -text "\u25E7 Hide setup" -command ::mdance::gui::toggle_setup_pane
+    ttk::separator $w.tools.s1 -orient vertical
+    ttk::button $w.tools.run -style Mdance.Run.TButton \
+        -text "\u25B6 Run" -command ::mdance::gui::run_current
+    ttk::button $w.tools.cancel -style Mdance.Toolbutton.TButton \
+        -text "\u25A0 Cancel" -command ::mdance::request_cancel -state disabled
+    ttk::separator $w.tools.s2 -orient vertical
+    ttk::button $w.tools.clear -style Mdance.Toolbutton.TButton \
+        -text "\u21BB Clear" -command ::mdance::gui::clear_results
+    ttk::button $w.tools.help -style Mdance.Toolbutton.TButton \
+        -text "\u2139 Help" -command {::mdance::gui::show_view help}
+    ttk::button $w.tools.settings -style Mdance.Toolbutton.TButton \
+        -text "\u2699 Settings" -command ::mdance::gui::settings_dialog
+
+    pack $w.tools.hide   -side left
+    pack $w.tools.s1     -side left -fill y -padx 6 -pady 2
+    pack $w.tools.run    -side left
+    pack $w.tools.cancel -side left -padx {4 0}
+    pack $w.tools.s2     -side left -fill y -padx 6 -pady 2
+    pack $w.tools.clear  -side left
     pack $w.tools.settings -side right
+    pack $w.tools.help     -side right -padx {0 4}
+
     ttk::separator $w.toolsep -orient horizontal
-    pack $w.toolsep -side top -fill x -padx 5 -pady {6 0}
+    pack $w.toolsep -side top -fill x -padx 5 -pady {5 0}
 
     ttk::frame $w.nb
-    pack $w.nb -fill both -expand 1 -padx 5 -pady 5
+    pack $w.nb -fill both -expand 1 -padx 4 -pady 4
 
     ttk::panedwindow $w.nb.pane -orient horizontal
     pack $w.nb.pane -fill both -expand 1
@@ -231,8 +390,9 @@ proc ::mdance::gui::create_window {} {
     $w.nb.pane add $w.nb.pane.views -weight 1
 
     # ---- left: setup, then the selected algorithm's parameters -------------
-    # 500 px: the widest panel is HELM, which requests 484 with its trim grid.
-    set col [_scrollcol $w.nb.pane.input 500]
+    # Narrower than the panels ask for on purpose: they fold now, and the column
+    # scrolls, so the width is a starting size rather than a floor.
+    set col [_scrollcol $w.nb.pane.input 330]
 
     set setup_tab [ttk::frame $w.nb.setup]
     build_setup_tab $setup_tab
@@ -243,7 +403,7 @@ proc ::mdance::gui::create_window {} {
     # $w.nb.setup is a descendant of $w.nb, so `pack -in` may host them there.
     set algo_host $setup_tab
 
-    ttk::labelframe $setup_tab.algo -text "Algorithm" -padding {10 6}
+    ttk::labelframe $setup_tab.algo -text "Algorithm" -padding {8 4}
     foreach {key label} {kmeans "KMeans NANI" divine "DIVINE" helm "HELM" equal "eQUAL"} {
         ttk::radiobutton $setup_tab.algo.$key -text $label \
             -variable ::mdance::gui::algo_current -value $key \
@@ -256,12 +416,12 @@ proc ::mdance::gui::create_window {} {
     # bottom. build_setup_tab packs in its own historical order, which put the
     # backend path and the Quick Start text above the algorithm.
     foreach f {mol range preview cli} { catch {pack forget $setup_tab.$f} }
-    pack $setup_tab.mol     -fill x -padx 10 -pady {10 0}
-    pack $setup_tab.range   -fill x -padx 10 -pady {10 0}
-    pack $setup_tab.preview -fill x -padx 10
-    pack $setup_tab.algo    -fill x -padx 10 -pady {6 0}
+    pack $setup_tab.mol     -fill x -padx 6 -pady {6 0}
+    pack $setup_tab.range   -fill x -padx 6 -pady {6 0}
+    pack $setup_tab.preview -fill x -padx 6
+    pack $setup_tab.algo    -fill x -padx 6 -pady {6 0}
     # (the algorithm panel is packed after .algo by select_algorithm)
-    pack $setup_tab.cli     -fill x -padx 10 -pady {10 10}
+    pack $setup_tab.cli     -fill x -padx 6 -pady {6 6}
 
     set algo_panels(kmeans) [ttk::frame $w.nb.kmeans]
     set algo_panels(divine) [ttk::frame $w.nb.divine]
@@ -278,7 +438,7 @@ proc ::mdance::gui::create_window {} {
     # Every explanatory note in the plugin carries a hard -wraplength sized for
     # the old full-window tab (460, 450, 430...). In a 390 px column those run
     # off the edge mid-word, so bring any that overflow down to the column.
-    _fit_wraplengths $setup_tab 430
+    _fit_wraplengths $setup_tab 290
 
     # ---- right: the result views ------------------------------------------
     ttk::notebook $w.nb.pane.views.nb
@@ -287,7 +447,15 @@ proc ::mdance::gui::create_window {} {
         set page [ttk::frame $w.nb.pane.views.nb.$key]
         $w.nb.pane.views.nb add $page -text $label
         set body($key) [ttk::frame $w.nb.$key]
-        pack $body($key) -in $page -fill both -expand 1
+        if {$key in {results prime help}} {
+            # These stack a summary, a table and several button rows, which is
+            # more than fits at the default size -- and pack UNMAPS the overflow
+            # rather than clipping it, so the buttons simply were not there.
+            # Scrolling makes the window size a preference rather than a limit.
+            pack $body($key) -in [_scrollcol $page 0] -fill both -expand 1
+        } else {
+            pack $body($key) -in $page -fill both -expand 1
+        }
     }
     # Results keeps the summary, the cluster table and the actions; the plot
     # launcher goes to Figures. They are built together because the buttons are
@@ -299,6 +467,18 @@ proc ::mdance::gui::create_window {} {
 
     # Hide the metric selectors (locked to MSD) now that every panel is gridded.
     register_metric_combos $w
+
+    # Fold AFTER registration. register_metric_combos records each combobox's
+    # `grid info` so the lock can put it back; folding grid-forgets the section's
+    # children first, and a forgotten widget has no grid info to record.
+    # Every algorithm ships usable defaults, so the common case is "pick one and
+    # Run" -- the details are one click away when they are actually wanted.
+    foreach lf {kmeans.params divine.params helm.params helm.trim helm.labels
+                equal.params} {
+        catch {foldable $w.nb.$lf 1}
+    }
+    catch {foldable $setup_tab.range 1}
+    catch {foldable $setup_tab.cli 1}
 
     return $w
 }
@@ -316,8 +496,9 @@ proc ::mdance::gui::select_algorithm {name} {
     }
     set algo_current $name
     pack $algo_panels($name) -in $algo_host -after $algo_host.algo \
-        -fill x -padx 10 -pady {2 0}
-    _fit_wraplengths $algo_panels($name) 430
+        -fill x -padx 6 -pady {2 0}
+    _fit_wraplengths $algo_panels($name) 290
+    sync_run_button
 }
 
 # _fit_wraplengths - clamp any -wraplength wider than the column it now lives
@@ -333,6 +514,53 @@ proc ::mdance::gui::_fit_wraplengths {root width} {
     }
 }
 
+# toggle_setup_pane - hide or restore the whole input column.
+#
+# `forget` on a ttk::panedwindow pane removes it without destroying anything, so
+# the widgets and everything typed into them survive; re-inserting at index 0
+# puts it back where it was.
+proc ::mdance::gui::toggle_setup_pane {} {
+    variable setup_hidden
+    set pane .mdance.nb.pane
+    set input .mdance.nb.pane.input
+    if {![winfo exists $pane]} return
+    if {[info exists setup_hidden] && $setup_hidden} {
+        catch {$pane insert 0 $input -weight 0}
+        set setup_hidden 0
+        catch {.mdance.tools.hide configure -text "\u25E7 Hide setup"}
+    } else {
+        catch {$pane forget $input}
+        set setup_hidden 1
+        catch {.mdance.tools.hide configure -text "\u25E8 Show setup"}
+    }
+}
+
+# run_current - the toolbar Run. Dispatches to the algorithm selected in the
+# input column, which is why a single Run is unambiguous here.
+proc ::mdance::gui::run_current {} {
+    variable algo_current
+    switch -- $algo_current {
+        kmeans { run_kmeans }
+        divine { run_divine }
+        helm   { run_helm }
+        equal  { run_equal }
+        default {
+            tk_messageBox -icon info -title "MDANCE" \
+                -message "Choose an algorithm in the input column first."
+        }
+    }
+}
+
+# sync_run_button - keep the toolbar Run naming the algorithm it will run.
+proc ::mdance::gui::sync_run_button {} {
+    variable algo_current
+    set b .mdance.tools.run
+    if {![winfo exists $b]} return
+    set names {kmeans "KMeans" divine "DIVINE" helm "HELM" equal "eQUAL"}
+    set label [expr {[dict exists $names $algo_current] ? [dict get $names $algo_current] : ""}]
+    $b configure -text "\u25B6 Run $label"
+}
+
 # show_view - raise one of the right-hand result views by name (results, sweep,
 # prime). The three callers that used to say `.mdance.nb select .mdance.nb.results`
 # go through here, so the view container is named in one place instead of three.
@@ -344,11 +572,25 @@ proc ::mdance::gui::show_view {name} {
     catch {$nb select $nb.$name}
 }
 
+# set_all_folded - fold or unfold every section in the window at once.
+#
+# Also the way to make a folded section inspectable: nothing inside one is
+# managed by grid or pack while it is folded, so code (and tests) that reads a
+# child's geometry has to open it first.
+proc ::mdance::gui::set_all_folded {state} {
+    variable fold_state
+    foreach lf [array names fold_state] {
+        if {![winfo exists $lf]} { catch {unset fold_state($lf)}; continue }
+        if {$fold_state($lf) != $state} { fold_toggle $lf }
+    }
+}
+
 # _scrollcol - a vertically scrolling column. The input side stacks the molecule,
 # the frame range, the backend, an algorithm's parameters and the display
 # settings, which is more than fits on a laptop; without this the surplus is not
 # clipped but unmapped, with nothing to drag toward.
 proc ::mdance::gui::_scrollcol {parent width} {
+    # width 0: no preferred width, just fill the parent and scroll vertically.
     canvas $parent.c -highlightthickness 0 -borderwidth 0 -width $width
     ttk::scrollbar $parent.sb -orient vertical -command [list $parent.c yview]
     $parent.c configure -yscrollcommand [list $parent.sb set]
@@ -389,9 +631,9 @@ proc ::mdance::gui::busy_start {msg cancellable} {
     # a previous extraction would ignore `start` and sit frozen at 100%.
     catch {$s.pb configure -mode indeterminate -value 0}
     catch {$s.pb start 12}
+    catch {.mdance.tools.run configure -state disabled}
     if {$cancellable} {
-        pack $s.cancel -side right -padx {4 0}
-        $s.cancel configure -state normal
+        catch {.mdance.tools.cancel configure -state normal}
     }
     update idletasks
 }
@@ -404,8 +646,8 @@ proc ::mdance::gui::busy_stop {} {
     # expects the animated form gets it (see busy_start).
     catch {$s.pb configure -mode indeterminate -value 0}
     catch {pack forget $s.pb}
-    catch {$s.cancel configure -state disabled}
-    catch {pack forget $s.cancel}
+    catch {.mdance.tools.cancel configure -state disabled}
+    catch {.mdance.tools.run configure -state normal}
 }
 
 # progress_frac - Drive the status-bar bar as a DETERMINATE indicator, frac in
@@ -974,8 +1216,6 @@ proc ::mdance::gui::build_kmeans_tab {parent} {
 
     ttk::frame $parent.run -padding 10
     pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.btn -text "Run KMeans" -command ::mdance::gui::run_kmeans
-    pack $parent.run.btn -side left
     ttk::button $parent.run.elbow -text "Elbow Plot..." \
         -command {::mdance::plots::elbow_plot kmeans}
     pack $parent.run.elbow -side left -padx {6 0}
@@ -1063,8 +1303,6 @@ proc ::mdance::gui::build_divine_tab {parent} {
 
     ttk::frame $parent.run -padding 10
     pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.btn -text "Run DIVINE" -command ::mdance::gui::run_divine
-    pack $parent.run.btn -side left
     ttk::button $parent.run.elbow -text "Elbow Plot..." \
         -command {::mdance::plots::elbow_plot divine}
     pack $parent.run.elbow -side left -padx {6 0}
@@ -1252,8 +1490,6 @@ proc ::mdance::gui::build_helm_tab {parent} {
 
     ttk::frame $parent.run -padding 10
     pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.btn -text "Run HELM" -command ::mdance::gui::run_helm
-    pack $parent.run.btn -side left
     ttk::button $parent.run.elbow -text "Elbow Plot..." \
         -command {::mdance::plots::elbow_plot helm}
     pack $parent.run.elbow -side left -padx {6 0}
@@ -1445,11 +1681,6 @@ proc ::mdance::gui::build_equal_tab {parent} {
     ttk::label $parent.note -justify left -wraplength 480 -foreground "#555555" -text \
         "eQUAL finds the cluster count automatically from the radial threshold — there is no k to set. Frames left over (trailing points, rejected low-density members) are labeled noise. Only the deterministic seed methods (medoid, comp_sim) and align=none are available in this build."
     pack $parent.note -fill x -padx 10 -pady {0 6}
-
-    ttk::frame $parent.run -padding 10
-    pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.btn -text "Run eQUAL" -command ::mdance::gui::run_equal
-    pack $parent.run.btn -side left
 
     _citation_footer $parent [_refs_none "eQUAL"]
 }
@@ -1643,15 +1874,15 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
         -command ::mdance::plots::on_shared_font
     bind $plotparent.bar.fs <Return> ::mdance::plots::on_shared_font
     ttk::separator $plotparent.bar.sep -orient vertical
-    ttk::button $plotparent.bar.csv -text "Export CSV" \
+    ttk::button $plotparent.bar.csv -style Mdance.Toolbutton.TButton -text "\u21E9 CSV" \
         -command ::mdance::plots::export_current_csv
-    ttk::button $plotparent.bar.ps -text "Export PS" \
+    ttk::button $plotparent.bar.ps -style Mdance.Toolbutton.TButton -text "\u21E9 PS" \
         -command [list ::mdance::plots::export_current_image ps]
-    ttk::button $plotparent.bar.png -text "Export PNG" \
+    ttk::button $plotparent.bar.png -style Mdance.Toolbutton.TButton -text "\u21E9 PNG" \
         -command [list ::mdance::plots::export_current_image png]
-    ttk::button $plotparent.bar.close -text "Close" \
+    ttk::button $plotparent.bar.close -style Mdance.Toolbutton.TButton -text "\u2716 Close" \
         -command ::mdance::plots::close_figure
-    ttk::button $plotparent.bar.closeall -text "Close All" \
+    ttk::button $plotparent.bar.closeall -style Mdance.Toolbutton.TButton -text "\u2716 All" \
         -command ::mdance::plots::close_all_figures
     pack $plotparent.bar.fl -side left -padx {0 2}
     pack $plotparent.bar.fs -side left -padx {0 6}
@@ -1659,8 +1890,12 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     pack $plotparent.bar.csv -side left -padx 2
     pack $plotparent.bar.ps -side left -padx 2
     pack $plotparent.bar.png -side left -padx 2
-    pack $plotparent.bar.closeall -side right -padx {2 0}
-    pack $plotparent.bar.close -side right -padx 2
+    # All on the left: packed -side right they were the slaves pack dropped when
+    # the pane got narrow, so Close and Close All simply were not there.
+    ttk::separator $plotparent.bar.sep2 -orient vertical
+    pack $plotparent.bar.sep2 -side left -fill y -padx 4 -pady 2
+    pack $plotparent.bar.close -side left -padx 2
+    pack $plotparent.bar.closeall -side left -padx 2
 
     # The plots themselves. Empty until one is opened.
     ttk::notebook $plotparent.nb
@@ -1706,6 +1941,11 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
 
     # Six buttons across two rows of five: the old 6-wide grid clipped its last
     # column until the user resized the window.
+    foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
+        set ic [plot_icon $b]
+        if {$ic ne ""} { catch {$plotparent.plots.$b configure -image $ic -compound top} }
+    }
+
     set pcol 0
     foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
         grid $plotparent.plots.$b -row [expr {$pcol / 4}] -column [expr {$pcol % 4}] \
