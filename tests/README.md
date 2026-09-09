@@ -38,6 +38,38 @@ They still run VMD in *text* mode, but text mode is requested through
 unsets `DISPLAY` when it sees that flag, which kills Tk and fails every runtime
 scenario with `no display name and no $DISPLAY environment variable`.
 
+## Reference runs against the real backend
+
+`runtime/scenario_reference_runs.tcl` is the only scenario that drives the real
+`mdance-cli` instead of `fake_mdance_cli`, and the only one that checks the
+*science* rather than the plumbing: it clusters trajectories whose expected
+output is known and compares against the reference the Python MDANCE produced.
+
+It skips unless both are available, so a normal checkout is unaffected:
+
+```bash
+MDANCE_REF_RUNS=~/Downloads/mdance_vmd_runs \
+MDANCE_CLI=/path/to/CPP-MDANCE/build/cli/mdance-cli \
+  ./tests/run_tests.sh runtime
+```
+
+`MDANCE_REF_RUNS` points at the sample set (`inputs/` + `results/`, ~37 MB —
+too large to vendor here). `MDANCE_CLI` must be a real binary; the scenario
+refuses `fake_mdance_cli` explicitly rather than silently comparing the fake
+backend against real reference numbers.
+
+What it asserts, and what it does not:
+
+- **NANI** reproduces the reference partition on two systems and three init
+  strategies. Tolerances are calibrated, not guessed — measured disagreement was
+  <= 0.024 in cluster fraction, <= 1.2% in Calinski-Harabasz and <= 3.7% in
+  Davies-Bouldin, and the assertions allow roughly twice that.
+- **HELM** is asserted only structurally, because it does *not* reproduce the
+  reference partition: Inter/k=6 differs by up to 0.197 in cluster fraction. The
+  comparison is recorded as a `skip` carrying the measured numbers rather than
+  hidden behind a tolerance wide enough to pass, so it stays visible in every
+  run. That divergence is an open question for CPP-MDANCE, not a test defect.
+
 Config via environment:
 
 | var           | default                                   | meaning                         |
