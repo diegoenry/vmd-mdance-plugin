@@ -49,10 +49,13 @@ The window has eight tabs: **Setup**, **KMeans**, **DIVINE**, **HELM**, **eQUAL*
 2. In the **Setup** tab, set the molecule ID (`top` for the current molecule) and an
    atom selection (e.g. `protein and name CA`).
 3. (Optional) Set a **Frame Range** — see [Frame Range and Stride](#frame-range-and-stride).
-4. Click **Preview Selection** to verify the atom count and how many frames are selected.
-5. Check the **MDANCE Backend** section — it reports whether native library mode or CLI
-   mode is active.
-6. (Optional) Adjust **Display Settings**: app font size, and the default plot font size.
+4. Check the two live counts before you run: the line under the atom selection reports
+   how many atoms it matches, and the line beside **Frame Tools** how many frames the
+   range keeps.
+5. Open **Settings** (the gear in the toolbar) if you want to check the backend: its
+   **MDANCE Backend** group reports whether native library mode or CLI mode is active.
+6. (Optional) Adjust the same dialog's **Display** group: app font size, and the default
+   plot font size.
 7. Select an algorithm tab, configure parameters, and click **Run** — or use the **Sweep**
    tab to scan a whole grid of parameters at once.
 8. Inspect results in the **Results** tab.

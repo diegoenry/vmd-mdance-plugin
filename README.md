@@ -45,8 +45,8 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
   progress
 - **Session save/load** - save a result (with its parameters and frame map) to a
   `.mdance` file and reopen it later
-- **Plots as tabs** in the Figures view, with auto-resize; each launcher button
-  carries a thumbnail of the plot it opens
+- **Plots as tabs** in the Figures view, with auto-resize and an **✕** on each tab;
+  the launcher is a scrolling strip of thumbnails that never steals the plot's height
 - **One export path** — CSV and image buttons in the toolbar that act on whichever
   view is in front (Results, Figures, Sweep or PRIME), rather than a different
   button per surface. Figures are composed at a proper size for export even when
@@ -173,10 +173,10 @@ mdance::gui
 ├──────────────────────┬────────────────────────────────────────────────────┤
 │  Molecule        ↻   │  Results │ Figures │ Sweep │ PRIME │ Help          │
 │  ▶ Frame Range       │                                                    │
-│  Preview  Frame Tools│    the result of the run, and the plots it feeds    │
-│  Algorithm  ( ) ...  │                                                    │
+│  Frame Tools  N of M │    the result of the run, and the plots it feeds    │
+│  Algorithm [KMeans ▾]│                                                    │
 │  ▶ KMeans Parameters │                                                    │
-│  ▶ MDANCE Backend    │                                                    │
+│                      │                                                    │
 ├──────────────────────┴────────────────────────────────────────────────────┤
 │ Done: 6 clusters found                                                    │
 ```
@@ -212,35 +212,37 @@ one toolbar across the top and one status band along the bottom.
    molecule already in the list changes its frame count, and only a refresh picks
    that up.
 4. Optionally open **Frame Range** and set first/last/stride to cluster a subset —
-   `Last = -1` means the final frame; `Stride = 10` keeps every 10th frame.
-   **Preview Selection** reports how many frames are selected.
-5. Open **MDANCE Backend** to check whether native library or CLI mode is active
-6. Pick an algorithm in the **Algorithm** list (KMeans, DIVINE, HELM, eQUAL). The
+   `Last = -1` means the final frame; `Stride = 10` keeps every 10th frame. The
+   line beside **Frame Tools** counts what the range keeps, live, so it stays
+   readable with the section folded.
+5. Pick an algorithm in the **Algorithm** chooser (KMeans, DIVINE, HELM, eQUAL). The
    parameter section below it becomes that algorithm's; what you typed into the
    others is kept. For a batch scan use the **Sweep** view on the right instead.
-7. Open the parameter section if you want to change anything, then press **Run** in
+6. Open the parameter section if you want to change anything, then press **Run** in
    the toolbar. **Elbow** beside it scans a range of *k* for the same algorithm.
-8. **Results** (right): scores and the cluster table (cluster, size, % of frames, MSD,
+7. **Results** (right): scores and the cluster table (cluster, size, % of frames, MSD,
    representative frame) — click any column heading to sort by it.
    Read the MSD column alongside the sizes: one cluster at an order of magnitude
    more MSD than the others is a bin of outliers, not a conformational state, and
    the summary scores will not tell you that.
-9. Click "Color by Cluster" to visualize. Note this colours *frames*, not atoms, so a
-   single rendered frame comes out in that frame's cluster colour.
-10. Click "Go to Representative" to navigate to medoid frames, or use **Frame
-    Overlay** to show the selected cluster's top *N* frames at once
-11. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD,
+8. Click "Color by Cluster" to visualize. Note this colours *frames*, not atoms, so a
+   single rendered frame comes out in that frame's cluster colour. It also redefines
+   VMD's `BGR` colour scale to the plugin's muted ramp, so a cluster is the same
+   colour in the 3D view as it is in every plot.
+9. Click "Go to Representative" to navigate to medoid frames, or use **Frame
+   Overlay** to show the selected cluster's top *N* frames at once
+10. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD,
     **Export Clusters...** to write one trajectory file per cluster, or **Export Top
     Frames...** for the top-*N* frame indices of every cluster. **Similarity** opens
     the iSIM compactness/outlier analysis.
-12. **Figures** (right): each button carries a thumbnail of the plot it opens, and
-    every plot opens as a tab in this view rather than as a separate window. The bar
-    above the tabs sets the **font size** of the selected plot and closes plots
-    (**✖ Close** / **✖ All**); exporting is in the toolbar, with everything else.
-    The launcher folds itself away when the first plot opens so the canvas gets the
-    room; its header reopens it.
-13. Plots redraw to fit whenever the pane is resized
-14. **Help** (right) carries the Quick Start and every algorithm's **References**
+11. **Figures** (right): the launcher is a single scrolling strip of tiles across the
+    top, each carrying a thumbnail of the plot it opens; drag it sideways (or roll the
+    wheel over it) to reach the rest. It stays the same height whether or not a plot
+    is open, so opening a second plot never resizes the first. Every plot opens as a
+    tab below it rather than as a separate window, and each tab carries an **✕** that
+    closes it. Font size is in **Settings**; exporting is in the toolbar.
+12. Plots redraw to fit whenever the pane is resized
+13. **Help** (right) carries the Quick Start and every algorithm's **References**
 
 ### Exporting
 
@@ -275,12 +277,21 @@ there is nothing to confirm.
   reconfiguring the named font never reaches a widget; making this work needs the
   plugin to own a named font across every widget class, which it does so far only
   for the tables
-- **Plot font size** — the baseline font size new plots start at (the shared bar on
-  the Figures view sets the size of the plot you are looking at)
+- **Plot font size** — the font size plots are drawn at. It applies to plots already
+  open as well as to new ones, and is the only place the size is set: the per-plot
+  spinbox the Figures view used to carry is gone
 - **Titles inside plots** — off by default, since the tab already names the plot.
   Informational captions (a skipped-K caveat, a units qualifier, a computed mean) are
   always drawn regardless, and exported images re-enable the title because an exported
   figure has no tab to identify it by.
+
+The dialog's **MDANCE Backend** group reports which backend this VMD found — the
+native library loaded in-process, or the `mdance-cli` subprocess — with its path,
+a **Browse...** to point at a binary the search missed, and **Re-detect** to run
+the search again after installing one. It lives here rather than in the input
+column because it is a property of the machine, read once when something is
+wrong: detection still runs when the plugin window opens, whether or not this
+dialog is ever opened.
 
 The dialog's **Advanced** group holds one switch:
 
@@ -311,7 +322,7 @@ set env(MDANCE_CLI) "/path/to/mdance-cli"
 set env(MDANCE_LIB) "/path/to/mdance_tcl.so"
 ```
 
-The plugin also searches for the binary and library in the plugin directory and common build paths. You can configure the path interactively from the **MDANCE Backend** group in the plugin's left column.
+The plugin also searches for the binary and library in the plugin directory and common build paths. You can configure the path interactively from the **MDANCE Backend** group in **Settings** (the ⚙ in the toolbar).
 
 ## Architecture
 

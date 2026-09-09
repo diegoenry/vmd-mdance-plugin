@@ -3,3 +3,9 @@
 *.tmp
 *.swp
 *.swo
+
+# Manuscript drafts and their build artefacts. The paper is written against
+# this repo but is not part of it: the LaTeX goes to Overleaf and the figures
+# are regenerated from the plugin, so keeping ~3 MB of PNGs and a .docx in the
+# source history buys nothing.
+paper/
