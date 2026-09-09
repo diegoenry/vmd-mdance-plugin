@@ -424,6 +424,198 @@ give a label for every frame."
     return $labels
 }
 
+# top_frames - The $m member frames of $cluster closest to that cluster's
+# representative, nearest first (element 0 IS the representative). Returns
+# absolute VMD frame numbers.
+#
+# Ranking is by mean square deviation from the representative, computed exactly
+# the way representative_rmsd_matrix does it: the summed squared coordinate
+# differences over the selection, divided by the atom count. That is MSD in
+# MDANCE's sense, so the ordering agrees with the metric the clustering used.
+#
+# One honest caveat, worth knowing before comparing against MDANCE directly:
+# MDANCE's own best_frames_indices_*.csv ranks by distance to the cluster
+# CENTROID, whereas this ranks by distance to the MEDOID -- the representative
+# the plugin already displays and exports. The two orderings agree closely but
+# are not identical.
+proc ::mdance::top_frames {results cluster m} {
+    foreach key {labels representatives molid atomsel nClusters} {
+        if {![dict exists $results $key]} {
+            error "This result has no \"$key\", so its frames cannot be ranked."
+        }
+    }
+    if {![string is integer -strict $cluster] || $cluster < 0
+        || $cluster >= [dict get $results nClusters]} {
+        error "No such cluster: $cluster."
+    }
+    if {![string is integer -strict $m] || $m < 1} {
+        error "The number of frames must be a whole number of at least 1."
+    }
+
+    set molid [dict get $results molid]
+    set sel_text [dict get $results atomsel]
+    # Re-reading coordinates needs the original molecule; a session can be
+    # loaded without it (load_session says so explicitly).
+    if {[lsearch -exact [molinfo list] $molid] < 0} {
+        error "Source molecule $molid is no longer loaded, so frames cannot be ranked."
+    }
+
+    set rep_abs [abs_frame $results [lindex [dict get $results representatives] $cluster]]
+    if {$rep_abs < 0} {
+        error "Cluster $cluster has no representative frame in the current trajectory."
+    }
+
+    # Member sample indices, and the absolute frame each maps to. A sample the
+    # frame map cannot place yields -1 and is dropped rather than silently
+    # standing in for an unrelated frame.
+    set labels [dict get $results labels]
+    set members {}
+    for {set i 0} {$i < [llength $labels]} {incr i} {
+        if {[lindex $labels $i] != $cluster} continue
+        set af [abs_frame $results $i]
+        if {$af >= 0} { lappend members $af }
+    }
+    if {[llength $members] == 0} {
+        error "Cluster $cluster has no frames in the current trajectory."
+    }
+
+    set sel [atomselect $molid $sel_text]
+    set natoms [$sel num]
+    if {$natoms == 0} {
+        $sel delete
+        error "Atom selection '$sel_text' matched 0 atoms."
+    }
+
+    set ranked {}
+    set rc [catch {
+        set ref {}
+        foreach atom [_frame_coords $sel $sel_text $rep_abs $natoms] {
+            foreach v $atom { lappend ref $v }
+        }
+        set total [llength $members]
+        set every [_tick_every $total]
+        set done 0
+        foreach af $members {
+            set sum_sq 0.0
+            set k 0
+            foreach atom [_frame_coords $sel $sel_text $af $natoms] {
+                foreach v $atom {
+                    set d [expr {$v - [lindex $ref $k]}]
+                    set sum_sq [expr {$sum_sq + $d * $d}]
+                    incr k
+                }
+            }
+            lappend ranked [list [expr {$sum_sq / $natoms}] $af]
+            incr done
+            # live=0: this runs from a Results-tab button, which does not hold
+            # ::mdance::running, so it reports progress but does not deliver
+            # user input (see _extract_tick).
+            if {$done % $every == 0 || $done == $total} {
+                _extract_tick "Ranking cluster $cluster frames" $done $total 0
+            }
+        }
+    } res opts]
+    catch {$sel delete}
+    if {$rc} { return -options $opts $res }
+
+    # -index 0 with -real sorts by MSD; ties keep their trajectory order, so the
+    # result is deterministic.
+    set ranked [lsort -real -index 0 $ranked]
+    set out {}
+    foreach r $ranked {
+        if {[llength $out] >= $m} break
+        lappend out [lindex $r 1]
+    }
+    return $out
+}
+
+# export_top_frames - Write the top-$m frames of every cluster as CSV, with the
+# rank so the ordering is reproducible outside VMD. Returns the row count.
+#
+# The header mirrors MDANCE's own best_frames_indices_*.csv ("frame,cluster")
+# and adds the rank, which that file leaves implicit in its row order -- being
+# explicit means the file survives being sorted.
+proc ::mdance::export_top_frames {filename results m} {
+    if {![dict exists $results nClusters]} {
+        error "This result has no cluster count, so top frames cannot be exported."
+    }
+    set nclusters [dict get $results nClusters]
+    set rows {}
+    set skipped {}
+    for {set c 0} {$c < $nclusters} {incr c} {
+        # One unusable cluster (empty, or a representative the trajectory has
+        # outgrown) must not abort the whole export; record and carry on.
+        if {[catch {top_frames $results $c $m} frames]} {
+            lappend skipped $c
+            continue
+        }
+        set rank 0
+        foreach af $frames {
+            lappend rows "$af,$c,$rank"
+            incr rank
+        }
+    }
+    if {[llength $rows] == 0} {
+        error "No cluster produced any frames to export."
+    }
+    set fp [open $filename w]
+    set rc [catch {
+        puts $fp "# top $m frames per cluster, ranked by MSD from the cluster representative"
+        if {[llength $skipped] > 0} {
+            puts $fp "# clusters with no usable frames (skipped): [join $skipped {, }]"
+        }
+        puts $fp "frame,cluster,rank"
+        foreach r $rows { puts $fp $r }
+    } res opts]
+    # close is where buffered output is flushed, so a full disk surfaces here.
+    if {$rc} {
+        catch {close $fp}
+    } else {
+        set rc [catch {close $fp} res opts]
+        if {$rc} { set res "Failed writing top frames to $filename: $res" }
+    }
+    if {$rc} { return -options $opts $res }
+    return [llength $rows]
+}
+
+# parse_frame_ranges - Turn a "0-100,500,900-1000" specification into a sorted
+# list of unique absolute frame numbers, bounded by the molecule's length.
+# Every malformed piece is named, because silently dropping one would display an
+# overlay the user did not ask for and believe it was complete.
+proc ::mdance::parse_frame_ranges {spec molid} {
+    set total [molinfo $molid get numframes]
+    if {$total == 0} { error "Molecule $molid has no frames loaded." }
+    array set seen {}
+    foreach piece [split $spec ","] {
+        set piece [string trim $piece]
+        if {$piece eq ""} continue
+        if {[regexp {^([0-9]+)$} $piece -> a]} {
+            set b $a
+        } elseif {[regexp {^([0-9]+)\s*-\s*([0-9]+)$} $piece -> a b]} {
+            # ok
+        } else {
+            error "Cannot read \"$piece\" as a frame or a frame range. Use forms like\
+0-100, 500, or 900-1000, separated by commas."
+        }
+        # Strip any leading zeros before comparing: "007" is integer-valid but
+        # expr would read it as octal.
+        scan $a %d a
+        scan $b %d b
+        if {$a > $b} {
+            error "Range \"$piece\" runs backwards ($a is past $b)."
+        }
+        if {$a >= $total} {
+            error "Frame $a is beyond the trajectory, which has $total frame(s) (0-[expr {$total - 1}])."
+        }
+        if {$b >= $total} { set b [expr {$total - 1}] }
+        for {set f $a} {$f <= $b} {incr f} { set seen($f) 1 }
+    }
+    if {[array size seen] == 0} {
+        error "No frames selected. Enter something like 0-100,500,900-1000."
+    }
+    return [lsort -integer [array names seen]]
+}
+
 # _need_cli - Guarantee a usable CLI path, or fail with a message that says what
 # to do. Callers used to run `if {$cli_path eq ""} { init }` and carry on: when
 # init loaded the LIBRARY instead, cli_path stayed empty and the command list

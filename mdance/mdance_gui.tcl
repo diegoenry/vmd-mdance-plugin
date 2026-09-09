@@ -96,6 +96,18 @@ namespace eval ::mdance::gui {
     variable helm_pre_percentage 10
     variable helm_labels_file ""
 
+    # Multi-frame overlay. overlay_rep is the index of the dedicated
+    # representation the overlay owns, so it can be removed without touching any
+    # representation the user made themselves.
+    variable overlay_m 10
+    variable overlay_rep ""
+    variable overlay_molid ""
+    variable overlay_ranges ""
+
+    # Results-table sort state (column, and whether the next click reverses)
+    variable cluster_sort_col ""
+    variable cluster_sort_desc 0
+
     # CLI binary display
     variable cli_display_path ""
 
@@ -1169,24 +1181,30 @@ proc ::mdance::gui::build_results_tab {parent} {
     ttk::labelframe $parent.table -text "Clusters" -padding 10
     pack $parent.table -fill both -expand 1 -padx 10 -pady 5
 
-    # Header
-    ttk::frame $parent.table.header
-    pack $parent.table.header -fill x
-    foreach {col w} {ID 40 Size 60 "%" 60 "Rep. Frame" 80} {
-        ttk::label $parent.table.header.h_[string map {" " _ "%" pct . _} $col] \
-            -text $col -width [expr {$w / 8}] -anchor w -font TkHeadingFont
-        pack $parent.table.header.h_[string map {" " _ "%" pct . _} $col] -side left -padx 3
-    }
-
-    # Scrollable listbox area
+    # A treeview rather than the old fixed-width listbox, so the columns are
+    # real columns and can be sorted -- clusters are far easier to read ordered
+    # by population or by MSD than by index. Follows the Sweep tab's table.
+    #
+    # The numeric columns store BARE numbers (no "%" suffix): sort_cluster_table
+    # decides numeric vs lexical sorting by whether every cell parses as a
+    # number, so a formatted "20.2%" would silently fall back to a lexical sort
+    # that puts 9% after 10%.
     ttk::frame $parent.table.list
     pack $parent.table.list -fill both -expand 1
-    listbox $parent.table.list.lb -height 10 -font TkFixedFont \
+    set cols {id size pct msd rep}
+    ttk::treeview $parent.table.list.tv -columns $cols -show headings -height 10 \
         -yscrollcommand [list $parent.table.list.sb set]
     ttk::scrollbar $parent.table.list.sb -orient vertical \
-        -command [list $parent.table.list.lb yview]
+        -command [list $parent.table.list.tv yview]
+    foreach {c text w} {id Cluster 70  size Size 70  pct "% of frames" 90 \
+                        msd MSD 90  rep "Rep. frame" 90} {
+        $parent.table.list.tv heading $c -text $text \
+            -command [list ::mdance::gui::sort_cluster_table $c]
+        $parent.table.list.tv column $c -width $w -anchor center
+    }
+    $parent.table.list.tv tag configure noise -foreground "#808080"
     pack $parent.table.list.sb -side right -fill y
-    pack $parent.table.list.lb -side left -fill both -expand 1
+    pack $parent.table.list.tv -side left -fill both -expand 1
 
     # Action buttons
     ttk::frame $parent.actions -padding 10
@@ -1206,6 +1224,8 @@ proc ::mdance::gui::build_results_tab {parent} {
         -command ::mdance::gui::save_session_dialog
     ttk::button $parent.actions.load -text "Load Session..." \
         -command ::mdance::gui::load_session_dialog
+    ttk::button $parent.actions.clear -text "Clear Results" \
+        -command ::mdance::gui::clear_results
 
     grid $parent.actions.goto   -row 0 -column 0 -padx 3 -pady 2 -sticky ew
     grid $parent.actions.color  -row 0 -column 1 -padx 3 -pady 2 -sticky ew
@@ -1214,9 +1234,46 @@ proc ::mdance::gui::build_results_tab {parent} {
     grid $parent.actions.split  -row 1 -column 1 -padx 3 -pady 2 -sticky ew
     grid $parent.actions.save   -row 2 -column 0 -padx 3 -pady 2 -sticky ew
     grid $parent.actions.load   -row 2 -column 1 -padx 3 -pady 2 -sticky ew
+    grid $parent.actions.clear  -row 2 -column 2 -padx 3 -pady 2 -sticky ew
     for {set col 0} {$col < 3} {incr col} {
         grid columnconfigure $parent.actions $col -weight 1
     }
+
+    # Frame overlay: show several frames at once for direct visual comparison,
+    # rather than only jumping to one representative.
+    ttk::labelframe $parent.ov -text "Frame Overlay" -padding 10
+    pack $parent.ov -fill x -padx 10 -pady 5
+
+    ttk::label $parent.ov.lm -text "Top"
+    ttk::spinbox $parent.ov.m -textvariable ::mdance::gui::overlay_m \
+        -from 1 -to 200 -width 5
+    ttk::label $parent.ov.lm2 -text "frames of the selected cluster"
+    ttk::button $parent.ov.show -text "Show Overlay" \
+        -command ::mdance::gui::show_cluster_overlay
+    grid $parent.ov.lm   -row 0 -column 0 -sticky w -padx {0 4}
+    grid $parent.ov.m    -row 0 -column 1 -sticky w
+    grid $parent.ov.lm2  -row 0 -column 2 -sticky w -padx {4 10}
+    grid $parent.ov.show -row 0 -column 3 -sticky w
+
+    ttk::label $parent.ov.lr -text "Frame ranges:"
+    ttk::entry $parent.ov.r -textvariable ::mdance::gui::overlay_ranges -width 24
+    ttk::button $parent.ov.showr -text "Show Ranges" \
+        -command ::mdance::gui::show_range_overlay
+    grid $parent.ov.lr    -row 1 -column 0 -columnspan 2 -sticky w -pady {6 0}
+    grid $parent.ov.r     -row 1 -column 2 -sticky ew -padx {4 10} -pady {6 0}
+    grid $parent.ov.showr -row 1 -column 3 -sticky w -pady {6 0}
+
+    ttk::button $parent.ov.clear -text "Clear Overlay" \
+        -command ::mdance::gui::clear_overlay
+    ttk::button $parent.ov.export -text "Export Top Frames..." \
+        -command ::mdance::gui::export_top_frames_dialog
+    grid $parent.ov.clear  -row 2 -column 0 -columnspan 2 -sticky w -pady {6 0}
+    grid $parent.ov.export -row 2 -column 2 -columnspan 2 -sticky w -pady {6 0}
+    ttk::label $parent.ov.note \
+        -text "Top-N ranks a cluster's frames by MSD from its representative, nearest first, so N=1 is the representative alone. Ranges accept forms like 0-100,500,900-1000." \
+        -justify left -wraplength 460 -foreground "#555555"
+    grid $parent.ov.note -row 3 -column 0 -columnspan 4 -sticky w -pady {6 0}
+    grid columnconfigure $parent.ov 2 -weight 1
 
     # Visualization buttons
     ttk::labelframe $parent.plots -text "Visualizations" -padding 10
@@ -1295,20 +1352,32 @@ proc ::mdance::gui::update_results_tab {} {
     $parent.summary.v_db configure -text [fmt_score $results score_daviesBouldin]
 
     # Populate cluster table
-    set lb $parent.table.list.lb
-    $lb delete 0 end
+    set tv $parent.table.list.tv
+    $tv delete [$tv children {}]
 
     set sizes [expr {[dict exists $results clusterSizes] ? [dict get $results clusterSizes] : {}}]
     set reps [expr {[dict exists $results representatives] ? [dict get $results representatives] : {}}]
     set nframes [expr {[dict exists $results nFrames] ? [dict get $results nFrames] : 0}]
+    # clusterMSD is optional: sessions and sweep-loaded runs can lack it, and an
+    # older backend never produced it.
+    set msds [expr {[dict exists $results clusterMSD] ? [dict get $results clusterMSD] : {}}]
 
     for {set i 0} {$i < [llength $sizes]} {incr i} {
         set size [lindex $sizes $i]
-        set pct [expr {$nframes > 0 ? [format "%.1f%%" [expr {100.0 * $size / $nframes}]] : "-"}]
+        set pct [expr {$nframes > 0 ? [format "%.1f" [expr {100.0 * $size / $nframes}]] : "-"}]
         set af [::mdance::abs_frame $results [lindex $reps $i]]
         set rep [expr {$af < 0 ? "-" : $af}]
-        set line [format "%-5d %-8d %-8s %-8s" $i $size $pct $rep]
-        $lb insert end $line
+        set m [lindex $msds $i]
+        if {$m eq "" || ![string is double -strict $m]} {
+            set m "n/a"
+        } else {
+            set m [format "%.4f" $m]
+        }
+        # The item id IS the cluster index, so a selection maps straight back to
+        # a cluster no matter how the rows are currently sorted. Reading the row
+        # POSITION instead is what made the old listbox's Go to Representative
+        # wrong the moment any ordering changed.
+        $tv insert {} end -id $i -values [list $i $size $pct $m $rep]
     }
 
     # Enable/disable visualization buttons
@@ -1331,14 +1400,252 @@ proc ::mdance::gui::update_results_tab {} {
     }
 }
 
-proc ::mdance::gui::goto_selected_rep {} {
-    set lb .mdance.nb.results.table.list.lb
-    set sel [$lb curselection]
+# selected_cluster - The cluster index currently selected in the Results table,
+# or "" (having said so) when nothing is. The treeview item id is the cluster
+# index, so this is correct under any column sort; the old listbox returned a
+# row POSITION, which stopped meaning "cluster N" as soon as rows were reordered.
+proc ::mdance::gui::selected_cluster {{quiet 0}} {
+    set tv .mdance.nb.results.table.list.tv
+    if {![winfo exists $tv]} { return "" }
+    set sel [$tv selection]
     if {$sel eq ""} {
-        tk_messageBox -icon info -title "MDANCE" -message "Select a cluster from the list first."
+        if {!$quiet} {
+            tk_messageBox -icon info -title "MDANCE" \
+                -message "Select a cluster in the table first."
+        }
+        return ""
+    }
+    return [lindex $sel 0]
+}
+
+# sort_cluster_table - Sort the Results table by a column. Numeric when every
+# cell in the column parses as a number, lexical otherwise (so an "n/a" MSD
+# column still sorts sanely); clicking the same heading again reverses it.
+proc ::mdance::gui::sort_cluster_table {col} {
+    variable cluster_sort_col
+    variable cluster_sort_desc
+    set tv .mdance.nb.results.table.list.tv
+    if {![winfo exists $tv]} return
+    if {$col eq $cluster_sort_col} {
+        set cluster_sort_desc [expr {!$cluster_sort_desc}]
+    } else {
+        set cluster_sort_col $col
+        set cluster_sort_desc 0
+    }
+    set rows {}
+    set numeric 1
+    foreach it [$tv children {}] {
+        set v [$tv set $it $col]
+        if {![string is double -strict $v]} { set numeric 0 }
+        lappend rows [list $v $it]
+    }
+    set opts [expr {$numeric ? "-real" : "-dictionary"}]
+    if {$cluster_sort_desc} {
+        set rows [lsort $opts -decreasing -index 0 $rows]
+    } else {
+        set rows [lsort $opts -index 0 $rows]
+    }
+    set i 0
+    foreach r $rows { $tv move [lindex $r 1] {} $i; incr i }
+}
+
+# _overlay_show - Draw $frames as a simultaneous multi-frame overlay, using a
+# representation the overlay OWNS so the user's own representations survive.
+#
+# `mol drawframes` takes a comma-separated frame list (verified against this
+# VMD: it accepts "0,5,10", ranges, and reads the spec back), which is what
+# makes a genuine side-by-side comparison possible rather than stepping frames.
+proc ::mdance::gui::_overlay_show {molid frames what} {
+    variable overlay_rep
+    variable overlay_molid
+    if {[llength $frames] == 0} {
+        tk_messageBox -icon info -title "MDANCE" -message "No frames to show."
         return
     }
-    set cluster_idx [lindex $sel 0]
+    # Drop any previous overlay first: two overlays at once are unreadable, and
+    # leaking a representation per click would fill the user's rep list.
+    clear_overlay 1
+    if {[catch {
+        mol addrep $molid
+        set overlay_rep [expr {[molinfo $molid get numreps] - 1}]
+        set overlay_molid $molid
+        mol modstyle $overlay_rep $molid NewCartoon
+        mol modcolor $overlay_rep $molid ColorID 6
+        mol drawframes $molid $overlay_rep [join $frames ","]
+    } err]} {
+        # Never leave a half-built overlay behind that Clear cannot find.
+        clear_overlay 1
+        tk_messageBox -icon error -title "MDANCE Error" \
+            -message "Could not build the overlay: $err"
+        return
+    }
+    set ::mdance::status "Overlay: $what ([llength $frames] frames)"
+}
+
+# clear_overlay - Remove the overlay's own representation, if it still exists.
+proc ::mdance::gui::clear_overlay {{quiet 0}} {
+    variable overlay_rep
+    variable overlay_molid
+    if {$overlay_rep eq ""} {
+        if {!$quiet} {
+            tk_messageBox -icon info -title "MDANCE" -message "There is no overlay to clear."
+        }
+        return
+    }
+    # Guarded: the molecule may have been unloaded, or the user may have deleted
+    # representations themselves, in which case this index no longer exists.
+    catch {mol delrep $overlay_rep $overlay_molid}
+    set overlay_rep ""
+    set overlay_molid ""
+    if {!$quiet} { set ::mdance::status "Overlay cleared." }
+}
+
+# show_cluster_overlay - Overlay the top-N frames of the selected cluster.
+proc ::mdance::gui::show_cluster_overlay {} {
+    variable overlay_m
+    if {![_busy_guard]} return
+    if {$::mdance::results eq ""} {
+        tk_messageBox -icon info -title "MDANCE" -message "Run a clustering first."
+        return
+    }
+    if {![_chknum $overlay_m "Number of frames" int 1]} return
+    set cluster [selected_cluster]
+    if {$cluster eq ""} return
+    if {[catch {::mdance::top_frames $::mdance::results $cluster $overlay_m} frames]} {
+        set ::mdance::status "Ready"
+        tk_messageBox -icon error -title "MDANCE Error" -message $frames
+        return
+    }
+    # A cluster can hold fewer frames than were asked for; say so rather than
+    # letting the user believe they are looking at N.
+    set got [llength $frames]
+    if {$got < $overlay_m} {
+        set ::mdance::status "Cluster $cluster has only $got frame(s)."
+    }
+    _overlay_show [dict get $::mdance::results molid] $frames \
+        "top $got of cluster $cluster"
+}
+
+# show_range_overlay - Overlay explicit frame ranges, for comparing parts of a
+# trajectory that clustering did not pick out.
+proc ::mdance::gui::show_range_overlay {} {
+    variable overlay_ranges
+    variable mol_selection
+    if {![_busy_guard]} return
+    set molid $mol_selection
+    if {$molid eq "top"} {
+        if {[catch {set molid [molinfo top]}]} {
+            tk_messageBox -icon error -title "MDANCE" -message "No molecule loaded."
+            return
+        }
+    }
+    if {[catch {::mdance::parse_frame_ranges $overlay_ranges $molid} frames]} {
+        tk_messageBox -icon error -title "MDANCE" -message $frames
+        return
+    }
+    _overlay_show $molid $frames "ranges $overlay_ranges"
+}
+
+# export_top_frames_dialog - Write the top-N frames of EVERY cluster, with their
+# rank, so the selection can be reproduced outside VMD.
+proc ::mdance::gui::export_top_frames_dialog {} {
+    variable overlay_m
+    if {![_busy_guard]} return
+    if {$::mdance::results eq ""} {
+        tk_messageBox -icon info -title "MDANCE" -message "Run a clustering first."
+        return
+    }
+    if {![_chknum $overlay_m "Number of frames" int 1]} return
+    set f [tk_getSaveFile -title "Export Top Frames" \
+        -initialfile "top_frames.csv" \
+        -filetypes {{"CSV files" ".csv"} {"All files" "*"}}]
+    if {$f eq ""} return
+    if {[catch {::mdance::export_top_frames $f $::mdance::results $overlay_m} n]} {
+        set ::mdance::status "Ready"
+        tk_messageBox -icon error -title "MDANCE Error" -message $n
+        return
+    }
+    set ::mdance::status "Wrote $n frame rows to [file tail $f]"
+    tk_messageBox -icon info -title "MDANCE" -message "Wrote $n frame row(s) to $f"
+}
+
+# Every Results-tab visualization button that needs a result to be present.
+# Elbow is deliberately absent: it computes its own runs and works from an empty
+# session.
+proc ::mdance::gui::_result_plot_buttons {} {
+    return {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim}
+}
+
+# clear_results - Purge the current clustering result and everything derived
+# from it, so a fresh run starts from a clean session.
+#
+# "Everything derived" is the point: a plot window keeps its own copy of the
+# results dict in the redraw registry, and PRIME / Frame Tools cache frame
+# indices against the molecule they were computed from. Clearing only
+# ::mdance::results would leave those alive, still displaying and exporting
+# numbers from a result the user believes is gone.
+proc ::mdance::gui::clear_results {} {
+    variable prime_results
+    variable prime_molid
+    variable ft_frames
+    variable ft_molid
+    variable sweep_full
+    variable sweep_rows
+    variable cluster_sort_col
+    variable cluster_sort_desc
+
+    # A run in flight is about to write ::mdance::results, and the sweep's
+    # cleanup deletes registered temp files; purging underneath either is how
+    # you get a half-populated table and a deleted input CSV.
+    if {![_busy_guard]} return
+    if {$::mdance::results eq "" && [array size sweep_rows] == 0
+        && $prime_results eq "" && $ft_frames eq ""} {
+        tk_messageBox -icon info -title "MDANCE" -message "There are no results to clear."
+        return
+    }
+    set ans [tk_messageBox -icon question -type okcancel -title "MDANCE" \
+        -message "Clear the current clustering result, the sweep table, the PRIME and Frame Tools selections, and close the plot windows?\n\nExported files and saved sessions are not affected. Any cluster colouring already applied to the molecule is left as it is."]
+    if {$ans ne "ok"} return
+
+    # Close plot windows first: each <Destroy> handler releases that plot's
+    # cached results dict and cancels its pending resize redraw.
+    foreach w [winfo children .] {
+        if {[string match ".mdance_*" $w]} { catch {destroy $w} }
+    }
+
+    set ::mdance::results ""
+    array unset sweep_full
+    array set sweep_full {}
+    array unset sweep_rows
+    array set sweep_rows {}
+    set prime_results ""
+    set prime_molid ""
+    set ft_frames ""
+    set ft_molid ""
+    set cluster_sort_col ""
+    set cluster_sort_desc 0
+    clear_overlay 1
+
+    # Reset the Results tab display.
+    set parent .mdance.nb.results
+    if {[winfo exists $parent]} {
+        catch {$parent.table.list.tv delete [$parent.table.list.tv children {}]}
+        foreach tag {algo nclust ch db} {
+            catch {$parent.summary.v_$tag configure -text "-"}
+        }
+        foreach b [_result_plot_buttons] {
+            catch {$parent.plots.$b configure -state disabled}
+        }
+    }
+    # And the other tabs' result views.
+    catch {.mdance.nb.sweep.res.tv delete [.mdance.nb.sweep.res.tv children {}]}
+    catch {.mdance.nb.prime.res.tv delete [.mdance.nb.prime.res.tv children {}]}
+    set ::mdance::status "Results cleared."
+}
+
+proc ::mdance::gui::goto_selected_rep {} {
+    set cluster_idx [selected_cluster]
+    if {$cluster_idx eq ""} return
     if {[catch {::mdance::goto_representative $cluster_idx} err]} {
         tk_messageBox -icon error -title "MDANCE Error" -message $err
     }

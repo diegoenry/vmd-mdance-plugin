@@ -95,4 +95,44 @@ th::test "empty fields still mean the documented defaults" {
     th::eq {0 1 2 3 4 5 6 7 8 9} [::mdance::frame_list 0 {} {} {}]
 }
 
+th::section "parse_frame_ranges - the frame-overlay range specification"
+# The stub molecule has 100 frames (0..99).
+set ::vmdstub::numframes 100
+
+th::test "a single frame" {
+    th::eq {5} [::mdance::parse_frame_ranges "5" 0]
+}
+th::test "a range is inclusive at both ends" {
+    th::eq {3 4 5} [::mdance::parse_frame_ranges "3-5" 0]
+}
+th::test "several comma-separated pieces, sorted and deduplicated" {
+    th::eq {0 1 2 7 20 21} [::mdance::parse_frame_ranges "20-21,0-2,7,1" 0]
+}
+th::test "whitespace around pieces and dashes is tolerated" {
+    th::eq {3 4 5 9} [::mdance::parse_frame_ranges " 3 - 5 , 9 " 0]
+}
+th::test "a range that overruns the trajectory is clamped, not rejected" {
+    # Clamping the END is friendly; a START past the end is a real mistake.
+    th::eq 100 [llength [::mdance::parse_frame_ranges "0-500" 0]]
+}
+th::test "a start beyond the trajectory is refused, naming the real length" {
+    th::throws {::mdance::parse_frame_ranges "500-600" 0} "*100 frame(s)*"
+}
+th::test "a backwards range is refused" {
+    th::throws {::mdance::parse_frame_ranges "9-3" 0} "*runs backwards*"
+}
+th::test "unreadable text is refused, and quoted back" {
+    th::throws {::mdance::parse_frame_ranges "1-2,abc" 0} "*abc*"
+    th::throws {::mdance::parse_frame_ranges "1..5" 0} "*1..5*"
+    th::throws {::mdance::parse_frame_ranges "-5" 0} "*-5*"
+}
+th::test "an empty specification is refused rather than silently showing nothing" {
+    th::throws {::mdance::parse_frame_ranges "" 0} "*No frames selected*"
+    th::throws {::mdance::parse_frame_ranges " , , " 0} "*No frames selected*"
+}
+th::test "leading zeros are decimal, not octal" {
+    # expr would read "010" as octal 8; scan %d keeps it decimal.
+    th::eq {8 9 10} [::mdance::parse_frame_ranges "008-010" 0]
+}
+
 exit [th::done "unit:frames"]
