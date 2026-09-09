@@ -46,7 +46,14 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
 - **Session save/load** - save a result (with its parameters and frame map) to a
   `.mdance` file and reopen it later
 - **Plots as tabs** in the Figures view, with auto-resize and one shared bar for
-  font size and CSV / PS / PNG export
+  font size and CSV / PS / PNG export; each launcher button carries a thumbnail of
+  the plot it opens
+- **One toolbar** carrying Run (which names the selected algorithm), Cancel, Clear,
+  Help and Settings, and a toggle that folds the whole input column away
+- **Foldable parameter sections** — the algorithms ship usable defaults, so the
+  details stay out of the way until you open them
+- **Validated selection** — the molecule chooser lists what is actually loaded, and
+  the atom selection reports its atom count as you type
 - **Native library mode** - pass coordinates directly in memory (no temp files)
 
 > **Scope note.** MDANCE's *SHINE* (pathway/ensemble) method clusters *whole
@@ -130,48 +137,84 @@ package require mdance
 mdance::gui
 ```
 
-### Workflow
+### The window
 
-The window is split: everything you set is in the left column, everything the run
-produces is on the right, with one status band across the bottom.
+```
+ ◧ Hide setup │ ▶ Run KMeans │ ■ Cancel │ ↻ Clear        ℹ Help   ⚙ Settings
+├──────────────────────┬────────────────────────────────────────────────────┤
+│  Molecule            │  Results │ Figures │ Sweep │ PRIME │ Help          │
+│  ▶ Frame Range       │                                                    │
+│  Preview  Frame Tools│    the result of the run, and the plots it feeds    │
+│  Algorithm  ( ) ...  │                                                    │
+│  ▶ KMeans Parameters │                                                    │
+│  Elbow Plot...       │                                                    │
+│  ▶ MDANCE Backend    │                                                    │
+├──────────────────────┴────────────────────────────────────────────────────┤
+│ Done: 6 clusters found                                                    │
+```
+
+Everything you set is in the left column, everything a run produces is on the right,
+one toolbar across the top and one status band along the bottom.
+
+- **Run** sits in the toolbar and names the algorithm it will run, following the
+  **Algorithm** selection in the left column. **Cancel** is beside it and becomes
+  live while a run is going.
+- **Hide setup** folds the whole left column away, and brings it back with
+  everything still typed into it.
+- Sections marked **▶** are folded. Click the header to open one. The algorithm
+  parameters ship folded because every algorithm has usable defaults — the common
+  case is pick one and Run.
+- The **Results**, **PRIME** and **Help** views scroll, so a small window hides
+  nothing.
+
+### Workflow
 
 1. Load a molecule with a trajectory in VMD
 2. Open the MDANCE plugin
 3. **Molecule** (left column): pick the molecule from the chooser — it lists what is
-   actually loaded — and type an atom selection (e.g. `protein and name CA`). The line
-   under the field reports how many atoms match as you type, so a typo or an empty
-   selection is visible before you run rather than after.
-4. Optionally set a **Frame Range** (first/last/stride) to cluster a subset — `Last = -1`
-   means the final frame; `Stride = 10` keeps every 10th frame. **Preview Selection**
-   reports how many frames are selected.
-5. Check the **MDANCE Backend** group — it shows whether native library or CLI mode is active
+   actually loaded, with its frame count — and type an atom selection (e.g.
+   `protein and name CA`). The line under the field reports how many atoms match as
+   you type, so a typo or an empty selection is visible before you run rather than
+   after.
+4. Optionally open **Frame Range** and set first/last/stride to cluster a subset —
+   `Last = -1` means the final frame; `Stride = 10` keeps every 10th frame.
+   **Preview Selection** reports how many frames are selected.
+5. Open **MDANCE Backend** to check whether native library or CLI mode is active
 6. Pick an algorithm in the **Algorithm** list (KMeans, DIVINE, HELM, eQUAL). The
-   parameters below it change to that algorithm's; what you typed into the others is
-   kept. For a batch scan use the **Sweep** view on the right instead.
-7. Set the parameters and press **Run**
+   parameter section below it becomes that algorithm's; what you typed into the
+   others is kept. For a batch scan use the **Sweep** view on the right instead.
+7. Open the parameter section if you want to change anything, then press **Run** in
+   the toolbar
 8. **Results** (right): scores and the cluster table (cluster, size, % of frames, MSD,
    representative frame) — click any column heading to sort by it
-9. Click "Color by Cluster" to visualize
+9. Click "Color by Cluster" to visualize. Note this colours *frames*, not atoms, so a
+   single rendered frame comes out in that frame's cluster colour.
 10. Click "Go to Representative" to navigate to medoid frames, or use **Frame
     Overlay** to show the selected cluster's top *N* frames at once
 11. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD,
     **Export Clusters...** to write one trajectory file per cluster, or **Export Top
     Frames...** for the top-*N* frame indices of every cluster. **Similarity** opens
     the iSIM compactness/outlier analysis.
-12. **Figures** (right): every plot opens as a tab in this view rather than as a
-    separate window. One shared bar above the tabs carries:
+12. **Figures** (right): each button carries a thumbnail of the plot it opens, and
+    every plot opens as a tab in this view rather than as a separate window. One
+    shared bar above the tabs carries:
     - **Font size** for the selected plot
-    - **Export CSV** for the underlying plot data
-    - **Export PS** / **Export PNG** for the figure
-    - **Close** / **Close All** for the open plots
+    - **⇩ CSV** for the underlying plot data
+    - **⇩ PS** / **⇩ PNG** for the figure
+    - **✖ Close** / **✖ All** for the open plots
 13. Plots redraw to fit whenever the pane is resized
 14. **Help** (right) carries the Quick Start and the credits
 
 ### Settings
 
-**Settings...** in the toolbar opens a small dialog. Everything in it applies live.
+**Settings...** in the toolbar opens a small dialog. What works in it applies live —
+there is nothing to confirm.
 
-- **App font size** — the interface font size
+- **App font size** — *currently has no effect, and is left here as a known gap.*
+  VMD's ttk theme pins every widget class to a literal `TkDefaultFont 10`, so
+  reconfiguring the named font never reaches a widget; making this work needs the
+  plugin to own a named font across every widget class, which it does so far only
+  for the tables
 - **Plot font size** — the baseline font size new plots start at (the shared bar on
   the Figures view sets the size of the plot you are looking at)
 - **Titles inside plots** — off by default, since the tab already names the plot.
