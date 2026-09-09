@@ -82,7 +82,10 @@ th::test "a label file of the wrong length is rejected up front" {
     dict set p3 nclusters 2
     dict set p3 merge-scheme centroid
     dict set p3 initial-labels $short
-    th::throws {::mdance::run_clustering helm $p3} "*5 labels but 24 frames*"
+    # The message also names the Setup-tab frame range now, because that is the
+    # usual cause of a count mismatch (labels computed over the whole trajectory
+    # against a strided run, or vice versa).
+    th::throws {::mdance::run_clustering helm $p3} "*5 label(s)*24 frame(s)*Stride*"
     catch {file delete $short}
 }
 catch {file delete $lblfile}

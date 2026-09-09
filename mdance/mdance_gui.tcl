@@ -140,6 +140,9 @@ proc ::mdance::gui::busy_start {msg cancellable} {
     set s .mdance.status
     if {![winfo exists $s.pb]} return
     pack $s.pb -side right -padx {4 0}
+    # Start from the animated form explicitly: a determinate bar left behind by
+    # a previous extraction would ignore `start` and sit frozen at 100%.
+    catch {$s.pb configure -mode indeterminate -value 0}
     catch {$s.pb start 12}
     if {$cancellable} {
         pack $s.cancel -side right -padx {4 0}
@@ -152,9 +155,33 @@ proc ::mdance::gui::busy_stop {} {
     set s .mdance.status
     if {![winfo exists $s.pb]} return
     catch {$s.pb stop}
+    # Return the bar to its indeterminate default so the next operation that
+    # expects the animated form gets it (see busy_start).
+    catch {$s.pb configure -mode indeterminate -value 0}
     catch {pack forget $s.pb}
     catch {$s.cancel configure -state disabled}
     catch {pack forget $s.cancel}
+}
+
+# progress_frac - Drive the status-bar bar as a DETERMINATE indicator, frac in
+# 0.0..1.0. Used by the extraction loops, which know their total frame count and
+# so can show real progress rather than the "something is happening" animation.
+#
+# Deliberately best-effort and total: progress reporting must never be able to
+# break a run. `winfo` does not exist at all under the unit-test stubs (no Tk),
+# and the plugin window can legitimately be absent (headless runtime scenarios,
+# or a window the user closed mid-run), so every step is guarded.
+proc ::mdance::gui::progress_frac {frac} {
+    catch {
+        set s .mdance.status
+        if {[winfo exists $s.pb]} {
+            if {[$s.pb cget -mode] ne "determinate"} {
+                $s.pb stop
+                $s.pb configure -mode determinate -maximum 100
+            }
+            $s.pb configure -value [expr {$frac * 100.0}]
+        }
+    }
 }
 
 # on_close - Window-manager close handler. A CLI run parks in a live event loop,

@@ -122,4 +122,68 @@ th::test "a run started right after a cancel is not killed by the previous run's
     th::eq 24 [llength [dict get $::mdance::results labels]]
 }
 
+# ------------------------------------------------------------------
+th::section "Coordinate extraction reports progress and can be aborted"
+# ------------------------------------------------------------------
+# Extraction is the dominant cost of a run (4-5 s for a 6001-frame trajectory,
+# against ~1 s for the clustering). It used to run without servicing a single
+# event, so the progress bar never moved and Cancel could not even be clicked.
+th::test "extraction advances the status line to a real frame count" {
+    set ::mdance::status "Ready"
+    set ::mdance::cancel_requested 0
+    lassign [::mdance::extract_coordinates $mol "name CA" 0 -1 1] csv natoms nf frames
+    th::eq 24 $nf
+    th::match "*frame 24 of 24*" $::mdance::status \
+        "the last tick must report the final frame"
+    catch {file delete $csv}
+    ::mdance::utils::cleanup
+}
+th::test "a cancel request aborts extraction instead of running to the end" {
+    set ::mdance::cancel_requested 1
+    th::throws {::mdance::extract_coordinates $mol "name CA" 0 -1 1} \
+        "Clustering cancelled."
+    set ::mdance::cancel_requested 0
+    ::mdance::utils::cleanup
+}
+th::test "the flat (library-mode) extraction path aborts too" {
+    set ::mdance::cancel_requested 1
+    th::throws {::mdance::extract_coordinates_flat $mol "name CA" 0 -1 1} \
+        "Clustering cancelled."
+    set ::mdance::cancel_requested 0
+}
+th::test "a stale cancel flag does not abort the NEXT run" {
+    # cancel_requested was only ever cleared inside run_cli_capture, which now
+    # happens AFTER extraction. Without run_clustering arming it, a run that
+    # followed a cancelled one died instantly in its own extraction.
+    set ::mdance::cancel_requested 1
+    set rc [catch {::mdance::run_clustering kmeans $params} err]
+    th::eq 0 $rc "the follow-up run must complete: $err"
+    th::eq 24 [llength [dict get $::mdance::results labels]]
+}
+th::test "the tick interval keeps the overhead bounded on long trajectories" {
+    # ~100 ticks maximum, so a 6001-frame extraction does not pay for 6001
+    # status updates and event-loop passes.
+    th::eq 25 [::mdance::_tick_every 24]
+    th::eq 25 [::mdance::_tick_every 199]
+    th::eq 60 [::mdance::_tick_every 6001]
+    th::ge [expr {6001 / [::mdance::_tick_every 6001]}] 100
+    th::true [expr {6001 / [::mdance::_tick_every 6001] <= 101}]
+}
+th::test "busy_stop leaves the progress bar animated for the next operation" {
+    # Extraction switches the shared bar to determinate; if that leaked, the
+    # next indeterminate use sat frozen at 100%.
+    ::mdance::gui::busy_start "test" 1
+    ::mdance::gui::progress_frac 0.5
+    th::eq determinate [.mdance.status.pb cget -mode]
+    ::mdance::gui::busy_stop
+    th::eq indeterminate [.mdance.status.pb cget -mode]
+}
+th::test "progress_frac is harmless when the plugin window is gone" {
+    # Runs can outlive the window (CLI mode parks in a live event loop), and the
+    # unit-test stubs have no Tk at all, so this must never raise.
+    destroy .mdance
+    th::ok { ::mdance::gui::progress_frac 0.5 }
+    ::mdance::gui::create_window
+}
+
 exit [th::done "runtime:cancel"]

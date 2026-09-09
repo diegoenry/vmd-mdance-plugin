@@ -1220,24 +1220,38 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     }
     set atomsel $::mdance::gui::atom_selection
 
-    # Extract coordinates once (respecting the Setup-tab frame range/stride)
-    set ::mdance::status "Elbow plot: extracting coordinates..."
-    update idletasks
+    # Take the run flag, arm cancellation and show the Cancel button BEFORE
+    # extracting, not after.
+    #
+    # Extraction now services the event loop so its own progress shows and Cancel
+    # works during it (see ::mdance::_extract_tick), and that is only safe while
+    # ::mdance::running is held -- otherwise a Run click on any algorithm tab
+    # would start a clustering run inside this extraction. Arming
+    # cancel_requested first also matters: it is otherwise left set by whatever
+    # was cancelled last, which would abort this extraction on its first tick.
+    set ::mdance::running 1
+    set ::mdance::cancel_requested 0
+    ::mdance::gui::busy_start "Elbow plot: extracting coordinates..." 1
 
+    # Extract coordinates once (respecting the Setup-tab frame range/stride)
     if {[catch {set extract [::mdance::extract_coordinates $molid $atomsel \
             $::mdance::gui::frame_first $::mdance::gui::frame_last $::mdance::gui::frame_stride]} err]} {
-        tk_messageBox -icon error -title "MDANCE" -message "Extraction failed: $err"
+        ::mdance::gui::busy_stop
+        ::mdance::utils::cleanup
+        set ::mdance::running 0
+        if {$err eq "Clustering cancelled."} {
+            set ::mdance::status "Elbow plot cancelled."
+        } else {
+            set ::mdance::status "Ready"
+            tk_messageBox -icon error -title "MDANCE" -message "Extraction failed: $err"
+        }
         return
     }
     lassign $extract csv_path natoms nframes frame_list
 
     # Run for each K (cancellable between K values via the shared status-bar
-    # Cancel). Hold ::mdance::running for the duration so a normal clustering run
-    # (run_guarded checks the same flag) cannot start mid-loop while `update`
-    # keeps the event loop live, and a re-entered elbow run is rejected above.
-    set ::mdance::running 1
-    set ::mdance::cancel_requested 0
-    ::mdance::gui::busy_start "Elbow plot: starting..." 1
+    # Cancel).
+    set ::mdance::status "Elbow plot: starting..."
     set cancelled 0
     set data_points {}
     set failed_ks {}

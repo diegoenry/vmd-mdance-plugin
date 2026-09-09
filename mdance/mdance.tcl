@@ -166,6 +166,47 @@ set is the same in every frame (e.g. \"protein and name CA\")."
     return [$sel get {x y z}]
 }
 
+# _extract_tick - Report extraction progress, service the event loop, and honour
+# a cancel request. Returns the frame counter unchanged; raises to abort.
+#
+# Both extraction loops used to run to completion without servicing a single
+# event. Extraction is the DOMINANT cost of a run -- measured at 4-5 s for a
+# 6001-frame trajectory against 0.1-1.3 s for the clustering itself -- so VMD
+# simply froze for it: the progress bar never advanced, and the status-bar Cancel
+# button could not be pressed at all, because the click was never delivered.
+#
+# Servicing events mid-loop makes the whole GUI live, which is only safe because
+# ::mdance::running is already 1 before extraction starts (run_clustering sets it
+# before dispatching, the sweep and the elbow set it themselves), so run_guarded,
+# _busy_guard, run_parameter_sweep and run_elbow_analysis all refuse to start
+# anything on top of it. Do NOT extract from a context that has not taken that
+# flag, or a second run can be launched into the middle of this one.
+# live=1 delivers user input (so Cancel works) and honours the cancel flag; it
+# REQUIRES the caller to hold ::mdance::running. live=0 is for extraction paths
+# that run outside that flag (post-hoc analysis via extract_csv_for_frames):
+# those still show progress, but only via `update idletasks`, which repaints
+# without delivering button clicks -- so no new re-entrancy is introduced and,
+# by the same token, they are not interruptible.
+proc ::mdance::_extract_tick {what done total {live 1}} {
+    variable status
+    variable cancel_requested
+    if {$live && $cancel_requested} {
+        # The same wording run_guarded already special-cases, so a cancel during
+        # extraction reports as "Cancelled." instead of as a run failure.
+        error "Clustering cancelled."
+    }
+    set pct [expr {$total > 0 ? int(100.0 * $done / $total) : 0}]
+    set status "$what: frame $done of $total ($pct%)"
+    ::mdance::gui::progress_frac [expr {$total > 0 ? double($done) / $total : 0.0}]
+    if {$live} { update } else { update idletasks }
+}
+
+# _tick_every - How often to tick, so the cost stays negligible on long
+# trajectories while short ones still get a final update. ~100 ticks maximum.
+proc ::mdance::_tick_every {total} {
+    return [expr {$total < 200 ? 25 : $total / 100}]
+}
+
 # extract_coordinates - Extract atomic coordinates from VMD molecule to CSV.
 # Optionally restricted to a first:last:stride frame range.
 # CSV row order == frame_list order; this alignment is load-bearing: the
@@ -187,15 +228,23 @@ proc ::mdance::extract_coordinates {molid sel_text {first 0} {last -1} {stride 1
     set csv_path [::mdance::utils::mktmp ".csv"]
     set fp [open $csv_path w]
 
+    set nframes [llength $frames]
+    set every [_tick_every $nframes]
     # Always release the channel and the VMD selection, even if a step in the
-    # loop throws (e.g. the molecule is deleted mid-run, or a write fails).
+    # loop throws (e.g. the molecule is deleted mid-run, a write fails, or the
+    # user cancels -- _extract_tick raises to abort).
     set rc [catch {
+        set done 0
         foreach f $frames {
             set row {}
             foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                 lappend row [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
             }
             puts $fp [join $row ","]
+            incr done
+            if {$done % $every == 0 || $done == $nframes} {
+                _extract_tick "Extracting coordinates" $done $nframes
+            }
         }
     } res opts]
     # close is where buffered output is actually flushed, so a full disk or a
@@ -229,10 +278,17 @@ proc ::mdance::extract_coordinates_flat {molid sel_text {first 0} {last -1} {str
     }
 
     set flat_coords {}
+    set nframes [llength $frames]
+    set every [_tick_every $nframes]
     set rc [catch {
+        set done 0
         foreach f $frames {
             foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                 lappend flat_coords [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
+            }
+            incr done
+            if {$done % $every == 0 || $done == $nframes} {
+                _extract_tick "Extracting coordinates" $done $nframes
             }
         }
     } res opts]
@@ -242,36 +298,129 @@ proc ::mdance::extract_coordinates_flat {molid sel_text {first 0} {last -1} {str
     return [list $flat_coords $natoms [llength $frames] $frames]
 }
 
-# read_labels_file - Read a per-sample cluster-label file into a list.
+# read_labels_file - Read a per-sample cluster-label file into a list, ordered by
+# FRAME, and validate it hard enough that a malformed file cannot be mistaken
+# for a good one.
 #
-# Accepts both the bare one-label-per-line form and the plugin's OWN exported
-# "frame,cluster" CSV (header included) -- feeding that straight back used to
-# push "frame,cluster" and "0,3" through as labels, so a user round-tripping
-# their own export got silent garbage. Takes the last column and validates it.
+# Four dialects occur in practice and all must work:
+#   1. one bare integer label per line          -- the plugin's own normalized _init.csv
+#   2. "frame,cluster" with a one-line header   -- the plugin's own export_labels
+#   3. any number of leading "#" comment lines, then "frame,cluster" rows in
+#      frame order                              -- MDANCE labels_<k>_<init>.csv
+#   4. as (3) but rows GROUPED BY CLUSTER       -- MDANCE <x>_helm_cluster_labels_<k>.csv
+#
+# Two bugs made this function reject or corrupt every file the MDANCE reference
+# pipeline emits, and both are worth naming because they look harmless:
+#
+#   * The header skip was gated on `lineno == 1`, but the MDANCE writers emit TWO
+#     "#" comment lines. Every real NANI/HELM label CSV was therefore rejected
+#     outright with "line 2 is not an integer label" -- including the k=60 NANI
+#     labels file that is the documented way to seed HELM.
+#   * Worse, the label was taken as [lindex [split $line ","] end] and the frame
+#     index in column 0 was discarded, i.e. row order was trusted to be frame
+#     order. That holds for NANI output but NOT for HELM output, which lists
+#     every frame of cluster 0, then cluster 1, and so on. Such a file has one
+#     row per frame, so the caller's label-count check passed and the run
+#     proceeded on data where every label sat on the wrong frame -- a silent
+#     scientific error, which is why the frame column is now authoritative.
+#
+# Returns a list of labels indexed by frame 0..maxframe. Partial coverage is an
+# error, not a short list: see the gap check below.
 proc ::mdance::read_labels_file {path} {
     set fp [open $path r]
     set rc [catch {read $fp} content opts]
     catch {close $fp}
     if {$rc} { return -options $opts $content }
 
-    set labels {}
+    # Pass 1: gather the data rows. A "#" line is a comment wherever it appears,
+    # not only on line 1. Blank lines (including the trailing newline's empty
+    # tail) are skipped too.
+    set rows {}          ;# flat {lineno fields lineno fields ...}
+    set ncols 0
+    set cand 0           ;# non-comment, non-blank lines seen so far
     set lineno 0
     foreach line [split $content "\n"] {
         incr lineno
         set line [string trim $line]
-        if {$line eq ""} continue
-        set val [string trim [lindex [split $line ","] end]]
-        if {$lineno == 1 && ![string is integer -strict $val]} {
-            continue    ;# a header row such as "frame,cluster"
+        if {$line eq "" || [string index $line 0] eq "#"} continue
+        incr cand
+        set fields {}
+        foreach fld [split $line ","] { lappend fields [string trim $fld] }
+        # A bare (un-commented) header such as "frame,cluster" is only possible
+        # as the FIRST data candidate, and is recognised by its last field not
+        # being an integer -- a data row always ends in one. Restricting this to
+        # $cand == 1 keeps a genuinely corrupt row further down from being
+        # silently swallowed as "another header".
+        if {$cand == 1 && ![string is integer -strict [lindex $fields end]]} continue
+        if {$ncols == 0} {
+            set ncols [llength $fields]
+            if {$ncols != 1 && $ncols != 2} {
+                error "Labels file $path: line $lineno has $ncols comma-separated\
+fields; expected either one label per line, or \"frame,cluster\" pairs."
+            }
+        } elseif {[llength $fields] != $ncols} {
+            error "Labels file $path: line $lineno has [llength $fields] field(s)\
+but earlier rows have $ncols, so this is not one consistent table."
         }
-        if {![string is integer -strict $val]} {
-            error "Initial-labels file $path: line $lineno is not an integer label (\"$line\")."
+        lappend rows $lineno $fields
+    }
+    if {[llength $rows] == 0} {
+        error "Labels file $path contains no labels."
+    }
+
+    # Single column: there is no frame index, so row order IS frame order.
+    if {$ncols == 1} {
+        set labels {}
+        foreach {ln fields} $rows {
+            set v [lindex $fields 0]
+            if {![string is integer -strict $v]} {
+                error "Labels file $path: line $ln is not an integer label (\"$v\")."
+            }
+            lappend labels $v
         }
-        lappend labels $val
+        return $labels
     }
-    if {[llength $labels] == 0} {
-        error "Initial-labels file $path contains no labels."
+
+    # Two columns: column 0 is the frame index and column 1 the label. Place each
+    # label AT its frame instead of trusting row order (dialect 4 above).
+    array set byframe {}
+    set maxf -1
+    foreach {ln fields} $rows {
+        lassign $fields f v
+        if {![string is integer -strict $f]} {
+            error "Labels file $path: line $ln has a non-integer frame index (\"$f\")."
+        }
+        if {![string is integer -strict $v]} {
+            error "Labels file $path: line $ln is not an integer label (\"$v\")."
+        }
+        if {$f < 0} {
+            error "Labels file $path: line $ln has a negative frame index ($f)."
+        }
+        if {[info exists byframe($f)]} {
+            error "Labels file $path: frame $f is listed twice (line $ln). A label\
+file must name each frame at most once."
+        }
+        set byframe($f) $v
+        if {$f > $maxf} { set maxf $f }
     }
+
+    # Gaps mean the file does not label every frame it spans. A TRIMMED MDANCE
+    # result looks exactly like this -- HELM trimming discards whole clusters, so
+    # its label CSV carries only the surviving frames (e.g. 1577 rows whose
+    # indices still run to 6000) -- and so does a "best frames" file. Neither can
+    # seed a run that needs one label per frame, and saying which file this is
+    # beats the raw count mismatch the caller used to report.
+    set have [array size byframe]
+    if {$have != $maxf + 1} {
+        set missing [expr {$maxf + 1 - $have}]
+        error "Labels file $path labels $have frame(s) but its highest frame index\
+is $maxf, leaving $missing frame(s) in 0..$maxf unlabelled. This is what a\
+TRIMMED result or a \"best frames\" file looks like; an input label file must\
+give a label for every frame."
+    }
+
+    set labels {}
+    for {set f 0} {$f <= $maxf} {incr f} { lappend labels $byframe($f) }
     return $labels
 }
 
@@ -296,8 +445,14 @@ proc ::mdance::run_clustering {algorithm params} {
     variable results
     variable status
     variable running
+    variable cancel_requested
 
     set running 1
+    # Arm cancellation for THIS run. cancel_requested is otherwise only cleared
+    # inside run_cli_capture, which now happens after extraction -- so a cancel
+    # left set by a previous run would abort the next run's extraction instantly,
+    # before the backend ever started.
+    set cancel_requested 0
 
     # Ensure backend is available
     if {[catch {init} err]} {
@@ -410,7 +565,13 @@ proc ::mdance::run_clustering_library {algorithm params} {
             } elseif {[dict exists $params initial-labels]} {
                 set init_labels [read_labels_file [dict get $params initial-labels]]
                 if {[llength $init_labels] != $nframes} {
-                    error "Initial-labels file has [llength $init_labels] labels but $nframes frames were extracted."
+                    # Naming both counts AND the frame range matters: the
+                    # usual cause is a label file computed over the whole
+                    # trajectory while the Setup tab restricts first/last/stride
+                    # (or vice versa), which reads as a mysterious file error.
+                    error "Initial-labels file gives [llength $init_labels] label(s)\
+but $nframes frame(s) were extracted. A label file must cover exactly the frames\
+being clustered -- check the Setup tab's First/Last/Stride against the file."
                 }
             } else {
                 # Auto pre-cluster with KMeans
@@ -745,7 +906,13 @@ proc ::mdance::run_clustering_cli {algorithm params} {
             if {[dict exists $params initial-labels]} {
                 set init_labels [read_labels_file [dict get $params initial-labels]]
                 if {[llength $init_labels] != $nframes} {
-                    error "Initial-labels file has [llength $init_labels] labels but $nframes frames were extracted."
+                    # Naming both counts AND the frame range matters: the
+                    # usual cause is a label file computed over the whole
+                    # trajectory while the Setup tab restricts first/last/stride
+                    # (or vice versa), which reads as a mysterious file error.
+                    error "Initial-labels file gives [llength $init_labels] label(s)\
+but $nframes frame(s) were extracted. A label file must cover exactly the frames\
+being clustered -- check the Setup tab's First/Last/Stride against the file."
                 }
                 set norm_csv [::mdance::utils::mktmp "_init.csv"]
                 set nfp [open $norm_csv w]
@@ -977,13 +1144,23 @@ proc ::mdance::extract_csv_for_frames {molid sel_text frames} {
     }
     set csv [::mdance::utils::mktmp ".csv"]
     set fp [open $csv w]
+    set nframes [llength $frames]
+    set every [_tick_every $nframes]
     set rc [catch {
+        set done 0
         foreach f $frames {
             set row {}
             foreach atom [_frame_coords $sel $sel_text $f $natoms] {
                 lappend row [lindex $atom 0] [lindex $atom 1] [lindex $atom 2]
             }
             puts $fp [join $row ","]
+            incr done
+            # live=0: this runs from post-hoc analysis, which does NOT hold
+            # ::mdance::running, so delivering user input here would let a
+            # clustering run start on top of it. Progress only, no cancel.
+            if {$done % $every == 0 || $done == $nframes} {
+                _extract_tick "Reading frames" $done $nframes 0
+            }
         }
     } res opts]
     if {$rc} {

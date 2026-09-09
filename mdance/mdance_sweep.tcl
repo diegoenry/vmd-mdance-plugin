@@ -215,6 +215,9 @@ proc ::mdance::gui::run_parameter_sweep {} {
     # concurrent run whose cleanup deletes this sweep's input CSV mid-grid.
     set ::mdance::running 1
     set sweep_cancel 0
+    # Arm the shared cancel flag too. Extraction below checks it, so a stale 1
+    # left by a previously cancelled run would abort this sweep instantly.
+    set ::mdance::cancel_requested 0
     # Guard the widget calls: the confirmation dialog above runs a nested event
     # loop, so the window can already be gone by the time we get here. An error
     # raised at this point would escape past the epilogue that clears these
