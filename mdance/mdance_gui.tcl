@@ -320,7 +320,7 @@ proc ::mdance::gui::create_window {} {
     toplevel $w
     wm title $w "MDANCE Clustering"
     wm geometry $w 820x600
-    wm minsize $w 640 420
+    wm minsize $w 800 420
     wm resizable $w 1 1
     # Closing the window mid-run would take the Cancel button with it, leaving a
     # backend child running with nothing able to stop it.
@@ -353,31 +353,49 @@ proc ::mdance::gui::create_window {} {
     pack $w.tools -side top -fill x -padx 5 -pady {5 0}
 
     ttk::button $w.tools.hide -style Mdance.Toolbutton.TButton \
-        -text "\u25E7 Hide setup" -command ::mdance::gui::toggle_setup_pane
+        -text "\u25E7 Hide" -command ::mdance::gui::toggle_setup_pane
     ttk::separator $w.tools.s1 -orient vertical
     ttk::button $w.tools.run -style Mdance.Run.TButton \
         -text "\u25B6 Run" -command ::mdance::gui::run_current
+    ttk::button $w.tools.elbow -style Mdance.Toolbutton.TButton \
+        -text "\u221F Elbow" -command ::mdance::gui::run_elbow_current
     ttk::button $w.tools.cancel -style Mdance.Toolbutton.TButton \
         -text "\u25A0 Cancel" -command ::mdance::request_cancel -state disabled
     ttk::separator $w.tools.s2 -orient vertical
     ttk::button $w.tools.clear -style Mdance.Toolbutton.TButton \
-        -text "\u21BB Clear" -command ::mdance::gui::clear_results
+        -text "\u21BB" -width 3 -command ::mdance::gui::clear_results
+    ttk::separator $w.tools.s3 -orient vertical
+    ttk::button $w.tools.excsv -style Mdance.Toolbutton.TButton \
+        -text "\u21E9 CSV" -command ::mdance::gui::export_current_csv -state disabled
+    ttk::button $w.tools.eximg -style Mdance.Toolbutton.TButton \
+        -text "\u21E9 Image" -command ::mdance::gui::export_current_image -state disabled
     ttk::button $w.tools.help -style Mdance.Toolbutton.TButton \
-        -text "\u2139 Help" -command {::mdance::gui::show_view help}
+        -text "\u2139" -width 3 -command {::mdance::gui::show_view help}
     ttk::button $w.tools.settings -style Mdance.Toolbutton.TButton \
-        -text "\u2699 Settings" -command ::mdance::gui::settings_dialog
+        -text "\u2699" -width 3 -command ::mdance::gui::settings_dialog
 
     pack $w.tools.hide   -side left
     pack $w.tools.s1     -side left -fill y -padx 6 -pady 2
     pack $w.tools.run    -side left
+    pack $w.tools.elbow  -side left -padx {4 0}
     pack $w.tools.cancel -side left -padx {4 0}
     pack $w.tools.s2     -side left -fill y -padx 6 -pady 2
     pack $w.tools.clear  -side left
+    pack $w.tools.s3     -side left -fill y -padx 6 -pady 2
+    pack $w.tools.excsv  -side left
+    pack $w.tools.eximg  -side left -padx {4 0}
     pack $w.tools.settings -side right
     pack $w.tools.help     -side right -padx {0 4}
 
     ttk::separator $w.toolsep -orient horizontal
     pack $w.toolsep -side top -fill x -padx 5 -pady {5 0}
+
+    # Measure what the toolbar wants at full wording, then let it shrink itself
+    # rather than let pack drop buttons off the end.
+    update idletasks
+    set ::mdance::gui::toolbar_need [winfo reqwidth $w.tools]
+    set ::mdance::gui::toolbar_compact 0
+    bind $w.tools <Configure> [list ::mdance::gui::_toolbar_fit $w.tools %w]
 
     ttk::frame $w.nb
     pack $w.nb -fill both -expand 1 -padx 4 -pady 4
@@ -443,6 +461,7 @@ proc ::mdance::gui::create_window {} {
     # ---- right: the result views ------------------------------------------
     ttk::notebook $w.nb.pane.views.nb
     pack $w.nb.pane.views.nb -fill both -expand 1
+    bind $w.nb.pane.views.nb <<NotebookTabChanged>> ::mdance::gui::sync_export_buttons
     foreach {key label} {results "Results" figures "Figures" sweep "Sweep" prime "PRIME" help "Help"} {
         set page [ttk::frame $w.nb.pane.views.nb.$key]
         $w.nb.pane.views.nb add $page -text $label
@@ -514,6 +533,56 @@ proc ::mdance::gui::_fit_wraplengths {root width} {
     }
 }
 
+# _toolbar_fit - drop the toolbar's words before pack drops its buttons.
+#
+# `wm minsize` is a request, not a guarantee: a window manager may ignore it, and
+# a user can always end up narrower than the toolbar wants. When that happens
+# pack unmaps the last-packed slaves silently -- Help and Settings simply were
+# not there -- so the toolbar shortens itself instead. Hysteresis on the way back
+# out, or it oscillates on the boundary as the labels change the width they are
+# being measured against.
+proc ::mdance::gui::_toolbar_fit {tb width} {
+    variable toolbar_compact
+    variable toolbar_need
+    if {![winfo exists $tb] || ![info exists toolbar_need]} return
+    if {$width <= 1} return
+    set compact [expr {[info exists toolbar_compact] && $toolbar_compact}]
+    if {!$compact && $width < $toolbar_need} {
+        _toolbar_labels $tb 1
+        set toolbar_compact 1
+    } elseif {$compact && $width > $toolbar_need + 24} {
+        _toolbar_labels $tb 0
+        set toolbar_compact 0
+    }
+}
+
+# A two-row wrap for widths below even the glyph-only toolbar was tried and
+# removed: `wm minsize` already keeps the window a long way above that (the
+# toolbar asks for ~755 against an 800 floor), so the wrap only ran when the
+# minimum had been defeated, and it cost more moving parts than the case is
+# worth. Below roughly 690 px with minsize ignored, pack will unmap Settings and
+# Help; that is a known and narrow limit, not a silent one.
+
+# _toolbar_labels - full wording, or glyph-only.
+proc ::mdance::gui::_toolbar_labels {tb compact} {
+    variable algo_current
+    set names {kmeans "KMeans" divine "DIVINE" helm "HELM" equal "eQUAL"}
+    set algo [expr {[dict exists $names $algo_current] ? [dict get $names $algo_current] : ""}]
+    set hidden [expr {[info exists ::mdance::gui::setup_hidden] && $::mdance::gui::setup_hidden}]
+    set pane [expr {$hidden ? "\u25E8" : "\u25E7"}]
+    set panew [expr {$hidden ? "Show" : "Hide"}]
+    if {$compact} {
+        set map [list hide $pane run "\u25B6" elbow "\u221F" cancel "\u25A0" \
+                      excsv "\u21E9c" eximg "\u21E9i"]
+    } else {
+        set map [list hide "$pane $panew" run "\u25B6 Run $algo" elbow "\u221F Elbow" \
+                      cancel "\u25A0 Cancel" excsv "\u21E9 CSV" eximg "\u21E9 Image"]
+    }
+    foreach {btn text} $map {
+        catch {$tb.$btn configure -text $text}
+    }
+}
+
 # toggle_setup_pane - hide or restore the whole input column.
 #
 # `forget` on a ttk::panedwindow pane removes it without destroying anything, so
@@ -527,11 +596,11 @@ proc ::mdance::gui::toggle_setup_pane {} {
     if {[info exists setup_hidden] && $setup_hidden} {
         catch {$pane insert 0 $input -weight 0}
         set setup_hidden 0
-        catch {.mdance.tools.hide configure -text "\u25E7 Hide setup"}
+        catch {_toolbar_labels .mdance.tools [expr {[info exists ::mdance::gui::toolbar_compact] && $::mdance::gui::toolbar_compact}]}
     } else {
         catch {$pane forget $input}
         set setup_hidden 1
-        catch {.mdance.tools.hide configure -text "\u25E8 Show setup"}
+        catch {_toolbar_labels .mdance.tools [expr {[info exists ::mdance::gui::toolbar_compact] && $::mdance::gui::toolbar_compact}]}
     }
 }
 
@@ -551,14 +620,192 @@ proc ::mdance::gui::run_current {} {
     }
 }
 
+# run_elbow_current - the toolbar Elbow. Scans the algorithm the input column
+# has selected, which is what makes one shared button unambiguous.
+proc ::mdance::gui::run_elbow_current {} {
+    variable algo_current
+    if {$algo_current eq "equal"} {
+        tk_messageBox -icon info -title "MDANCE" \
+            -message "eQUAL has no K to scan: its cluster count emerges from the radial threshold."
+        return
+    }
+    ::mdance::plots::elbow_plot $algo_current
+}
+
 # sync_run_button - keep the toolbar Run naming the algorithm it will run.
 proc ::mdance::gui::sync_run_button {} {
     variable algo_current
     set b .mdance.tools.run
     if {![winfo exists $b]} return
-    set names {kmeans "KMeans" divine "DIVINE" helm "HELM" equal "eQUAL"}
-    set label [expr {[dict exists $names $algo_current] ? [dict get $names $algo_current] : ""}]
-    $b configure -text "\u25B6 Run $label"
+    variable toolbar_compact
+    _toolbar_labels .mdance.tools [expr {[info exists toolbar_compact] && $toolbar_compact}]
+    # eQUAL derives its own cluster count, so there is no K to scan.
+    catch {.mdance.tools.elbow configure \
+        -state [expr {$algo_current eq "equal" ? "disabled" : "normal"}]}
+}
+
+# ============================================================
+# Shared export
+#
+# Every view that shows data offers the same two actions from the same place in
+# the toolbar, instead of each surface growing its own button with its own
+# wording: the Figures bar had three, Sweep had a fourth, and the Results and
+# PRIME tables -- the two things a user is most likely to want in a paper -- had
+# none at all. The buttons act on whichever view is showing and disable
+# themselves when it has nothing to give.
+# ============================================================
+
+# current_view - the name of the selected result view, or "".
+proc ::mdance::gui::current_view {} {
+    set nb .mdance.nb.pane.views.nb
+    if {![winfo exists $nb]} { return "" }
+    if {[catch {$nb select} cur] || $cur eq ""} { return "" }
+    return [lindex [split $cur .] end]
+}
+
+# _csv_field - quote a field only when it needs it, so the common all-numeric
+# case stays diffable and greppable.
+proc ::mdance::gui::_csv_field {v} {
+    if {[string match {*[",\n]*} $v]} {
+        return "\"[string map {\" \"\"} $v]\""
+    }
+    return $v
+}
+proc ::mdance::gui::_csv_row {fields} {
+    set out {}
+    foreach f $fields { lappend out [_csv_field $f] }
+    return [join $out ","]
+}
+
+# _tv_csv - any ttk::treeview as CSV, using its own headings as the header row.
+proc ::mdance::gui::_tv_csv {tv} {
+    if {![winfo exists $tv]} { return {} }
+    # A header with no rows under it is not something to export -- and it would
+    # have left the button enabled on an empty table.
+    if {![llength [$tv children {}]]} { return {} }
+    set cols [$tv cget -columns]
+    set head {}
+    foreach c $cols { lappend head [$tv heading $c -text] }
+    set out [list [_csv_row $head]]
+    foreach id [$tv children {}] {
+        set row {}
+        foreach c $cols { lappend row [$tv set $id $c] }
+        lappend out [_csv_row $row]
+    }
+    return $out
+}
+
+# _results_provenance - the `#` header that says what produced the numbers.
+# The reference MDANCE CSVs carry one, and a table without it is unusable a week
+# later.
+proc ::mdance::gui::_results_provenance {} {
+    set r $::mdance::results
+    if {$r eq ""} { return {} }
+    set out {}
+    foreach {label key} {algorithm algorithm clusters nClusters frames nFrames} {
+        if {[dict exists $r $key]} { lappend out "# $label: [dict get $r $key]" }
+    }
+    foreach {label key} {calinski_harabasz score_calinskiHarabasz davies_bouldin score_daviesBouldin} {
+        if {[dict exists $r $key]} { lappend out "# $label: [dict get $r $key]" }
+    }
+    foreach {label key} {molecule molid selection atomsel} {
+        if {[dict exists $r $key]} { lappend out "# $label: [dict get $r $key]" }
+    }
+    return $out
+}
+
+# view_csv - the CSV lines behind a view, or {} when it has nothing to export.
+proc ::mdance::gui::view_csv {view} {
+    switch -- $view {
+        results {
+            if {$::mdance::results eq ""} { return {} }
+            return [concat [_results_provenance] [_tv_csv .mdance.nb.results.table.list.tv]]
+        }
+        prime {
+            return [_tv_csv .mdance.nb.prime.res.tv]
+        }
+        sweep {
+            return [_tv_csv .mdance.nb.sweep.res.tv]
+        }
+        figures {
+            set name [::mdance::plots::current_figure]
+            if {$name eq ""} { return {} }
+            if {![info exists ::mdance::plots::csv_data($name)]} { return {} }
+            set d $::mdance::plots::csv_data($name)
+            if {$d eq ""} { return {} }
+            return [split [string trimright $d "\n"] "\n"]
+        }
+    }
+    return {}
+}
+
+# view_has_image - only a plot canvas can be saved as a picture.
+proc ::mdance::gui::view_has_image {view} {
+    if {$view ne "figures"} { return 0 }
+    set name [::mdance::plots::current_figure]
+    if {$name eq ""} { return 0 }
+    return [winfo exists [::mdance::plots::plot_widget $name].c]
+}
+
+# sync_export_buttons - enable each export only where it means something.
+proc ::mdance::gui::sync_export_buttons {} {
+    set v [current_view]
+    catch {.mdance.tools.excsv configure \
+        -state [expr {[llength [view_csv $v]] ? "normal" : "disabled"}]}
+    catch {.mdance.tools.eximg configure \
+        -state [expr {[view_has_image $v] ? "normal" : "disabled"}]}
+}
+
+# export_current_csv - one writer, one dialog, one way of reporting failure.
+proc ::mdance::gui::export_current_csv {} {
+    set v [current_view]
+    # Sweep keeps its own writer: it emits from sweep_rows, the authoritative
+    # dict, rather than from the strings the table happens to be displaying, so
+    # it carries K_requested alongside K_actual and the run status. One button,
+    # the better data path behind it.
+    if {$v eq "sweep"} { sweep_export_csv ; return }
+    set lines [view_csv $v]
+    if {![llength $lines]} {
+        tk_messageBox -icon info -title "MDANCE" \
+            -message "There is nothing to export from this view yet."
+        return
+    }
+    set stem [expr {$v eq "figures" ? [::mdance::plots::current_figure] : "mdance_$v"}]
+    set f [tk_getSaveFile -defaultextension ".csv" \
+        -initialfile "$stem.csv" \
+        -filetypes {{"CSV" ".csv"} {"All files" "*"}} \
+        -title "Export data as CSV"]
+    if {$f eq ""} return
+    if {[catch {
+        set fp [open $f w]
+        # close can fail on a full disk after every write "succeeded", so it is
+        # inside the catch rather than after it.
+        foreach l $lines { puts $fp $l }
+        close $fp
+    } err]} {
+        tk_messageBox -icon error -title "MDANCE" -message "Could not write CSV:\n$err"
+        return
+    }
+    set ::mdance::status "Exported [llength $lines] lines to [file tail $f]"
+}
+
+# export_current_image - the picture of the current view. The format follows the
+# extension the user chooses, so one button covers PNG and PostScript.
+proc ::mdance::gui::export_current_image {} {
+    set v [current_view]
+    if {![view_has_image $v]} {
+        tk_messageBox -icon info -title "MDANCE" \
+            -message "Only a plot can be saved as an image. Open one in Figures first."
+        return
+    }
+    set name [::mdance::plots::current_figure]
+    set f [tk_getSaveFile -defaultextension ".png" \
+        -initialfile "$name.png" \
+        -filetypes {{"PNG image" ".png"} {"PostScript" ".ps"} {"All files" "*"}} \
+        -title "Export figure"]
+    if {$f eq ""} return
+    set fmt [expr {[string tolower [file extension $f]] eq ".ps" ? "ps" : "png"}]
+    ::mdance::plots::save_canvas_image $name $f $fmt
 }
 
 # show_view - raise one of the right-hand result views by name (results, sweep,
@@ -854,7 +1101,9 @@ proc ::mdance::gui::elbow_algo_params {algorithm} {
         pre-percentage $helm_pre_percentage merge-scheme $helm_merge]
 }
 
-# _citation_footer - Put a reference footer at the bottom of an algorithm tab.
+# _citation_footer - One reference block. It used to be pinned to the bottom of
+# each algorithm panel; they all live on the Help view now, so this just packs
+# where it is put.
 #
 # A read-only text widget rather than a label so the DOI can be selected and
 # copied, which is the whole point of showing a citation. Packed -side bottom so
@@ -868,9 +1117,9 @@ proc ::mdance::gui::elbow_algo_params {algorithm} {
 # docs/concepts/clustering-overview.md cites a different title and DOI for the
 # same authors, volume and pages, so at least one is wrong. Tabs with no
 # supplied reference say so rather than showing a guess.
-proc ::mdance::gui::_citation_footer {parent refs} {
-    ttk::labelframe $parent.cite -text "Reference" -padding {8 4}
-    pack $parent.cite -side bottom -fill x -padx 10 -pady {0 8}
+proc ::mdance::gui::_citation_footer {parent refs {name cite} {title "Reference"}} {
+    ttk::labelframe $parent.$name -text $title -padding {8 4}
+    pack $parent.$name -fill x -padx 10 -pady {0 8}
 
     set body [join $refs "\n\n"]
     # Height in display lines: enough for each reference to wrap over a few
@@ -880,15 +1129,15 @@ proc ::mdance::gui::_citation_footer {parent refs} {
     # -width 1 because a text widget's default is 80 columns, and it asks for
     # them: the citation footer alone made every algorithm panel request 688 px.
     # It is packed -fill x, so the real width comes from the container.
-    text $parent.cite.t -height $h -width 1 -wrap word -relief flat -padx 2 -pady 2 \
+    text $parent.$name.t -height $h -width 1 -wrap word -relief flat -padx 2 -pady 2 \
         -font TkDefaultFont -cursor "" -takefocus 0 \
         -background [ttk::style lookup TFrame -background]
-    $parent.cite.t insert end $body
+    $parent.$name.t insert end $body
     # Disable AFTER inserting: a disabled text widget rejects inserts, but still
     # allows the mouse selection that makes the DOI copyable.
-    $parent.cite.t configure -state disabled
-    pack $parent.cite.t -fill x
-    return $parent.cite
+    $parent.$name.t configure -state disabled
+    pack $parent.$name.t -fill x
+    return $parent.$name
 }
 
 # Citations, exactly as supplied by the MDANCE authors.
@@ -1084,7 +1333,21 @@ PRIME predicts the representative frame of a clustered ensemble."
     ttk::label $parent.qs.text -text $help_text -justify left -anchor w
     pack $parent.qs.text -fill x
 
-    ttk::labelframe $parent.ref -text "Reference" -padding 12
+    # Every algorithm's reference lives here rather than under its parameters.
+    # They are read once and never edited, so on the input column they were
+    # permanent furniture in the place the parameters need.
+    ttk::labelframe $parent.refs -text "References" -padding {10 6}
+    pack $parent.refs -fill x -padx 12 -pady {0 12}
+    foreach {algo title refs} [list \
+        kmeans "KMeans NANI" [_refs_nani] \
+        divine "DIVINE"      [_refs_none "DIVINE"] \
+        helm   "HELM"        [_refs_helm] \
+        equal  "eQUAL"       [_refs_none "eQUAL"] \
+        prime  "PRIME"       [_refs_none "PRIME"]] {
+        _citation_footer $parent.refs $refs $algo $title
+    }
+
+    ttk::labelframe $parent.ref -text "Credits" -padding 12
     pack $parent.ref -fill x -padx 12 -pady {0 12}
     ttk::label $parent.ref.t -justify left -anchor w -wraplength 520 \
         -text "Algorithms: MDANCE (Miranda-Quintana group). Backend: CPP-MDANCE.\nHost: VMD, Theoretical and Computational Biophysics Group, UIUC.\nEach algorithm tab carries the citation for the method it runs."
@@ -1214,13 +1477,6 @@ proc ::mdance::gui::build_kmeans_tab {parent} {
         incr row
     }
 
-    ttk::frame $parent.run -padding 10
-    pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.elbow -text "Elbow Plot..." \
-        -command {::mdance::plots::elbow_plot kmeans}
-    pack $parent.run.elbow -side left -padx {6 0}
-
-    _citation_footer $parent [_refs_nani]
 }
 
 proc ::mdance::gui::run_kmeans {} {
@@ -1301,13 +1557,6 @@ proc ::mdance::gui::build_divine_tab {parent} {
     incr row
     grid $parent.params.endp -row $row -column 1 -sticky w -pady 3
 
-    ttk::frame $parent.run -padding 10
-    pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.elbow -text "Elbow Plot..." \
-        -command {::mdance::plots::elbow_plot divine}
-    pack $parent.run.elbow -side left -padx {6 0}
-
-    _citation_footer $parent [_refs_none "DIVINE"]
 }
 
 # _divine_combo_ok - Refuse a DIVINE configuration that would crash the backend
@@ -1488,13 +1737,6 @@ proc ::mdance::gui::build_helm_tab {parent} {
     grid $parent.labels.browse -row 4 -column 2 -sticky w -padx 5 -pady {8 3}
     grid columnconfigure $parent.labels 1 -weight 1
 
-    ttk::frame $parent.run -padding 10
-    pack $parent.run -fill x -padx 10
-    ttk::button $parent.run.elbow -text "Elbow Plot..." \
-        -command {::mdance::plots::elbow_plot helm}
-    pack $parent.run.elbow -side left -padx {6 0}
-
-    _citation_footer $parent [_refs_helm]
 
     # Put the dependent controls into the right state for the initial values.
     _helm_trim_sync
@@ -1682,7 +1924,6 @@ proc ::mdance::gui::build_equal_tab {parent} {
         "eQUAL finds the cluster count automatically from the radial threshold — there is no k to set. Frames left over (trailing points, rejected low-density members) are labeled noise. Only the deterministic seed methods (medoid, comp_sim) and align=none are available in this build."
     pack $parent.note -fill x -padx 10 -pady {0 6}
 
-    _citation_footer $parent [_refs_none "eQUAL"]
 }
 
 proc ::mdance::gui::run_equal {} {
@@ -1874,12 +2115,6 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
         -command ::mdance::plots::on_shared_font
     bind $plotparent.bar.fs <Return> ::mdance::plots::on_shared_font
     ttk::separator $plotparent.bar.sep -orient vertical
-    ttk::button $plotparent.bar.csv -style Mdance.Toolbutton.TButton -text "\u21E9 CSV" \
-        -command ::mdance::plots::export_current_csv
-    ttk::button $plotparent.bar.ps -style Mdance.Toolbutton.TButton -text "\u21E9 PS" \
-        -command [list ::mdance::plots::export_current_image ps]
-    ttk::button $plotparent.bar.png -style Mdance.Toolbutton.TButton -text "\u21E9 PNG" \
-        -command [list ::mdance::plots::export_current_image png]
     ttk::button $plotparent.bar.close -style Mdance.Toolbutton.TButton -text "\u2716 Close" \
         -command ::mdance::plots::close_figure
     ttk::button $plotparent.bar.closeall -style Mdance.Toolbutton.TButton -text "\u2716 All" \
@@ -1887,9 +2122,6 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     pack $plotparent.bar.fl -side left -padx {0 2}
     pack $plotparent.bar.fs -side left -padx {0 6}
     pack $plotparent.bar.sep -side left -fill y -padx 4 -pady 2
-    pack $plotparent.bar.csv -side left -padx 2
-    pack $plotparent.bar.ps -side left -padx 2
-    pack $plotparent.bar.png -side left -padx 2
     # All on the left: packed -side right they were the slaves pack dropped when
     # the pane got narrow, so Close and Close All simply were not there.
     ttk::separator $plotparent.bar.sep2 -orient vertical
@@ -1907,6 +2139,12 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     # box with a plot drawn behind it.
     ttk::label $plotparent.empty -anchor center -foreground "#777777" \
         -text "No plot open.\nPick one above to add it as a tab."
+
+    # The eleven launcher buttons are ~160 px of the Figures pane, which at the
+    # default window size left the plot canvas 96 px tall. Fold the launcher and
+    # the plot gets the room; opening one folds it automatically, and its header
+    # is one click away to pick another.
+    foldable $plotparent.plots 0
 
     ::mdance::plots::sync_shared_bar
 
@@ -1941,15 +2179,36 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
 
     # Six buttons across two rows of five: the old 6-wide grid clipped its last
     # column until the user resized the window.
-    foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
-        set ic [plot_icon $b]
-        if {$ic ne ""} { catch {$plotparent.plots.$b configure -image $ic -compound top} }
-    }
-
+    # A tile per plot: the thumbnail alone on the button, its name on a label
+    # directly underneath. Keeping the caption out of the button lets the image
+    # be big enough to actually read -- inside it, the label and the icon were
+    # competing for the same 4-column width and the names truncated.
+    #
+    # The label is a sibling of the button rather than a child, so the button
+    # keeps the path everything else already uses.
+    set names {pop Population timeline Timeline msd "Cluster MSD" dendro Dendrogram
+               silhouette Silhouette cdist Distances msdpop "MSD/Pop"
+               reprmsd "Rep. RMSD" trans Transitions residence Residence
+               isim Similarity}
     set pcol 0
     foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
-        grid $plotparent.plots.$b -row [expr {$pcol / 4}] -column [expr {$pcol % 4}] \
-            -padx 3 -pady 2 -sticky ew
+        set ic [plot_icon $b]
+        if {$ic ne ""} {
+            # -compound image shows the picture only; -text stays set so the
+            # button still reports what it is.
+            catch {$plotparent.plots.$b configure -image $ic -compound image}
+        }
+        set lbl $plotparent.plots.${b}_cap
+        if {![winfo exists $lbl]} {
+            ttk::label $lbl -text [dict get $names $b] -anchor center \
+                -cursor hand2
+            # The caption is part of the target: clicking it opens the plot too.
+            bind $lbl <Button-1> [list $plotparent.plots.$b invoke]
+        }
+        set r [expr {($pcol / 4) * 2}]
+        set c [expr {$pcol % 4}]
+        grid $plotparent.plots.$b   -row $r          -column $c -padx 6 -pady {6 0} -sticky ew
+        grid $lbl                   -row [expr {$r + 1}] -column $c -padx 6 -pady {1 6} -sticky ew
         incr pcol
     }
     for {set col 0} {$col < 4} {incr col} {
@@ -2031,6 +2290,7 @@ proc ::mdance::gui::update_results_tab {} {
         $pf.msd configure -state disabled
         $pf.msdpop configure -state disabled
     }
+    _sync_plot_captions
 }
 
 # selected_cluster - The cluster index currently selected in the Results table,
@@ -2229,6 +2489,22 @@ proc ::mdance::gui::export_top_frames_dialog {} {
 # _plots_frame - where the plot launcher currently lives. It moved to its own
 # Figures tab; the fallback keeps the older layout (grid inside Results) working
 # for anything that builds the results surface on its own.
+# _sync_plot_captions - the caption under each tile follows its button, so a
+# disabled plot does not read as available.
+proc ::mdance::gui::_sync_plot_captions {} {
+    set pf [_plots_frame]
+    if {$pf eq ""} return
+    foreach b [_result_plot_buttons] {
+        catch {
+            if {[$pf.$b instate disabled]} {
+                $pf.${b}_cap configure -foreground "#9aa4ae"
+            } else {
+                $pf.${b}_cap configure -foreground ""
+            }
+        }
+    }
+}
+
 proc ::mdance::gui::_plots_frame {} {
     foreach f {.mdance.nb.figures.plots .mdance.nb.results.plots} {
         if {[winfo exists $f]} { return $f }
@@ -2303,6 +2579,7 @@ proc ::mdance::gui::clear_results {} {
         foreach b [_result_plot_buttons] {
             catch {$pf.$b configure -state disabled}
         }
+        _sync_plot_captions
     }
     # And the other tabs' result views.
     catch {.mdance.nb.sweep.res.tv delete [.mdance.nb.sweep.res.tv children {}]}
@@ -2411,7 +2688,6 @@ proc ::mdance::gui::build_prime_tab {parent} {
     ttk::button $parent.res.goto -text "Go to Selected Frame" \
         -command ::mdance::gui::goto_prime_frame
     pack $parent.res.goto -side left -pady {6 0}
-    _citation_footer $parent [_refs_none "PRIME"]
 }
 
 proc ::mdance::gui::run_prime_analysis {} {

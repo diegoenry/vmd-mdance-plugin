@@ -1562,10 +1562,22 @@ proc ::mdance::write_frames_to_file {molid seltext frames out_path fmt} {
             $src update
             $src writepdb $tmppdb
             set dest [mol new $tmppdb waitfor all]
-            catch {file delete $tmppdb}
 
+            # Frames are appended by re-reading the one-frame PDB, NOT by
+            # `animate dup`.
+            #
+            # `animate dup` followed by `mol delete` on the same molecule
+            # crashes VMD 2.0.1 intermittently -- "munmap_chunk(): invalid
+            # pointer" or a plain SIGSEGV, raised inside `mol delete` after the
+            # output file has already been written, which is what killed an
+            # export of cluster trajectories. Bisected to the smallest case:
+            # `mol new` + `mol delete` survives every run, adding a single
+            # `animate dup` between them survives 1 in 3, and swapping the dup
+            # for `mol addfile` survives every run with the same frame count.
+            # Nothing about the selections was the cause; the delete ordering
+            # only appeared to matter because the corruption is intermittent.
             for {set i 1} {$i < $n} {incr i} {
-                animate dup frame 0 $dest
+                mol addfile $tmppdb molid $dest waitfor all
                 set last [expr {[molinfo $dest get numframes] - 1}]
                 $src frame [lindex $frames $i]
                 $src update
@@ -1575,19 +1587,40 @@ proc ::mdance::write_frames_to_file {molid seltext frames out_path fmt} {
                 unset d
             }
 
+            catch {file delete $tmppdb}
+
             set nf [molinfo $dest get numframes]
             set allsel [atomselect $dest all]
             animate write $fmt $out_path beg 0 end [expr {$nf - 1}] waitfor all sel $allsel $dest
+
+            # Delete the selection AND unset the variable, before the molecule
+            # it belongs to goes away.
+            #
+            # VMD 2.0 tracks every atomselect with an `upproc_var_<handle>`
+            # variable in the scope that created it and cleans that up when the
+            # proc returns. `$allsel delete` frees the object but leaves the
+            # tracking variable behind, so the cleanup at return runs against a
+            # molecule `mol delete` has already destroyed. That is the
+            # "munmap_chunk(): invalid pointer" / SIGSEGV that killed VMD right
+            # after "Finished with coordinate file ... cluster_0.dcd".
+            #
+            # Bisected against the real crash: deleting allsel without unsetting
+            # it aborts; unsetting it survives; leaving both deletes out aborts
+            # too. It is specifically the selection on $dest that matters, which
+            # is why the loop above already does `$d delete; unset d` -- that one
+            # was found the same way and the fix was never carried down here.
             $allsel delete
+            unset allsel
             mol delete $dest
+            unset dest
         }
     } res opts]
     if {$rc} {
-        catch {$d delete}
-        catch {$allsel delete}
-        catch {mol delete $dest}
+        catch {$d delete ; unset d}
+        catch {$allsel delete ; unset allsel}
+        catch {mol delete $dest ; unset dest}
     }
-    catch {$src delete}
+    catch {$src delete ; unset src}
     if {$rc} { return -options $opts $res }
 }
 

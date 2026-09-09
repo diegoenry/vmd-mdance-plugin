@@ -228,6 +228,16 @@ proc ::mdance::plots::create_plot_window {name title width height} {
     set_plot_title $name $title
     if {$nb ne ""} {
         catch {$nb select $w}
+        # Give the canvas the launcher's height the moment there is something to
+        # draw in it. Only on the first plot, so a user who deliberately reopened
+        # the launcher is not fought with.
+        if {$is_new && [llength [$nb tabs]] == 1} {
+            catch {
+                if {!$::mdance::gui::fold_state(.mdance.nb.figures.plots)} {
+                    ::mdance::gui::fold_toggle .mdance.nb.figures.plots
+                }
+            }
+        }
         sync_shared_bar
     }
     return $w
@@ -376,6 +386,7 @@ proc ::mdance::plots::sync_shared_bar {} {
         }
     }
 
+    catch {::mdance::gui::sync_export_buttons}
     set name [current_figure]
     set state [expr {$name eq "" ? "disabled" : "normal"}]
     foreach child {fs csv ps png close closeall} {
@@ -451,73 +462,147 @@ proc ::mdance::plots::export_image {name fmt} {
     return $res
 }
 
+# save_canvas_image - write a plot to $path, no dialog.
+#
+# Split out of the old _export_image_body so the shared toolbar export and the
+# per-plot one go through the same code: one converter chain, one set of
+# messages, one place to fix.
+# Minimum size a plot is composed at for export. A figure is not the same
+# artefact as the pane it happens to be sitting in: the pane can be 434x96 in a
+# small window, and exporting that verbatim gives a flattened, unusable picture.
+namespace eval ::mdance::plots {
+    variable export_min_w 820
+    variable export_min_h 600
+}
+
+proc ::mdance::plots::save_canvas_image {name path fmt} {
+    variable export_min_w
+    variable export_min_h
+    variable font_sizes
+    set w [plot_widget $name]
+    if {![winfo exists $w.c]} { return 0 }
+    set c $w.c
+
+    # An exported image has no tab or title bar to identify it, so the in-plot
+    # title is forced on for the export and restored afterwards.
+    variable plot_titles
+    set saved $plot_titles
+    set plot_titles 1
+
+    # Compose at a proper figure size when the pane is smaller than one. The
+    # canvas is temporarily taken out of pack and `place`d at the target size --
+    # winfo then reports the real dimensions, so the plot re-lays itself out --
+    # and the font scales with the height, or the labels come out proportionally
+    # tiny in a large image.
+    set cw [winfo width $c]
+    set ch [winfo height $c]
+    set resized 0
+    set packinfo {}
+    set oldfont ""
+    if {$cw < $export_min_w || $ch < $export_min_h} {
+        set tw [expr {$cw > $export_min_w ? $cw : $export_min_w}]
+        set th [expr {$ch > $export_min_h ? $ch : $export_min_h}]
+        if {[winfo manager $c] eq "pack" && $ch > 0} {
+            set packinfo [pack info $c]
+            if {[info exists font_sizes($name)]} {
+                # Size the type for the TARGET canvas, never by the ratio to the
+                # current one: a 98 px pane scaled the font 6x and the labels
+                # collided. 500 px is the height a plot is composed for at the
+                # plugin's normal window size, so this keeps the exported figure
+                # in the proportions the plot was designed in.
+                set oldfont $font_sizes($name)
+                set scaled [expr {int(round(double($oldfont) * $th / 500.0))}]
+                if {$scaled < $oldfont} { set scaled $oldfont }
+                if {$scaled > [expr {$oldfont * 2}]} { set scaled [expr {$oldfont * 2}] }
+                set font_sizes($name) $scaled
+            }
+            pack forget $c
+            place $c -x 0 -y 0 -width $tw -height $th
+            set resized 1
+            update idletasks
+        }
+    }
+
+    catch {do_redraw $name}
+    set rc [catch {_write_canvas $c $path $fmt} err]
+
+    if {$resized} {
+        place forget $c
+        if {$oldfont ne ""} { set font_sizes($name) $oldfont }
+        catch {pack $c {*}$packinfo}
+        update idletasks
+    }
+    set plot_titles $saved
+    catch {do_redraw $name}
+
+    if {$rc} {
+        tk_messageBox -icon error -title "MDANCE" -message "Could not export figure:\n$err"
+        return 0
+    }
+    set ::mdance::status "Exported [file tail $path]"
+    return 1
+}
+
+# _write_canvas - the actual bytes. PostScript is native; PNG goes through a
+# rasteriser, and the whole scroll region is exported rather than just the part
+# that happens to be visible.
+proc ::mdance::plots::_write_canvas {c path fmt} {
+    set opts [list -colormode color]
+    set sr [$c cget -scrollregion]
+    if {[llength $sr] == 4} {
+        lassign $sr x0 y0 x1 y1
+        lappend opts -x $x0 -y $y0 \
+            -width [expr {$x1 - $x0}] -height [expr {$y1 - $y0}]
+    }
+    if {$fmt eq "ps"} {
+        $c postscript -file $path {*}$opts
+        return
+    }
+    set tmpps [::mdance::utils::mktmp .ps]
+    $c postscript -file $tmpps {*}$opts
+
+    # Ghostscript first: ImageMagick shells out to gs for PostScript anyway, and
+    # gs is present on far more machines than IM -- its absence from this list is
+    # why PNG export used to degrade to PostScript on systems that could in fact
+    # render it.
+    set converters {}
+    if {[auto_execok gs] ne ""} {
+        lappend converters [list gs -q -dNOPAUSE -dBATCH -dSAFER \
+            -sDEVICE=png16m -r150 -dEPSCrop -sOutputFile=$path $tmpps]
+    }
+    if {[auto_execok magick] ne ""} { lappend converters [list magick convert -density 150 $tmpps $path] }
+    if {[auto_execok gm] ne ""}     { lappend converters [list gm convert -density 150 $tmpps $path] }
+    if {$::tcl_platform(platform) ne "windows" && [auto_execok convert] ne ""} {
+        lappend converters [list convert -density 150 $tmpps $path]
+    }
+    set ok 0
+    foreach cmd $converters {
+        # -ignorestderr: gs and IM warn on stderr constantly; the exit status is
+        # what says whether it worked.
+        if {![catch {exec -ignorestderr {*}$cmd}] && [file exists $path]} { set ok 1; break }
+    }
+    catch {file delete $tmpps}
+    if {!$ok} {
+        set psout [file rootname $path].ps
+        $c postscript -file $psout {*}$opts
+        return -code error "no PNG rasteriser found (tried gs, magick, gm, convert).\nSaved as PostScript instead: $psout"
+    }
+}
+
 proc ::mdance::plots::_export_image_body {name fmt w c} {
     if {$fmt eq "ps"} {
         set f [tk_getSaveFile -defaultextension ".ps" \
             -filetypes {{"PostScript" ".ps"} {"All files" "*"}} \
             -title "Export Plot as PostScript"]
-        if {$f ne ""} {
-            if {[catch {$c postscript -file $f -colormode color} err]} {
-                tk_messageBox -icon error -title "MDANCE" -message "Failed to save PostScript:\n$err"
-            } else {
-                tk_messageBox -icon info -title "MDANCE" -message "PostScript saved to $f"
-            }
-        }
-    } elseif {$fmt eq "png"} {
+    } else {
         set f [tk_getSaveFile -defaultextension ".png" \
             -filetypes {{"PNG image" ".png"} {"All files" "*"}} \
             -title "Export Plot as PNG"]
-        if {$f eq ""} return
-
-        # Render to a temp PostScript, then rasterize with ImageMagick/GraphicsMagick.
-        set tmpps [::mdance::utils::mktmp .ps]
-        if {[catch {$c postscript -file $tmpps -colormode color} err]} {
-            catch {file delete $tmpps}
-            tk_messageBox -icon error -title "MDANCE" -message "Failed to render plot:\n$err"
-            return
-        }
-
-        # Preference-ordered converters. Skip bare `convert` on Windows, where it
-        # resolves to the System32 FAT->NTFS utility, not ImageMagick. Use
-        # `-ignorestderr` so Ghostscript/IM warnings on stderr are not mistaken
-        # for failure -- success is judged by exec's exit status.
-        set converters {}
-        if {[auto_execok magick] ne ""} { lappend converters [list magick convert $tmpps $f] }
-        if {[auto_execok gm] ne ""}     { lappend converters [list gm convert $tmpps $f] }
-        if {$::tcl_platform(platform) ne "windows" && [auto_execok convert] ne ""} {
-            lappend converters [list convert $tmpps $f]
-        }
-        set ok 0
-        foreach cmd $converters {
-            if {![catch {exec -ignorestderr {*}$cmd}]} { set ok 1; break }
-        }
-        catch {file delete $tmpps}
-        if {$ok} {
-            tk_messageBox -icon info -title "MDANCE" -message "PNG saved to $f"
-        } else {
-            set psout [file rootname $f].ps
-            # The user chose a .png path; this .ps is derived, so it can silently
-            # land on top of an unrelated existing file. Ask first.
-            if {[file exists $psout]} {
-                set ans [tk_messageBox -icon question -type okcancel -title "MDANCE" \
-                    -message "PNG export needs ImageMagick or GraphicsMagick, which were not found.\n\nSave as PostScript instead? This would overwrite the existing file:\n$psout"]
-                if {$ans ne "ok"} {
-                    tk_messageBox -icon info -title "MDANCE" -message "Export cancelled."
-                    return
-                }
-            }
-            if {[catch {$c postscript -file $psout -colormode color} err]} {
-                tk_messageBox -icon error -title "MDANCE" \
-                    -message "PNG export failed and the PostScript fallback also failed:\n$err"
-            } else {
-                tk_messageBox -icon warning -title "MDANCE" \
-                    -message "PNG export requires ImageMagick (magick/convert) or GraphicsMagick (gm).\nSaved as PostScript instead: $psout"
-            }
-        }
     }
+    if {$f eq ""} return
+    save_canvas_image $name $f $fmt
 }
 
-# Get actual canvas dimensions with sensible defaults
 proc ::mdance::plots::canvas_dims {c default_w default_h} {
     update idletasks
     set cw [winfo width $c]

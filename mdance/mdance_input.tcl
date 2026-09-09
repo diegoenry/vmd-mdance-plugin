@@ -125,17 +125,32 @@ proc ::mdance::input::build {parent} {
     # a 500 px column the label was pure width. (Same reasoning, and the same
     # comment, as interactions/gui/input.tcl:78.)
     set mol_combo [ttk::combobox $parent.combo -state readonly -width 18]
-    pack $mol_combo -fill x
-    bind $mol_combo <<ComboboxSelected>> [list ::mdance::input::on_molecule_selected]
+
+    # A manual refresh next to the chooser. The vmd_molecule trace below keeps
+    # the LIST current on its own -- verified: loading a molecule adds it and
+    # deleting one removes it, with no user action -- but it fires on molecules
+    # appearing and disappearing, not on their contents changing. `mol addfile`
+    # into an existing molecule takes it from 24 frames to 48 and the trace says
+    # nothing, so the frame count in the label goes stale. This corrects it
+    # without reopening the plugin.
+    ttk::button $parent.refresh -text "\u21BB" -width 3 \
+        -command ::mdance::input::refresh_molecules
 
     ttk::label $parent.sell -text "Atom selection" -anchor w
-    pack $parent.sell -fill x -pady {8 2}
-
     set sel_entry [ttk::entry $parent.sel -textvariable ::mdance::gui::atom_selection]
-    pack $sel_entry -fill x
-
     set sel_status [ttk::label $parent.status -text "" -anchor w]
-    pack $sel_status -fill x -pady {2 0}
+
+    # grid, not pack: the refresh button has to sit beside the chooser while
+    # everything else stacks under it, and mixing -side right with the default
+    # top-packing in one container put the selection label on the chooser's row.
+    grid $mol_combo       -row 0 -column 0 -sticky ew
+    grid $parent.refresh  -row 0 -column 1 -sticky w -padx {4 0}
+    grid $parent.sell     -row 1 -column 0 -columnspan 2 -sticky ew -pady {8 2}
+    grid $sel_entry       -row 2 -column 0 -columnspan 2 -sticky ew
+    grid $sel_status      -row 3 -column 0 -columnspan 2 -sticky ew -pady {2 0}
+    grid columnconfigure $parent 0 -weight 1
+
+    bind $mol_combo <<ComboboxSelected>> [list ::mdance::input::on_molecule_selected]
 
     # Typing revalidates on a 500 ms debounce; leaving the field or pressing
     # Return does it at once. Without the debounce every keystroke of

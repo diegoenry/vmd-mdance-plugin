@@ -119,10 +119,8 @@ proc ::mdance::gui::build_sweep_tab {parent} {
     ttk::button $parent.resbtns.load -text "Load Selected into Results" \
         -command ::mdance::gui::sweep_load_selected
     ttk::button $parent.resbtns.hm -text "Score Heatmap" -command ::mdance::gui::sweep_heatmap
-    ttk::button $parent.resbtns.csv -text "Export CSV..." -command ::mdance::gui::sweep_export_csv
     pack $parent.resbtns.load -side left -padx {0 6}
     pack $parent.resbtns.hm -side left -padx {0 6}
-    pack $parent.resbtns.csv -side left
 }
 
 # Build the list of selected values for a bool-array selection

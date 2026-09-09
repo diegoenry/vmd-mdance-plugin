@@ -20,10 +20,23 @@ set params [dict create molid $mol atomsel "name CA" nclusters 2 \
 # ------------------------------------------------------------------
 th::section "The Elbow button lives on each algorithm tab, not on Results"
 # ------------------------------------------------------------------
-th::test "KMeans, DIVINE and HELM each have one" {
+th::test "one shared Elbow button, which follows the selected algorithm" {
+    # It moved from a copy under every algorithm's parameters to the toolbar
+    # beside Run. Both dispatch on the Algorithm selection, so the subject is
+    # still unambiguous, and there is now one of each rather than four.
+    th::true [winfo exists .mdance.tools.elbow] "the toolbar needs an Elbow button"
     foreach tab {kmeans divine helm} {
-        th::true [winfo exists .mdance.nb.$tab.run.elbow] "$tab needs an elbow button"
+        th::false [winfo exists .mdance.nb.$tab.run.elbow] \
+            "$tab must no longer carry its own copy"
     }
+    foreach algo {kmeans divine helm} {
+        ::mdance::gui::select_algorithm $algo
+        th::false [.mdance.tools.elbow instate disabled] "$algo has a K to scan"
+    }
+    # eQUAL derives its own cluster count, so there is nothing to scan.
+    ::mdance::gui::select_algorithm equal
+    th::true [.mdance.tools.elbow instate disabled] "eQUAL has no K to scan"
+    ::mdance::gui::select_algorithm kmeans
 }
 th::test "the shared plot grid no longer has one" {
     # It sat in column 4 of a 6-wide grid and was clipped until the window was
