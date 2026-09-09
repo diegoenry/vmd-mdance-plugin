@@ -73,69 +73,48 @@ exports. See [demo/README.md](demo/README.md).
 
 ## Prerequisites
 
-- VMD (1.9.3 or later)
-- CMake 3.15+
-- C++ compiler with C++17 support
-- Eigen3 library
-- Tcl development headers (only for native library mode)
+- **VMD** — verified against 1.9.4 and 2.0.0a7
+- **CMake** 3.15+, a **C++17** compiler, and **git**
+- **Python 3** with numpy — optional, enables one extra backend validation test
+
+Eigen and GoogleTest are fetched automatically by the backend build if they are not
+already installed. Tcl development headers are needed only for the optional
+native-library mode.
 
 ## Installation
 
-### Standard (CLI mode)
+**See [INSTALL.md](INSTALL.md) for the full step-by-step guide.** In short:
 
 ```bash
-cd vmd_plugin
+# 1. build the backend (separate repository -- the plugin will not run without it)
+git clone -b feat-vmd-backend https://github.com/diegoenry/CPP-MDANCE.git
+cd CPP-MDANCE
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+ctest --test-dir build --output-on-failure          # expect 2/2 (or 1/1 without numpy)
+export MDANCE_CLI="$PWD/build/cli/mdance-cli"
+
+# 2. install the plugin
+cd .. && git clone -b feat-reviewer-feedback https://github.com/diegoenry/vmd-mdance-plugin.git
+cd vmd-mdance-plugin
+./tests/run_tests.sh                                 # expect 334 checks passing
 ./install.sh
 ```
 
-This will:
-1. Build the `mdance-cli` binary
-2. Copy plugin files to `~/.vmd/plugins/`
-3. Register the plugin in `~/.vmdrc`
+Then in VMD: **Extensions → Analysis → MDANCE Clustering**.
 
-### With native library (recommended)
+`install.sh` prints `Skipping build: no CMakeLists.txt` — that is correct here. The C++
+backend lives in `CPP-MDANCE`, which you built in step 1; this repository is the plugin
+only. See [STANDALONE.md](STANDALONE.md).
 
-```bash
-cd vmd_plugin
-./install.sh --with-library
-```
-
-This additionally builds and installs the Tcl extension (`mdance_tcl.so`/`.dylib`), which allows the plugin to pass coordinates directly to MDANCE in memory — no temp files, no subprocess overhead. The plugin automatically detects and prefers the library when available, falling back to the CLI binary.
-
-### Custom install location
+Custom install location:
 
 ```bash
 ./install.sh --vmd-plugin-dir /path/to/vmd/plugins/noarch/tcl/mdance1.0
 ```
 
-### Manual installation
-
-1. Build the CLI:
-   ```bash
-   cmake -S .. -B ../build -DBUILD_CLI=ON
-   cmake --build ../build --target mdance-cli
-   ```
-
-2. (Optional) Build the native library:
-   ```bash
-   cmake -S .. -B ../build -DBUILD_CLI=ON -DBUILD_SHARED=ON -DBUILD_TCL=ON
-   cmake --build ../build --target mdance-cli mdance_tcl
-   ```
-
-3. Copy files to VMD plugin directory:
-   ```bash
-   mkdir -p ~/.vmd/plugins/noarch/tcl/mdance1.0
-   cp mdance/*.tcl ~/.vmd/plugins/noarch/tcl/mdance1.0/
-   cp ../build/cli/mdance-cli ~/.vmd/plugins/noarch/tcl/mdance1.0/
-   # If library was built:
-   cp ../build/tcl/mdance_tcl.* ~/.vmd/plugins/noarch/tcl/mdance1.0/
-   ```
-
-4. Add to `~/.vmdrc`:
-   ```tcl
-   lappend auto_path {~/.vmd/plugins/noarch/tcl}
-   vmd_install_extension mdance mdance::gui "Analysis/MDANCE Clustering"
-   ```
+Native library mode (`--with-library`, or `-DBUILD_TCL=ON` in the backend) passes
+coordinates in memory with no temp files, but is **experimental and unverified inside a
+running VMD process** — see INSTALL.md step 5. CLI mode is the tested path.
 
 ## Usage
 

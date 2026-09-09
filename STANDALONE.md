@@ -23,17 +23,24 @@ plugin at a built backend in one of these ways:
    (or set them in `~/.vmdrc`). The Setup tab also has a **Browse...** button for the CLI.
 2. **Copy the built binaries into `mdance/`** — the plugin searches its own directory.
 
-Build the backend in CPP-MDANCE with:
+Build the backend from the `feat-vmd-backend` branch of CPP-MDANCE, which is the branch
+that carries `cli/`, `capi/` and `tcl/`:
+
 ```sh
-cmake -S . -B build -DBUILD_CLI=ON -DBUILD_SHARED=ON -DBUILD_TCL=ON
-cmake --build build --target mdance-cli mdance_tcl
+git clone -b feat-vmd-backend https://github.com/diegoenry/CPP-MDANCE.git
+cd CPP-MDANCE
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release      # BUILD_CLI is ON by default
+cmake --build build -j
 ```
+
+Add `-DBUILD_TCL=ON` for the native library as well (experimental -- see INSTALL.md).
+Eigen and GoogleTest are fetched automatically when absent.
 
 ## Contents
 - `mdance/` — the Tcl plugin (gui, plots, sweep, utils, core, pkgIndex)
-- `install.sh`, `README.md`, `QUICK_START.{md,html}` — installer + user docs
-  (note: `install.sh` expects to run from inside a CPP-MDANCE checkout to build
-  the backend; in this standalone copy use the env-var approach above instead)
+- `install.sh`, `INSTALL.md`, `README.md`, `QUICK_START.{md,html}` — installer + user
+  docs. `install.sh` detects that there is no CMakeLists.txt above it, skips the backend
+  build, and says so; use the env-var approach above. INSTALL.md is the full guide.
 - `notes/` — design/review notes carried over from the build effort, including
   `REVIEW_NOTES.md` (known issues, e.g. the DIVINE `refine` crash) and
   background notes on the port scope, the C API and headless verification.
