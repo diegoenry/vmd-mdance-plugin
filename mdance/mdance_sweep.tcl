@@ -405,7 +405,7 @@ proc ::mdance::gui::sweep_load_selected {} {
     }
     set ::mdance::results $sweep_full($item)
     set ::mdance::status "Loaded sweep run into Results"
-    .mdance.nb select .mdance.nb.results
+    ::mdance::gui::show_view results
     if {[catch {::mdance::gui::update_results_tab} e]} {
         tk_messageBox -icon error -title "MDANCE Error" -message "Could not display results: $e"
     }

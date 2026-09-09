@@ -133,63 +133,218 @@ namespace eval ::mdance::gui {
 
     # Display settings
     variable app_font_size 10
+
+    # Which algorithm's parameter panel the input column is showing, the panels
+    # themselves (built once, so switching preserves what has been typed into
+    # each), and the column they are packed into.
+    variable algo_current "kmeans"
+    variable algo_panels
+    array set algo_panels {}
+    variable algo_host ""
 }
 
+# create_window - the plugin shell: setup and algorithm parameters down the
+# left, result views on the right, one status band across the bottom.
+#
+# The eight sibling tabs this replaces put input (Setup), five mutually
+# exclusive algorithms, a batch sweep and the output surface at the same level,
+# so configuring a run meant leaving the tab that held the molecule and the
+# frame range, and reading the result meant leaving the parameters that produced
+# it. Now the left column is the whole input side -- molecule, frame range,
+# backend, and the parameters of the one algorithm you have selected -- and it
+# stays put while you move between result views.
+#
+# Widget paths are deliberately unchanged. $w.nb is no longer a notebook, but it
+# is still the parent of .setup, .kmeans, .divine, .helm, .equal, .sweep,
+# .results and .prime, so every absolute path in this plugin and the eighteen
+# the test suite pins keep resolving. The panels are placed with `pack -in`,
+# which is legal because each host is a descendant of the panel's parent.
 proc ::mdance::gui::create_window {} {
+    variable algo_current
+    variable algo_panels
+    variable algo_host
+    array unset algo_panels
+
     set w .mdance
     catch {destroy $w}
     toplevel $w
     wm title $w "MDANCE Clustering"
-    wm geometry $w 560x720
+    wm geometry $w 1180x780
+    wm minsize $w 900 560
     wm resizable $w 1 1
     # Closing the window mid-run would take the Cancel button with it, leaving a
     # backend child running with nothing able to stop it.
     wm protocol $w WM_DELETE_WINDOW ::mdance::gui::on_close
 
-    # Create notebook (tabbed interface)
-    ttk::notebook $w.nb
-    pack $w.nb -fill both -expand 1 -padx 5 -pady 5
-
-    # Create tabs
-    set setup_tab [ttk::frame $w.nb.setup]
-    set km_tab [ttk::frame $w.nb.kmeans]
-    set div_tab [ttk::frame $w.nb.divine]
-    set helm_tab [ttk::frame $w.nb.helm]
-    set eq_tab [ttk::frame $w.nb.equal]
-    set sweep_tab [ttk::frame $w.nb.sweep]
-    set prime_tab [ttk::frame $w.nb.prime]
-    set res_tab [ttk::frame $w.nb.results]
-
-    $w.nb add $setup_tab -text "Setup"
-    $w.nb add $km_tab -text "KMeans"
-    $w.nb add $div_tab -text "DIVINE"
-    $w.nb add $helm_tab -text "HELM"
-    $w.nb add $eq_tab -text "eQUAL"
-    $w.nb add $sweep_tab -text "Sweep"
-    $w.nb add $res_tab -text "Results"
-    $w.nb add $prime_tab -text "PRIME"
-
-    build_setup_tab $setup_tab
-    build_kmeans_tab $km_tab
-    build_divine_tab $div_tab
-    build_helm_tab $helm_tab
-    build_equal_tab $eq_tab
-    build_sweep_tab $sweep_tab
-    build_results_tab $res_tab
-    build_prime_tab $prime_tab
-
-    # Status bar (Cancel + progress bar are shown only while a run is active)
+    # The status band is packed FIRST, from the bottom. Packed last -- as it was
+    # -- it is the slave pack drops when the content asks for more height than
+    # the window has, which at the old hard-coded 560x720 meant the only
+    # progress bar and the only Cancel button in the plugin were allocated 1 px
+    # and never appeared on any tab.
     ttk::frame $w.status
-    pack $w.status -fill x -padx 5 -pady {0 5}
+    pack $w.status -side bottom -fill x -padx 5 -pady {0 5}
     ttk::button $w.status.cancel -text "Cancel" -command ::mdance::request_cancel -state disabled
     ttk::progressbar $w.status.pb -mode indeterminate -length 120
     ttk::label $w.status.label -textvariable ::mdance::status -anchor w
     pack $w.status.label -side left -fill x -expand 1
 
-    # Hide the metric selectors (locked to MSD) now that every tab is gridded.
+    ttk::frame $w.nb
+    pack $w.nb -fill both -expand 1 -padx 5 -pady 5
+
+    ttk::panedwindow $w.nb.pane -orient horizontal
+    pack $w.nb.pane -fill both -expand 1
+    ttk::frame $w.nb.pane.input
+    ttk::frame $w.nb.pane.views
+    $w.nb.pane add $w.nb.pane.input -weight 0
+    $w.nb.pane add $w.nb.pane.views -weight 1
+
+    # ---- left: setup, then the selected algorithm's parameters -------------
+    # 500 px: the widest panel is HELM, which requests 484 with its trim grid.
+    set col [_scrollcol $w.nb.pane.input 500]
+
+    set setup_tab [ttk::frame $w.nb.setup]
+    build_setup_tab $setup_tab
+    pack $setup_tab -in $col -fill both -expand 1
+
+    # The algorithm chooser and the panel it drives sit together, directly under
+    # the molecule and frame range they consume. They are children of $w.nb, but
+    # $w.nb.setup is a descendant of $w.nb, so `pack -in` may host them there.
+    set algo_host $setup_tab
+
+    ttk::labelframe $setup_tab.algo -text "Algorithm" -padding {10 6}
+    foreach {key label} {kmeans "KMeans NANI" divine "DIVINE" helm "HELM" equal "eQUAL"} {
+        ttk::radiobutton $setup_tab.algo.$key -text $label \
+            -variable ::mdance::gui::algo_current -value $key \
+            -command [list ::mdance::gui::select_algorithm $key]
+        pack $setup_tab.algo.$key -anchor w -pady 1
+    }
+
+    # Reassert the column order: what you set first at the top, the algorithm and
+    # its parameters in the middle, and the things touched once a session at the
+    # bottom. build_setup_tab packs in its own historical order, which put the
+    # backend path and the Quick Start text above the algorithm.
+    foreach f {mol range preview cli display adv help} { catch {pack forget $setup_tab.$f} }
+    pack $setup_tab.mol     -fill x -padx 10 -pady {10 0}
+    pack $setup_tab.range   -fill x -padx 10 -pady {10 0}
+    pack $setup_tab.preview -fill x -padx 10
+    pack $setup_tab.algo    -fill x -padx 10 -pady {6 0}
+    # (the algorithm panel is packed after .algo by select_algorithm)
+    pack $setup_tab.cli     -fill x -padx 10 -pady {10 0}
+    pack $setup_tab.display -fill x -padx 10 -pady {10 0}
+    pack $setup_tab.adv     -fill x -padx 10 -pady {10 0}
+    pack $setup_tab.help    -fill x -padx 10 -pady 10
+
+    set algo_panels(kmeans) [ttk::frame $w.nb.kmeans]
+    set algo_panels(divine) [ttk::frame $w.nb.divine]
+    set algo_panels(helm)   [ttk::frame $w.nb.helm]
+    set algo_panels(equal)  [ttk::frame $w.nb.equal]
+    build_kmeans_tab $algo_panels(kmeans)
+    build_divine_tab $algo_panels(divine)
+    build_helm_tab   $algo_panels(helm)
+    build_equal_tab  $algo_panels(equal)
+
+    set algo_current "kmeans"
+    select_algorithm kmeans
+
+    # Every explanatory note in the plugin carries a hard -wraplength sized for
+    # the old full-window tab (460, 450, 430...). In a 390 px column those run
+    # off the edge mid-word, so bring any that overflow down to the column.
+    _fit_wraplengths $setup_tab 430
+
+    # ---- right: the result views ------------------------------------------
+    ttk::notebook $w.nb.pane.views.nb
+    pack $w.nb.pane.views.nb -fill both -expand 1
+    foreach {key label} {results "Results" figures "Figures" sweep "Sweep" prime "PRIME"} {
+        set page [ttk::frame $w.nb.pane.views.nb.$key]
+        $w.nb.pane.views.nb add $page -text $label
+        set body($key) [ttk::frame $w.nb.$key]
+        pack $body($key) -in $page -fill both -expand 1
+    }
+    # Results keeps the summary, the cluster table and the actions; the plot
+    # launcher goes to Figures. They are built together because the buttons are
+    # enabled and disabled from the same result.
+    build_results_tab $body(results) $body(figures)
+    build_sweep_tab   $body(sweep)
+    build_prime_tab   $body(prime)
+
+    # Hide the metric selectors (locked to MSD) now that every panel is gridded.
     register_metric_combos $w
 
     return $w
+}
+
+# select_algorithm - show one algorithm's parameter panel in the input column
+# and hide the rest. The panels are built once, so switching keeps whatever the
+# user has already typed into each.
+proc ::mdance::gui::select_algorithm {name} {
+    variable algo_panels
+    variable algo_host
+    variable algo_current
+    if {![info exists algo_panels($name)]} return
+    foreach key [array names algo_panels] {
+        catch {pack forget $algo_panels($key)}
+    }
+    set algo_current $name
+    pack $algo_panels($name) -in $algo_host -after $algo_host.algo \
+        -fill x -padx 10 -pady {2 0}
+    _fit_wraplengths $algo_panels($name) 430
+}
+
+# _fit_wraplengths - clamp any -wraplength wider than the column it now lives
+# in. The values in this plugin (460, 450, 430, 480...) were sized for a
+# full-window tab; nothing re-wraps on its own, so a note wider than its
+# container runs off the edge mid-word instead of flowing.
+proc ::mdance::gui::_fit_wraplengths {root width} {
+    foreach c [winfo children $root] {
+        if {![catch {$c cget -wraplength} wl] && $wl ne "" && $wl > $width} {
+            catch {$c configure -wraplength $width}
+        }
+        _fit_wraplengths $c $width
+    }
+}
+
+# show_view - raise one of the right-hand result views by name (results, sweep,
+# prime). The three callers that used to say `.mdance.nb select .mdance.nb.results`
+# go through here, so the view container is named in one place instead of three.
+# Silent when the window is gone: a CLI run sits in a live event loop, so the
+# user can close the plugin while it is still going.
+proc ::mdance::gui::show_view {name} {
+    set nb .mdance.nb.pane.views.nb
+    if {![winfo exists $nb]} return
+    catch {$nb select $nb.$name}
+}
+
+# _scrollcol - a vertically scrolling column. The input side stacks the molecule,
+# the frame range, the backend, an algorithm's parameters and the display
+# settings, which is more than fits on a laptop; without this the surplus is not
+# clipped but unmapped, with nothing to drag toward.
+proc ::mdance::gui::_scrollcol {parent width} {
+    canvas $parent.c -highlightthickness 0 -borderwidth 0 -width $width
+    ttk::scrollbar $parent.sb -orient vertical -command [list $parent.c yview]
+    $parent.c configure -yscrollcommand [list $parent.sb set]
+    pack $parent.sb -side right -fill y
+    pack $parent.c -side left -fill both -expand 1
+    ttk::frame $parent.c.inner
+    set id [$parent.c create window 0 0 -anchor nw -window $parent.c.inner]
+    bind $parent.c.inner <Configure> [list ::mdance::gui::_scrollcol_fit $parent]
+    bind $parent.c <Configure> [list ::mdance::gui::_scrollcol_width $parent $id %w]
+    foreach ev {<MouseWheel> <Button-4> <Button-5>} {
+        bind $parent.c $ev [list ::mdance::gui::_scrollcol_wheel $parent %D %b]
+    }
+    return $parent.c.inner
+}
+proc ::mdance::gui::_scrollcol_fit {parent} {
+    catch {$parent.c configure -scrollregion [$parent.c bbox all]}
+}
+proc ::mdance::gui::_scrollcol_width {parent id width} {
+    catch {$parent.c itemconfigure $id -width $width}
+    _scrollcol_fit $parent
+}
+proc ::mdance::gui::_scrollcol_wheel {parent delta button} {
+    # X11 delivers wheel as Button-4/5 with no %D; Windows/macOS use %D.
+    if {$button eq "4"} { set n -2 } elseif {$button eq "5"} { set n 2 } \
+        elseif {$delta ne "" && $delta ne "??"} { set n [expr {$delta > 0 ? -2 : 2}] } else { return }
+    catch {$parent.c yview scroll $n units}
 }
 
 # busy_start / busy_stop - show/hide the status-bar progress bar and Cancel
@@ -290,8 +445,7 @@ proc ::mdance::gui::run_guarded {algorithm params} {
     # In CLI mode the run sits in a live event loop, so the user can close the
     # plugin window while it is still going. The results are safely stored in
     # ::mdance::results either way; there is just no longer a tab to show them in.
-    if {![winfo exists .mdance.nb]} return
-    .mdance.nb select .mdance.nb.results
+    ::mdance::gui::show_view results
     if {[catch {update_results_tab} e]} {
         tk_messageBox -icon error -title "MDANCE Error" -message "Could not display results: $e"
     }
@@ -451,7 +605,10 @@ proc ::mdance::gui::_citation_footer {parent refs} {
     # lines without leaving a large empty gap. Nothing depends on it being
     # exact; the widget simply must not consume the tab.
     set h [expr {2 * [llength $refs] + 1}]
-    text $parent.cite.t -height $h -wrap word -relief flat -padx 2 -pady 2 \
+    # -width 1 because a text widget's default is 80 columns, and it asks for
+    # them: the citation footer alone made every algorithm panel request 688 px.
+    # It is packed -fill x, so the real width comes from the container.
+    text $parent.cite.t -height $h -width 1 -wrap word -relief flat -padx 2 -pady 2 \
         -font TkDefaultFont -cursor "" -takefocus 0 \
         -background [ttk::style lookup TFrame -background]
     $parent.cite.t insert end $body
@@ -548,7 +705,7 @@ proc ::mdance::gui::build_setup_tab {parent} {
     grid $parent.cli.mode_value -row 0 -column 1 -columnspan 2 -sticky w
 
     ttk::label $parent.cli.path_label -text "Path:"
-    ttk::entry $parent.cli.path_entry -textvariable ::mdance::gui::cli_display_path -width 40 -state readonly
+    ttk::entry $parent.cli.path_entry -textvariable ::mdance::gui::cli_display_path -width 24 -state readonly
     ttk::button $parent.cli.browse -text "Browse..." -command ::mdance::gui::browse_cli
     ttk::label $parent.cli.status -text "" -anchor w
 
@@ -1280,7 +1437,12 @@ proc ::mdance::gui::run_equal {} {
 }
 
 # --- Results Tab ---
-proc ::mdance::gui::build_results_tab {parent} {
+# build_results_tab - the result surface. plotparent, when given, is where the
+# plot launcher goes; it is a separate frame so the eleven Visualizations
+# buttons can live on their own Figures tab instead of below the fold of a tab
+# that already carries a summary, a table, eight actions and the frame overlay.
+proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
+    if {$plotparent eq ""} { set plotparent $parent }
     # Summary section
     ttk::labelframe $parent.summary -text "Clustering Summary" -padding 10
     pack $parent.summary -fill x -padx 10 -pady 10
@@ -1398,48 +1560,51 @@ proc ::mdance::gui::build_results_tab {parent} {
     grid columnconfigure $parent.ov 2 -weight 1
 
     # Visualization buttons
-    ttk::labelframe $parent.plots -text "Visualizations" -padding 10
-    pack $parent.plots -fill x -padx 10 -pady 5
+    ttk::labelframe $plotparent.plots -text "Visualizations" -padding 10
+    pack $plotparent.plots -fill x -padx 10 -pady 5
+    ttk::label $plotparent.hint -justify left -foreground "#555555" \
+        -text "Every plot opens in its own window. Run a clustering to enable them."
+    pack $plotparent.hint -fill x -padx 10 -pady {0 6} -before $plotparent.plots
 
     # Row 0: core plots
-    ttk::button $parent.plots.pop -text "Population" \
+    ttk::button $plotparent.plots.pop -text "Population" \
         -command {::mdance::plots::population_chart $::mdance::results} -state disabled
-    ttk::button $parent.plots.timeline -text "Timeline" \
+    ttk::button $plotparent.plots.timeline -text "Timeline" \
         -command {::mdance::plots::timeline_chart $::mdance::results} -state disabled
-    ttk::button $parent.plots.msd -text "Cluster MSD" \
+    ttk::button $plotparent.plots.msd -text "Cluster MSD" \
         -command {::mdance::plots::msd_chart $::mdance::results} -state disabled
-    ttk::button $parent.plots.dendro -text "Dendrogram" \
+    ttk::button $plotparent.plots.dendro -text "Dendrogram" \
         -command {::mdance::plots::dendrogram $::mdance::results} -state disabled
     # No Elbow button here: it lives on each algorithm tab now, where the
     # algorithm it scans is unambiguous. It also used to sit in column 4 of 6
     # and was clipped until the window was resized.
-    ttk::button $parent.plots.silhouette -text "Silhouette" \
+    ttk::button $plotparent.plots.silhouette -text "Silhouette" \
         -command {::mdance::plots::silhouette_plot $::mdance::results} -state disabled
 
     # Row 1: additional analysis plots
-    ttk::button $parent.plots.cdist -text "Distances" \
+    ttk::button $plotparent.plots.cdist -text "Distances" \
         -command {::mdance::plots::cluster_distance_heatmap $::mdance::results} -state disabled
-    ttk::button $parent.plots.msdpop -text "MSD/Pop" \
+    ttk::button $plotparent.plots.msdpop -text "MSD/Pop" \
         -command {::mdance::plots::msd_vs_population $::mdance::results} -state disabled
-    ttk::button $parent.plots.reprmsd -text "Rep. RMSD" \
+    ttk::button $plotparent.plots.reprmsd -text "Rep. RMSD" \
         -command {::mdance::plots::representative_rmsd_matrix $::mdance::results} -state disabled
-    ttk::button $parent.plots.trans -text "Transitions" \
+    ttk::button $plotparent.plots.trans -text "Transitions" \
         -command {::mdance::plots::transition_heatmap $::mdance::results} -state disabled
-    ttk::button $parent.plots.residence -text "Residence" \
+    ttk::button $plotparent.plots.residence -text "Residence" \
         -command {::mdance::plots::residence_chart $::mdance::results} -state disabled
-    ttk::button $parent.plots.isim -text "Similarity" \
+    ttk::button $plotparent.plots.isim -text "Similarity" \
         -command ::mdance::gui::run_similarity_analysis -state disabled
 
     # Six buttons across two rows of five: the old 6-wide grid clipped its last
     # column until the user resized the window.
     set pcol 0
     foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
-        grid $parent.plots.$b -row [expr {$pcol / 4}] -column [expr {$pcol % 4}] \
+        grid $plotparent.plots.$b -row [expr {$pcol / 4}] -column [expr {$pcol % 4}] \
             -padx 3 -pady 2 -sticky ew
         incr pcol
     }
     for {set col 0} {$col < 4} {incr col} {
-        grid columnconfigure $parent.plots $col -weight 1
+        grid columnconfigure $plotparent.plots $col -weight 1
     }
 }
 
@@ -1455,6 +1620,7 @@ proc ::mdance::gui::fmt_score {results key} {
 
 proc ::mdance::gui::update_results_tab {} {
     set parent .mdance.nb.results
+    set pf [_plots_frame]
     set results $::mdance::results
 
     if {$results eq ""} return
@@ -1498,22 +1664,23 @@ proc ::mdance::gui::update_results_tab {} {
     }
 
     # Enable/disable visualization buttons
-    $parent.plots.pop configure -state normal
-    $parent.plots.timeline configure -state normal
-    $parent.plots.dendro configure -state normal
-    $parent.plots.silhouette configure -state normal
-    $parent.plots.cdist configure -state normal
-    $parent.plots.reprmsd configure -state normal
-    $parent.plots.trans configure -state normal
-    $parent.plots.residence configure -state normal
-    $parent.plots.isim configure -state normal
+    if {![winfo exists $pf]} return
+    $pf.pop configure -state normal
+    $pf.timeline configure -state normal
+    $pf.dendro configure -state normal
+    $pf.silhouette configure -state normal
+    $pf.cdist configure -state normal
+    $pf.reprmsd configure -state normal
+    $pf.trans configure -state normal
+    $pf.residence configure -state normal
+    $pf.isim configure -state normal
 
     if {[dict exists $results clusterMSD]} {
-        $parent.plots.msd configure -state normal
-        $parent.plots.msdpop configure -state normal
+        $pf.msd configure -state normal
+        $pf.msdpop configure -state normal
     } else {
-        $parent.plots.msd configure -state disabled
-        $parent.plots.msdpop configure -state disabled
+        $pf.msd configure -state disabled
+        $pf.msdpop configure -state disabled
     }
 }
 
@@ -1710,6 +1877,16 @@ proc ::mdance::gui::export_top_frames_dialog {} {
 # Every Results-tab visualization button that needs a result to be present.
 # Elbow is deliberately absent: it computes its own runs and works from an empty
 # session.
+# _plots_frame - where the plot launcher currently lives. It moved to its own
+# Figures tab; the fallback keeps the older layout (grid inside Results) working
+# for anything that builds the results surface on its own.
+proc ::mdance::gui::_plots_frame {} {
+    foreach f {.mdance.nb.figures.plots .mdance.nb.results.plots} {
+        if {[winfo exists $f]} { return $f }
+    }
+    return ""
+}
+
 proc ::mdance::gui::_result_plot_buttons {} {
     return {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim}
 }
@@ -1766,13 +1943,14 @@ proc ::mdance::gui::clear_results {} {
 
     # Reset the Results tab display.
     set parent .mdance.nb.results
+    set pf [_plots_frame]
     if {[winfo exists $parent]} {
         catch {$parent.table.list.tv delete [$parent.table.list.tv children {}]}
         foreach tag {algo nclust ch db} {
             catch {$parent.summary.v_$tag configure -text "-"}
         }
         foreach b [_result_plot_buttons] {
-            catch {$parent.plots.$b configure -state disabled}
+            catch {$pf.$b configure -state disabled}
         }
     }
     # And the other tabs' result views.
@@ -2257,7 +2435,7 @@ proc ::mdance::gui::load_session_dialog {} {
         tk_messageBox -icon error -title "MDANCE Error" -message $err
         return
     }
-    .mdance.nb select .mdance.nb.results
+    ::mdance::gui::show_view results
     if {[catch {::mdance::gui::update_results_tab} e]} {
         tk_messageBox -icon error -title "MDANCE Error" -message "Could not display results: $e"
     }

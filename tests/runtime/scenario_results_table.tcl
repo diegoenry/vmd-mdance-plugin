@@ -52,7 +52,7 @@ th::test "a result with no clusterMSD shows n/a instead of failing" {
     th::ok { ::mdance::gui::update_results_tab }
     th::eq "n/a" [$TV set 0 msd]
     # ...and the MSD-dependent plots go back to disabled.
-    th::true [.mdance.nb.results.plots.msd instate disabled]
+    th::true [.mdance.nb.figures.plots.msd instate disabled]
     set ::mdance::results $saved
     ::mdance::gui::update_results_tab
 }
@@ -278,7 +278,7 @@ th::test "it closes plot windows, empties the table and disables the plots" {
     th::false [info exists ::mdance::plots::redraw_cmds(mdance_pop)] \
         "and its cached results dict released"
     foreach b [::mdance::gui::_result_plot_buttons] {
-        th::true [.mdance.nb.results.plots.$b instate disabled] "$b must be disabled"
+        th::true [.mdance.nb.figures.plots.$b instate disabled] "$b must be disabled"
     }
     th::eq "-" [.mdance.nb.results.summary.v_nclust cget -text]
 }

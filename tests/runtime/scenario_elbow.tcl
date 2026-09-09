@@ -25,10 +25,12 @@ th::test "KMeans, DIVINE and HELM each have one" {
         th::true [winfo exists .mdance.nb.$tab.run.elbow] "$tab needs an elbow button"
     }
 }
-th::test "the Results tab no longer has one" {
+th::test "the shared plot grid no longer has one" {
     # It sat in column 4 of a 6-wide grid and was clipped until the window was
-    # resized, which is what the reviewer actually hit.
-    th::false [winfo exists .mdance.nb.results.plots.elbow]
+    # resized, which is what the reviewer actually hit. That grid has since moved
+    # off Results onto its own Figures tab; it must not reacquire an elbow button
+    # there either, because the algorithm it would scan is ambiguous.
+    th::false [winfo exists .mdance.nb.figures.plots.elbow]
 }
 th::test "launching from a tab fixes the algorithm and hides the chooser" {
     ::mdance::plots::elbow_plot helm
