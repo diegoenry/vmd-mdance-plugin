@@ -500,7 +500,7 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
     <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
     <tbody>
       <tr><td>Number of clusters</td><td><code>--nclusters</code></td><td>2 &ndash; 200</td><td><em>required</em></td><td>How many clusters to create. Start with the expected number of conformational states.</td></tr>
-      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function. MSD is standard for atomic coordinates.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Fixed to MSD in the GUI (Setup &rsaquo; Advanced &rsaquo; <em>Unlock metric selection</em>). Distance function. MSD is standard for atomic coordinates.</td></tr>
       <tr><td>Initialization</td><td><code>--kinit</code></td><td>See below</td><td><code>StratAll</code></td><td>How initial cluster centers are chosen. Strongly affects quality and reproducibility.</td></tr>
       <tr><td>Sampling %</td><td><code>--percentage</code></td><td>1 &ndash; 100</td><td><code>10</code></td><td>Fraction of data used during initialization. Higher = more robust but slower.</td></tr>
     </tbody>
@@ -510,8 +510,8 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
   <div class="table-wrap"><table>
     <thead><tr><th>Strategy</th><th>Description</th><th>When to use</th></tr></thead>
     <tbody>
-      <tr class="rec"><td><code>CompSim</code></td><td>Finds high-density regions via complementary similarity, then picks diverse centers from them.</td><td><strong>Recommended default.</strong> Most robust for MD trajectories.</td></tr>
-      <tr><td><code>StratAll</code></td><td>Stratified sampling across the full dataset.</td><td>Good general-purpose choice. Fast.</td></tr>
+      <tr><td><code>CompSim</code></td><td>Finds high-density regions via complementary similarity, then picks diverse centers from them.</td><td>Robust for MD trajectories, but roughly 9&ndash;12&times; slower than <code>StratAll</code> at comparable quality.</td></tr>
+      <tr class="rec"><td><code>StratAll</code></td><td>Stratified sampling across the full dataset.</td><td><strong>Recommended default.</strong> Fast, and comparable in quality to <code>CompSim</code>.</td></tr>
       <tr><td><code>StratReduced</code></td><td>Stratified sampling on the high-density subset only.</td><td>When the data has many outlier frames.</td></tr>
       <tr><td><code>DivSelect</code></td><td>Pure diversity selection; maximizes spread of initial centers.</td><td>When clusters are expected to be well separated.</td></tr>
       <tr><td><code>KmeansPP</code></td><td>Greedy K-means++ (Arthur &amp; Vassilvitskii).</td><td>Industry-standard. Slightly slower than the Strat methods.</td></tr>
@@ -549,7 +549,7 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
     <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
     <tbody>
       <tr><td>Number of clusters</td><td><code>--nclusters</code></td><td>2 &ndash; 200</td><td><code>3</code></td><td>Target cluster count when stopping on K.</td></tr>
-      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Fixed to MSD in the GUI (Setup &rsaquo; Advanced &rsaquo; <em>Unlock metric selection</em>). Distance function.</td></tr>
       <tr><td>Split criterion</td><td><code>--split</code></td><td><code>MSD</code>, <code>Radius</code>, <code>WeightedMSD</code></td><td><code>WeightedMSD</code></td><td>How the next cluster to split is chosen.</td></tr>
       <tr><td>Anchor method</td><td><code>--anchors</code></td><td><code>NANI</code>, <code>OutlierPair</code>, <code>SplinterPair</code></td><td><code>NANI</code></td><td>How the two seed points for a split are picked.</td></tr>
       <tr><td>Initialization</td><td><code>--kinit</code></td><td><a href="#kmeans">See KMeans</a></td><td><code>StratAll</code></td><td>Used by the NANI anchor and by refinement.</td></tr>
@@ -582,7 +582,7 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
   <div class="table-wrap"><table>
     <thead><tr><th>Method</th><th>Description</th></tr></thead>
     <tbody>
-      <tr class="rec"><td><code>NANI</code></td><td>Uses NANI initialization to pick the two seeds. <strong>Recommended default.</strong></td></tr>
+      <tr class="rec"><td><code>NANI</code></td><td>Uses NANI initialization to pick the two seeds. <strong>Recommended default.</strong> The only anchor usable with Refine on &mdash; <code>OutlierPair</code> and <code>SplinterPair</code> crash the backend in that combination, and the plugin refuses it.</td></tr>
       <tr><td><code>OutlierPair</code></td><td>Uses the two most extreme outliers as seeds. <em>See the refine caveat above.</em></td></tr>
       <tr><td><code>SplinterPair</code></td><td>Grows a dissenting group away from the main body. <em>See the refine caveat above.</em></td></tr>
     </tbody>
@@ -617,14 +617,14 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
   <div class="table-wrap"><table>
     <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
     <tbody>
-      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Fixed to MSD in the GUI (Setup &rsaquo; Advanced &rsaquo; <em>Unlock metric selection</em>). Distance function.</td></tr>
       <tr><td>Merge scheme</td><td><code>--merge-scheme</code></td><td><code>Intra</code>, <code>Inter</code>, <code>Half</code></td><td><code>Inter</code></td><td>Which inter-cluster similarity drives the merge choice.</td></tr>
       <tr><td>Number of clusters</td><td><code>--nclusters</code></td><td>2 &ndash; 200</td><td><code>10</code></td><td>Target count when stopping on K.</td></tr>
       <tr><td>Epsilon</td><td><code>--eps</code></td><td>float</td><td><code>-1</code></td><td>Similarity cutoff when stopping on &epsilon; instead of K.</td></tr>
-      <tr><td>Trim start</td><td><code>--trim-start</code></td><td>flag</td><td>off</td><td>Remove noise clusters before merging.</td></tr>
-      <tr><td>Min samples</td><td><code>--min-samples</code></td><td>float</td><td><code>0.01</code></td><td>Minimum cluster population (fraction) surviving trimming.</td></tr>
-      <tr><td>Trim value</td><td><code>--trim-val</code></td><td>float</td><td><code>0</code></td><td>Trimming threshold.</td></tr>
-      <tr><td>Trim K</td><td><code>--trim-k</code></td><td>int</td><td><code>0</code></td><td>Number of clusters to trim.</td></tr>
+      <tr><td>Enable trimming</td><td><code>--trim-start</code></td><td>flag</td><td>off</td><td>Discard poor pre-clusters before merging. <strong>The three settings below apply only while this is on.</strong></td></tr>
+      <tr><td>Discard the loosest <em>N</em></td><td><code>--trim-k</code></td><td>int</td><td><code>0</code></td><td>Drop the <em>N</em> pre-clusters with the highest MSD. Choose this <strong>or</strong> the MSD ceiling, never both.</td></tr>
+      <tr><td>Discard MSD above</td><td><code>--trim-val</code></td><td>float</td><td><code>0</code></td><td>Keep only pre-clusters whose MSD is below this ceiling.</td></tr>
+      <tr><td>Also discard smaller than</td><td><code>--min-samples</code></td><td>float</td><td><code>0.01</code></td><td>Below 1 a fraction of total frames (<code>0.01</code> = 1%); 1 or more an absolute frame count.</td></tr>
       <tr><td>Initial labels</td><td><code>--initial-labels</code></td><td>file</td><td><em>auto</em></td><td>Starting partition.</td></tr>
       <tr><td>Pre-cluster K</td><td><em>plugin only</em></td><td>2 &ndash; 200</td><td><code>50</code></td><td>K for the automatic KMeans pre-clustering step.</td></tr>
     </tbody>
@@ -680,7 +680,7 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
     <thead><tr><th>Parameter</th><th>CLI Flag</th><th>Values</th><th>Default</th><th>Description</th></tr></thead>
     <tbody>
       <tr class="rec"><td>Threshold</td><td><code>--threshold</code></td><td>&ge; 0</td><td><em>required</em></td><td>Radial admission threshold. The controlling parameter: smaller means tighter, more numerous clusters.</td></tr>
-      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Distance function.</td></tr>
+      <tr><td>Metric</td><td><code>--metric</code></td><td><a href="#metrics">See metrics</a></td><td><code>MSD</code></td><td>Fixed to MSD in the GUI (Setup &rsaquo; Advanced &rsaquo; <em>Unlock metric selection</em>). Distance function.</td></tr>
       <tr><td>Seed method</td><td><code>--seed-method</code></td><td><code>medoid</code>, <code>comp_sim</code></td><td><code>medoid</code></td><td>How each new cluster&rsquo;s seed frame is chosen.</td></tr>
       <tr><td>Seeds per iteration</td><td><code>--n-seeds</code></td><td>&ge; 1</td><td><code>1</code></td><td>Seeds attempted per pass.</td></tr>
       <tr><td>Sampling %</td><td><code>--percentage</code></td><td>1 &ndash; 100</td><td><code>10</code></td><td>Sampling fraction for seed selection.</td></tr>
@@ -767,9 +767,10 @@ mdance-cli <span class="flag">--select</span>   <span class="flag">--input</span
   </div>
 
   <h3>Using scores to choose K</h3>
-  <p>Run the <strong>Elbow Plot</strong> (Visualizations, Results tab) to plot CH and DB across a K range.
-     Look for a peak in CH, a valley in DB, and the elbow where more clusters stop paying. K values whose run
-     fails or returns a non-finite score are <strong>skipped and named in the chart title</strong>, never
+  <p>Run <strong>Elbow Plot&hellip;</strong> from the algorithm's own tab (KMeans, DIVINE or HELM) to plot CH and DB across a K range.
+     Look for a peak in CH, a valley in DB, and the elbow where more clusters stop paying. Hover any K to see that K's
+     population split, and use <strong>Export Scores&hellip;</strong> to save the scores and partitions. K values whose run
+     fails or returns a non-finite score are <strong>skipped and named in the chart caption</strong>, never
      plotted as zero. For a broader search than one K axis, use the <a href="#sweep">Parameter Sweep</a>.</p>
 </section>
 

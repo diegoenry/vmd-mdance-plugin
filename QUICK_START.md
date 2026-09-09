@@ -201,7 +201,7 @@ results. Best for an initial exploratory pass.
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
 | Number of clusters | `--nclusters` | 2 – 200 | *(required)* | How many clusters to partition the data into. The single most important parameter. Start with the expected number of conformational states. |
-| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. MSD is standard for atomic coordinates. |
+| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. Fixed to MSD in the GUI (Setup > Advanced > *Unlock metric selection* to change it); MSD is the only metric with a physical meaning for Cartesian coordinates. |
 | Initialization | `--kinit` | See below | `StratAll` | How initial cluster centers are chosen. Strongly affects result quality and reproducibility. |
 | Sampling % | `--percentage` | 1 – 100 | `10` | Fraction of data used during initialization. Higher is more robust but slower. |
 
@@ -209,7 +209,7 @@ results. Best for an initial exploratory pass.
 
 | Strategy | Description | When to use |
 |----------|-------------|-------------|
-| `CompSim` | Identifies high-density regions via complementary similarity, then selects diverse centers from them. | **Recommended default.** Most robust for MD trajectories. |
+| `CompSim` | Identifies high-density regions via complementary similarity, then selects diverse centers from them. | Robust for MD trajectories, but roughly 9-12x slower than `StratAll` at comparable quality on benchmark trajectories. |
 | `StratAll` | Stratified sampling across the full dataset; first K stratified points become centers. | Good general-purpose choice. Fast. |
 | `StratReduced` | Stratified sampling on the high-density subset only. | When data has many outlier frames. |
 | `DivSelect` | Pure diversity selection on a subset. Maximizes spread of initial centers. | When clusters are expected to be well-separated. |
@@ -249,9 +249,9 @@ natural number of clusters is unknown and you want to watch how the data splits.
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
 | Number of clusters | `--nclusters` | 2 – 200 | `3` | Target cluster count (when stopping on K). |
-| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. |
+| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. Fixed to MSD in the GUI — see the KMeans table. |
 | Split criterion | `--split` | `MSD`, `Radius`, `WeightedMSD` | `WeightedMSD` | How the next cluster to split is chosen. |
-| Anchor method | `--anchors` | `NANI`, `OutlierPair`, `SplinterPair` | `NANI` | How the two seed points for a split are picked. |
+| Anchor method | `--anchors` | `NANI`, `OutlierPair`, `SplinterPair` | `NANI` | How the two seed points for a split are picked. **`OutlierPair` and `SplinterPair` crash the backend when Refine is on** (an out-of-bounds read in `divine.cpp`), so the plugin refuses that combination: turn Refine off to use them, or keep Refine on with `NANI`. |
 | Initialization | `--kinit` | See KMeans table | `StratAll` | Used by the NANI anchor and by refinement. |
 | Refine | `--refine` | flag | on | Refine the final partition with KMeans. |
 | Threshold | `--threshold` | ≥ 0 | `0.0` | Minimum split quality; stops splitting clusters below it. |
@@ -313,14 +313,14 @@ partition down to meaningful states.
 
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
-| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. |
+| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. Fixed to MSD in the GUI — see the KMeans table. |
 | Merge scheme | `--merge-scheme` | `Intra`, `Inter`, `Half` | `Inter` | Which inter-cluster similarity drives the merge choice. |
 | Number of clusters | `--nclusters` | 2 – 200 | `10` | Target count when stopping on K. |
 | Epsilon | `--eps` | float | `-1` | Similarity cutoff when stopping on ε instead of K. |
-| Trim start | `--trim-start` | flag | off | Remove noise clusters before merging. |
-| Min samples | `--min-samples` | float | `0.01` | Minimum cluster population (fraction) to survive trimming. |
-| Trim value | `--trim-val` | float | `0` | Trimming threshold. |
-| Trim K | `--trim-k` | int | `0` | Number of clusters to trim. |
+| Enable trimming | `--trim-start` | flag | off | Discard poor pre-clusters before merging. **The three settings below only apply while this is on.** |
+| Discard the loosest *N* clusters | `--trim-k` | int | `0` | Drop the *N* pre-clusters with the highest MSD. Choose this **or** the MSD ceiling, never both — the backend refuses both together. |
+| Discard clusters with MSD above | `--trim-val` | float | `0` | Keep only pre-clusters whose MSD is below this ceiling. |
+| Also discard clusters smaller than | `--min-samples` | float | `0.01` | Below 1 this is a fraction of the total frames (`0.01` = 1%); 1 or more is an absolute frame count. |
 | Initial labels | `--initial-labels` | file | *(auto)* | Starting partition. |
 | Pre-cluster K | *(plugin only)* | 2 – 200 | `50` | K for the automatic KMeans pre-clustering step. |
 
@@ -387,7 +387,7 @@ being forced into a cluster.
 | Parameter | CLI Flag | Values | Default | Description |
 |-----------|----------|--------|---------|-------------|
 | Threshold | `--threshold` | ≥ 0 | *(required)* | Radial admission threshold. The controlling parameter: smaller means tighter, more numerous clusters. |
-| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. |
+| Metric | `--metric` | See [metrics](#distance-metrics) | `MSD` | Distance function. Fixed to MSD in the GUI — see the KMeans table. |
 | Seed method | `--seed-method` | `medoid`, `comp_sim` | `medoid` | How each new cluster's seed frame is chosen. |
 | Seeds per iteration | `--n-seeds` | ≥ 1 | `1` | Seeds attempted per pass. |
 | Sampling % | `--percentage` | 1 – 100 | `10` | Sampling fraction for seed selection. |
@@ -476,8 +476,13 @@ as a number.
 
 ### Using Scores to Choose K
 
-Run the **Elbow Plot** (Visualizations, Results tab) to plot CH and DB across a range of K.
-Look for a peak in CH, a valley in DB, and the "elbow" where more clusters stop paying.
+Run **Elbow Plot...** from the algorithm's own tab (KMeans, DIVINE or HELM) to plot CH and DB
+across a range of K. Look for a peak in CH, a valley in DB, and the "elbow" where more clusters
+stop paying. Hover any K on the curve to see that K's population split, and use
+**Export Scores...** to save the scores and partitions as CSV.
+
+For HELM the scan pre-clusters **once** with KMeans (using the HELM tab's pre-cluster settings)
+and then cuts the dendrogram at each K, so every point comes from the same starting partition.
 K values whose run fails or returns a non-finite score are **skipped and reported**, not
 plotted as zero — the chart title lists any that were left out.
 
@@ -600,7 +605,7 @@ window closes.
 | **Timeline** | Cluster assignment vs. frame number, showing transitions between states along the trajectory. Noise (`-1`) gets its own labelled lane at the bottom. |
 | **Cluster MSD** | Bar chart of within-cluster MSD. Lower bars are tighter clusters. |
 | **Dendrogram** | Merge tree. For HELM this is the native merge history from the Z-matrix — which is a *forest* of one tree per final cluster, and all of them are drawn. For KMeans/DIVINE/eQUAL a post-hoc tree is computed from centroid distances with average linkage. |
-| **Elbow Plot** | CH and DB against K, re-running the clustering across a K range. Failed or non-finite K values are skipped and named, never plotted as zero. |
+| **Elbow Plot** | CH and DB against K, across a K range, launched from each algorithm's own tab. Hover a K for its population split; **Export Scores...** writes the scores and partitions. Failed or non-finite K values are skipped and named, never plotted as zero. |
 | **Silhouette** | Per-frame silhouette coefficients grouped by cluster, with a dashed line at the mean. Centroid-based approximation; frames are sampled above 2000. |
 
 ### Analysis Plots
@@ -655,7 +660,7 @@ colouring the wrong trajectory.
 | Refining a coarse partition | **HELM** | Merges over-split clusters while keeping meaningful distinctions. Pre-cluster with KMeans (K=50), then merge down. |
 | Noisy trajectory with outliers | **HELM** with trimming, or **eQUAL** | HELM trims noise clusters before merging; eQUAL labels outliers as noise directly. |
 | Dendrogram needed | **HELM** | Native Z-matrix, exact merge history. The others get a post-hoc tree from centroid distances. |
-| Reproducibility across runs | **KMeans NANI** with `CompSim` | Deterministic given the same data. |
+| Reproducibility across runs | **KMeans NANI** with `StratAll` (the default) or `CompSim` | Deterministic given the same data. |
 | Very large trajectories (>10K frames) | **KMeans NANI** | Scales as O(n·k·iterations). Consider a stride as well. |
 | Comparing many settings at once | **Sweep tab** | Extracts coordinates once and scores the whole grid. |
 | Choosing a frame for downstream work | **PRIME**, or **Frame Tools** | PRIME for the most native-like frame of a clustering; Frame Tools for a diverse subset without clustering at all. |
@@ -711,7 +716,9 @@ Population plots.
 | *"Backend output is missing 'labels'"* or *"returned N labels for M extracted frames"* | The backend exited without writing a complete result. The run is refused rather than mapped onto the trajectory; check the accompanying backend message. |
 | *"This operation needs the mdance-cli backend"* | Library mode is active but this feature needs the CLI. Set `MDANCE_CLI` to the binary. |
 | DIVINE crashes with `OutlierPair`/`SplinterPair` | Known backend bug; turn **Refine** off, or use the `NANI` anchor. See `notes/REVIEW_NOTES.md`. |
-| Elbow chart is missing some K values | Those runs failed or produced a non-finite score. The chart title names them. |
+| "The OutlierPair anchor combined with Refine crashes the MDANCE backend" | A known backend defect, not a configuration mistake. Turn Refine off, or use the `NANI` anchor. |
+| HELM's "Min samples" appears to do nothing | It only applies while **Enable trimming** is on *and* a trim criterion (loosest-*N* or MSD ceiling) is set; the controls grey out when inert. |
+| Elbow chart is missing some K values | Those runs failed or produced a non-finite score. The caption above the chart names them. |
 | Transition probabilities do not sum to 1 | Expected when noise is present: transitions into noise are counted but have no column. |
 | A session loads but Color by Cluster is disabled | The source molecule is not loaded, or the ID now holds a different molecule. Reload the original trajectory. |
 | PNG export says ImageMagick is required | Install ImageMagick (`magick`/`convert`) or GraphicsMagick (`gm`), or accept the PostScript fallback. |

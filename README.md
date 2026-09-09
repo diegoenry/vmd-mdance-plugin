@@ -19,18 +19,30 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
   decimate dense trajectories); all coloring, navigation, plots and exports map back
   to true VMD frame numbers
 - Cluster quality scores (Calinski-Harabasz, Davies-Bouldin)
+- **Sortable cluster table** - cluster, size, % of frames, MSD and representative
+  frame, sortable by any column
 - Color trajectories by cluster assignment
 - Navigate to representative (medoid) frames
+- **Multi-frame overlay** - show the top *N* frames of a cluster (ranked by MSD
+  from its representative) simultaneously for direct comparison, or overlay
+  arbitrary frame ranges such as `0-100,500,900-1000`; export the top-*N* frame
+  indices and labels
+- **Elbow K-scan** on each algorithm tab (KMeans, DIVINE and HELM), keeping every
+  K's partition so hovering a point shows that K's population split
 - Export cluster labels to CSV
+- **Clear Results** - purge a result and everything derived from it (table, plot
+  windows, sweep table, PRIME / Frame Tools selections, overlay)
 - **Export representative structures** (PDB/DCD) and **per-cluster trajectory split**
 - **Extended-similarity (iSIM) analysis** - ensemble similarity plus per-cluster
   compactness and outlier (least-representative) frames
 - **Frame Tools** (Setup tab) - select frames without clustering: most-diverse
   subset, outlier frames, representative density sampling, or the single
   medoid/outlier; navigate to or export the selection
-- **Cancellable runs with live progress** - long CLI runs (including the HELM
-  pre-cluster step and the elbow K-scan) stream status and can be stopped mid-run;
-  the parameter sweep reports per-configuration progress
+- **Cancellable runs with live progress** - coordinate extraction reports
+  per-frame progress on a determinate progress bar and can be aborted; long CLI
+  runs (including the HELM pre-cluster step and the elbow K-scan) stream status
+  and can be stopped mid-run; the parameter sweep reports per-configuration
+  progress
 - **Session save/load** - save a result (with its parameters and frame map) to a
   `.mdance` file and reopen it later
 - **Interactive plot windows** with auto-resize, adjustable font size, and data/image export
@@ -150,11 +162,14 @@ mdance::gui
 5. Choose an algorithm tab (KMeans, DIVINE, or HELM), **or** use the **Sweep tab** to
    scan a grid of parameters at once
 6. Configure parameters and click "Run"
-7. **Results tab**: View scores, cluster sizes, and representative frames
+7. **Results tab**: View scores and the cluster table (cluster, size, % of frames,
+   MSD, representative frame) — click any column heading to sort by it
 8. Click "Color by Cluster" to visualize
-9. Click "Go to Representative" to navigate to medoid frames
-10. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD, or
-    **Export Clusters...** to write one trajectory file per cluster. **Similarity** opens
+9. Click "Go to Representative" to navigate to medoid frames, or use **Frame
+   Overlay** to show the selected cluster's top *N* frames at once
+10. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD,
+    **Export Clusters...** to write one trajectory file per cluster, or **Export Top
+    Frames...** for the top-*N* frame indices of every cluster. **Similarity** opens
     the iSIM compactness/outlier analysis.
 11. Open any plot — each plot window includes a toolbar with:
     - **Font size** control to adjust text in the figure
@@ -168,6 +183,18 @@ The **Setup** tab includes a **Display Settings** section:
 
 - **App font size** — adjusts the font size of all UI elements (labels, buttons, tabs)
 - **Plot font size** — sets the default baseline font size for new plot windows (each plot window can also adjust its own font independently via the toolbar)
+- **Titles inside plots** — off by default, since the window title bar already
+  names the plot. Informational captions (a skipped-K caveat, a units qualifier,
+  a computed mean) are always drawn regardless, and exported images re-enable the
+  title because an exported figure has no title bar to identify it by.
+
+The **Advanced** section holds one switch:
+
+- **Unlock metric selection** — clustering runs on MSD, the only metric with a
+  physical meaning for Cartesian MD frames, so the metric selectors are hidden by
+  default. The other ten indices are binary/extended-similarity measures intended
+  for fingerprint-style data; unlock only if your input suits them. (PRIME is
+  unaffected: its metric is an n-ary similarity index, not a distance.)
 
 ### Environment variables
 
