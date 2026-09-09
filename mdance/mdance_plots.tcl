@@ -44,6 +44,10 @@ namespace eval ::mdance::plots {
     # so the two scores were all the user could ever see.
     variable elbow_partitions
     array set elbow_partitions {}
+    # K values whose population panel has already failed to draw, so a hover
+    # reports the reason once rather than once per mouse motion.
+    variable partition_warned
+    array set partition_warned {}
     array set data {}
 
     # Display title per plot. It used to be the toplevel's `wm title`; an
@@ -1780,6 +1784,9 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
     variable elbow_partitions
     array unset elbow_partitions
     array set elbow_partitions {}
+    variable partition_warned
+    array unset partition_warned
+    array set partition_warned {}
     set rc [catch {
         for {set k $k_min} {$k <= $k_max} {set k [expr {$k + $k_step}]} {
             if {$::mdance::cancel_requested} { set cancelled 1; break }
@@ -2043,18 +2050,68 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
 # Everything is tagged so Leave can delete exactly this overlay, and nothing is
 # cached on the canvas: a redraw or a resize rebuilds the chart from
 # redraw_cmds, and an exported image therefore never depends on hover state.
+# elbow_show_partition - the population split at one K, drawn beside the curve
+# while the pointer is over that K's column.
+#
+# It is bound to <Enter>, which means it runs on mouse MOTION: anything it
+# raises goes to the background error handler and dumps a traceback into the
+# VMD console for every pixel the pointer crosses. That is why the body is
+# wrapped -- the panel is an inspection nicety, and failing to draw it must
+# degrade to "no panel", never to a console full of tracebacks over a plot the
+# user is only looking at. _partition_failed says so once per plot instead.
+#
+# The sanitising below is not defensive padding. sizes and nClusters come
+# straight from the backend's JSON, and a scan over a real trajectory reaches K
+# values the K=2..4 fixture never does; a float count, a short list or a
+# non-numeric field turned into a raised error from a hover, which is the worst
+# possible place to discover it.
 proc ::mdance::plots::elbow_show_partition {c k px y0} {
     variable elbow_partitions
     if {![winfo exists $c]} return
     elbow_hide_partition $c
     if {![info exists elbow_partitions($k)]} return
+    if {[catch {_draw_partition $c $k $px $y0} err]} {
+        # Remove whatever was half-drawn before the failure, so the panel is
+        # either complete or absent.
+        elbow_hide_partition $c
+        _partition_failed $k $err
+    }
+}
+
+# _partition_failed - report a hover failure once, not once per motion event.
+proc ::mdance::plots::_partition_failed {k err} {
+    variable partition_warned
+    if {[info exists partition_warned($k)]} return
+    set partition_warned($k) 1
+    set ::mdance::status "Could not draw the K=$k population split: $err"
+}
+
+proc ::mdance::plots::_draw_partition {c k px y0} {
+    variable c_muted
+    variable elbow_partitions
+
     lassign $elbow_partitions($k) kact sizes
     if {[llength $sizes] == 0} return
 
+    # One pass that both validates and totals. `incr` was used here and it
+    # accepts integers only, so a backend reporting "8.0" aborted the hover
+    # before a single rectangle was drawn.
     set total 0
-    foreach n $sizes { incr total $n }
+    set clean {}
+    foreach v $sizes {
+        if {![string is double -strict $v] || $v != $v} { return }
+        if {$v < 0} { set v 0 }
+        lappend clean $v
+        set total [expr {$total + $v}]
+    }
     if {$total <= 0} return
+    set sizes $clean
 
+    # Geometry. Everything that indexes a row is forced to an integer: ty was
+    # advanced with `incr`, which throws the moment any of y0/pad is a double --
+    # and px already arrives as one from the chart's own coordinate maths.
+    if {![string is double -strict $px]} { return }
+    if {![string is double -strict $y0]} { return }
     set bw 130
     set bh 9
     set pad 6
@@ -2062,14 +2119,14 @@ proc ::mdance::plots::elbow_show_partition {c k px y0} {
     set boxh [expr {$n * $bh + 2 * $pad + 16}]
     # Flip to the left of the hovered column when the panel would run off the
     # right edge of the canvas.
-    set bx [expr {$px + 12}]
+    set bx [expr {double($px) + 12}]
     if {$bx + $bw + 2 * $pad > [winfo width $c]} {
-        set bx [expr {$px - 12 - $bw - 2 * $pad}]
+        set bx [expr {double($px) - 12 - $bw - 2 * $pad}]
     }
-    set by [expr {$y0 + 4}]
+    set by [expr {int($y0) + 4}]
 
     $c create rectangle $bx $by [expr {$bx + $bw + 2 * $pad}] [expr {$by + $boxh}] \
-        -fill "#ffffff" -outline "#888888" -tags elbowpart
+        -fill "#ffffff" -outline $c_muted -tags elbowpart
     set label "K=$k"
     if {$kact ne "" && $kact ne $k} { append label " (got $kact)" }
     $c create text [expr {$bx + $pad}] [expr {$by + $pad}] -text $label \

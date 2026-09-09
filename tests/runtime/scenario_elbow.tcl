@@ -141,6 +141,69 @@ th::test "hovering a K that was never scanned draws nothing" {
     ::mdance::plots::elbow_show_partition $c 99 200 50
     th::eq 0 [llength [$c find withtag elbowpart]]
 }
+# The hover is bound to <Enter>, so it fires on mouse motion: anything it
+# raises lands in the background error handler and dumps a traceback into the
+# VMD console for every pixel crossed. These are the shapes a real backend
+# produces at K values the 24-frame fixture never reaches.
+th::test "an odd partition never raises out of the hover, it just draws nothing" {
+    set c [::mdance::plots::plot_widget mdance_elbow].c
+    set saved [array get ::mdance::plots::elbow_partitions]
+    foreach {label part} {
+        float-sizes    {3 {8.0 8.0 8.0}}
+        negative-size  {3 {-1 12 13}}
+        non-numeric    {3 {8 x 8}}
+        empty-kact     {{} {5 5 5 5 5}}
+        zero-total     {3 {0 0 0}}
+        fifteen        {15 {2 2 2 2 2 1 1 1 1 1 2 2 2 2 1}}
+        sixty          {60 {1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1}}
+    } {
+        set ::mdance::plots::elbow_partitions(77) $part
+        # y0 as a double as well as an int: ty was advanced with `incr`, which
+        # throws on the first non-integer, and px already arrives as a double
+        # from the chart's own coordinate arithmetic.
+        foreach px {200 704.0} {
+            foreach y0 {50 50.0} {
+                th::ok {::mdance::plots::elbow_show_partition $c 77 $px $y0} \
+                    "$label px=$px y0=$y0"
+                ::mdance::plots::elbow_hide_partition $c
+            }
+        }
+    }
+    array unset ::mdance::plots::elbow_partitions
+    array set ::mdance::plots::elbow_partitions $saved
+}
+th::test "a partition it cannot draw leaves nothing half-drawn behind" {
+    set c [::mdance::plots::plot_widget mdance_elbow].c
+    set saved [array get ::mdance::plots::elbow_partitions]
+    set ::mdance::plots::elbow_partitions(77) {3 {8 x 8}}
+    ::mdance::plots::elbow_show_partition $c 77 200 50
+    th::eq 0 [llength [$c find withtag elbowpart]] "no partial panel may survive"
+    array unset ::mdance::plots::elbow_partitions
+    array set ::mdance::plots::elbow_partitions $saved
+}
+th::test "cluster_color is total: every input yields a usable Tk colour" {
+    # It feeds a canvas -fill directly, and a colour Tk cannot parse raises
+    # from inside the hover binding.
+    foreach {cid n} {0 5  4 5  9 5  -1 5  0 1  0 0  x 5  5 x  -3 -3  0 -1} {
+        set c [::mdance::plots::cluster_color $cid $n]
+        th::true [string match {#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]} $c] \
+            "cluster_color $cid $n -> $c"
+    }
+}
+th::test "ramp3 survives the backend's NaN token and a short anchor" {
+    # "NaN" passes `string is double`, and NaN compares false against BOTH
+    # clamps -- so without the self-inequality test it would fall through them
+    # and format would be handed a NaN channel. It is the same token
+    # utils::is_finite exists to catch elsewhere in the backend's output.
+    foreach t [list NaN Infinity -Infinity "" abc 5 -5] {
+        set c [::mdance::plots::ramp3 {0 0 0} {128 128 128} {255 255 255} $t]
+        th::true [string match {#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]} $c] \
+            "t=$t -> $c"
+    }
+    # A malformed anchor must not produce a short string Tk would reject.
+    th::eq "#808080" [::mdance::plots::ramp3 {0 0} {1 1} {2 2} 0.5]
+}
+
 th::test "a redraw rebuilds the chart without any hover state" {
     set c [::mdance::plots::plot_widget mdance_elbow].c
     ::mdance::plots::elbow_show_partition $c 3 200 50
