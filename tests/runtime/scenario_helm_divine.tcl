@@ -124,9 +124,9 @@ th::test "colouring a 1-cluster result keeps a non-degenerate colour scale" {
 }
 th::test "the population and MSD plots render for a single cluster" {
     th::ok { ::mdance::plots::population_chart $::mdance::results }
-    catch {destroy .mdance_pop}
+    catch {destroy [::mdance::plots::plot_widget mdance_pop]}
     th::ok { ::mdance::plots::msd_chart $::mdance::results }
-    catch {destroy .mdance_msd}
+    catch {destroy [::mdance::plots::plot_widget mdance_msd]}
 }
 
 exit [th::done "runtime:helm_divine"]

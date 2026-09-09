@@ -204,7 +204,7 @@ th::test "toggling with the main window closed shows real DB values, not relabel
     array set c2 $cells
     foreach k [array names c2] { th::true [expr {$c2($k) < 10.0}] "value $c2($k) is a CH score, not a DB score" }
 }
-catch {destroy .mdance_sweep_hm}
+catch {destroy [::mdance::plots::plot_widget mdance_sweep_hm]}
 
 ::mdance::utils::cleanup
 exit [th::done "runtime:sweep"]

@@ -88,7 +88,7 @@ set ::mdance::plots::elbow::k_step 1
 ::mdance::plots::run_elbow_analysis .mdance_elbow_cfg
 
 th::test "the chart was drawn" {
-    th::true [winfo exists .mdance_elbow]
+    th::true [winfo exists [::mdance::plots::plot_widget mdance_elbow]]
 }
 th::test "one stored partition per K, with its cluster sizes" {
     # The scan used to keep only (K, CH, DB) and discard each partition, so the
@@ -112,11 +112,11 @@ th::test "the exported CSV carries the partitions alongside the scores" {
     }
 }
 th::test "the scores export button is named, not just a generic Export CSV" {
-    th::true [winfo exists .mdance_elbow.toolbar.scores]
-    th::eq "Export Scores..." [.mdance_elbow.toolbar.scores cget -text]
+    th::true [winfo exists [::mdance::plots::plot_widget mdance_elbow].toolbar.scores]
+    th::eq "Export Scores..." [[::mdance::plots::plot_widget mdance_elbow].toolbar.scores cget -text]
 }
 th::test "hovering a K draws its population split, and leaving removes it" {
-    set c .mdance_elbow.c
+    set c [::mdance::plots::plot_widget mdance_elbow].c
     th::eq 0 [llength [$c find withtag elbowpart]] "nothing before hovering"
     ::mdance::plots::elbow_show_partition $c 3 200 50
     th::gt [llength [$c find withtag elbowpart]] 3 "a panel with bars appears"
@@ -124,12 +124,12 @@ th::test "hovering a K draws its population split, and leaving removes it" {
     th::eq 0 [llength [$c find withtag elbowpart]] "and is removed again"
 }
 th::test "hovering a K that was never scanned draws nothing" {
-    set c .mdance_elbow.c
+    set c [::mdance::plots::plot_widget mdance_elbow].c
     ::mdance::plots::elbow_show_partition $c 99 200 50
     th::eq 0 [llength [$c find withtag elbowpart]]
 }
 th::test "a redraw rebuilds the chart without any hover state" {
-    set c .mdance_elbow.c
+    set c [::mdance::plots::plot_widget mdance_elbow].c
     ::mdance::plots::elbow_show_partition $c 3 200 50
     ::mdance::plots::do_redraw mdance_elbow
     th::eq 0 [llength [$c find withtag elbowpart]] \
@@ -149,17 +149,17 @@ proc canvas_text {c} {
 th::test "the plot name is not drawn on the canvas by default" {
     th::false $::mdance::plots::plot_titles "off by default"
     ::mdance::plots::population_chart $::mdance::results
-    th::false [expr {[lsearch -exact [canvas_text .mdance_pop.c] \
+    th::false [expr {[lsearch -exact [canvas_text [::mdance::plots::plot_widget mdance_pop].c] \
         "Cluster Population Distribution"] >= 0}] \
-        "the window title bar already shows it"
+        "the tab already names it"
 }
-th::test "the window title still names the plot" {
-    th::eq "Cluster Population Distribution" [wm title .mdance_pop]
+th::test "the plot still knows its own full title" {
+    th::eq "Cluster Population Distribution" [::mdance::plots::plot_title mdance_pop]
 }
 th::test "enabling the preference brings the title back" {
     set ::mdance::plots::plot_titles 1
     ::mdance::plots::redraw_all
-    th::true [expr {[lsearch -exact [canvas_text .mdance_pop.c] \
+    th::true [expr {[lsearch -exact [canvas_text [::mdance::plots::plot_widget mdance_pop].c] \
         "Cluster Population Distribution"] >= 0}]
     set ::mdance::plots::plot_titles 0
     ::mdance::plots::redraw_all
@@ -168,7 +168,7 @@ th::test "a skipped-K caveat is drawn even with titles off" {
     # This warning exists nowhere else on the canvas, so suppressing it with the
     # title would silently ship an incomplete curve as if it were complete.
     ::mdance::plots::draw_elbow_chart {{2 10.0 0.5} {3 9.0 0.6}} {4 5}
-    set txt [canvas_text .mdance_elbow.c]
+    set txt [canvas_text [::mdance::plots::plot_widget mdance_elbow].c]
     th::false [expr {[lsearch -exact $txt "Cluster Quality vs. K"] >= 0}] \
         "the name is still suppressed"
     set found 0
@@ -184,11 +184,11 @@ th::test "the default thickness is well under the old fixed 0.7" {
 }
 th::test "the thickness control is on the timeline's own window" {
     ::mdance::plots::timeline_chart $::mdance::results
-    th::true [winfo exists .mdance_timeline.toolbar.th]
+    th::true [winfo exists [::mdance::plots::plot_widget mdance_timeline].toolbar.th]
 }
 th::test "changing it changes the drawn bar height" {
     proc bar_height {} {
-        set c .mdance_timeline.c
+        set c [::mdance::plots::plot_widget mdance_timeline].c
         foreach id [$c find all] {
             if {[$c type $id] eq "rectangle"} {
                 lassign [$c coords $id] x0 y0 x1 y1

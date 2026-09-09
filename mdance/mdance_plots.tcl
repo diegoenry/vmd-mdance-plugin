@@ -45,6 +45,37 @@ namespace eval ::mdance::plots {
     variable elbow_partitions
     array set elbow_partitions {}
     array set data {}
+
+    # Display title per plot. It used to be the toplevel's `wm title`; an
+    # embedded plot has no title bar, so it is kept here and mirrored to
+    # whichever container is showing the plot.
+    variable titles
+    array set titles {}
+
+    # The shared export bar's font spinbox edits the CURRENT plot's size, so it
+    # needs a variable of its own that follows the selected tab.
+    variable shared_font 10
+
+    # Tab labels. The full titles ("Within-Cluster MSD (Compactness)") are what
+    # an export needs and what the window used to show, but a strip of eleven of
+    # them truncates to uselessness. These match the launcher buttons, so the
+    # button you pressed and the tab you get read the same.
+    variable tab_labels
+    array set tab_labels {
+        mdance_pop        "Population"
+        mdance_timeline   "Timeline"
+        mdance_msd        "Cluster MSD"
+        mdance_dendro     "Dendrogram"
+        mdance_silhouette "Silhouette"
+        mdance_cdist      "Distances"
+        mdance_msdpop     "MSD/Pop"
+        mdance_reprmsd    "Rep. RMSD"
+        mdance_trans      "Transitions"
+        mdance_residence  "Residence"
+        mdance_isim       "Similarity"
+        mdance_elbow      "Elbow"
+        mdance_sweep_hm   "Score Heatmap"
+    }
 }
 
 # ============================================================
@@ -76,65 +107,155 @@ proc ::mdance::plots::cluster_color {cid nclusters} {
 # Plot window creation with toolbar
 # ============================================================
 
+# figures_notebook - the notebook that hosts embedded plots, or "" when the
+# main window is not up (a script or a test can still call a chart proc
+# directly, and then each plot gets its own toplevel as before).
+proc ::mdance::plots::figures_notebook {} {
+    set nb .mdance.nb.figures.nb
+    if {[winfo exists $nb]} { return $nb }
+    return ""
+}
+
+# plot_widget - the container for a plot, whether it is a tab or a toplevel.
+#
+# Embedding forced this to stop being ".<name>". A widget's geometry master must
+# be in the same toplevel as the widget, so a plot whose parent is "." cannot be
+# packed into the main window -- the body has to BE the notebook page. Nothing
+# outside this file should assemble a plot path by hand; ask here.
+proc ::mdance::plots::plot_widget {name} {
+    set nb [figures_notebook]
+    if {$nb ne ""} { return $nb.p_$name }
+    return .$name
+}
+
+proc ::mdance::plots::plot_exists {name} {
+    return [winfo exists [plot_widget $name]]
+}
+
+# current_figure - the plot name of the selected tab, or "" if none. The shared
+# export bar acts on this.
+proc ::mdance::plots::current_figure {} {
+    set nb [figures_notebook]
+    if {$nb eq ""} { return "" }
+    if {[catch {$nb select} cur] || $cur eq ""} { return "" }
+    set leaf [lindex [split $cur .] end]
+    if {![string match "p_*" $leaf]} { return "" }
+    return [string range $leaf 2 end]
+}
+
+# plot_title / set_plot_title - a plot's display title. It used to live in the
+# toplevel's `wm title`; embedded plots have no title bar, so it is kept here
+# and pushed to whichever of the two is showing it.
+proc ::mdance::plots::plot_title {name} {
+    variable titles
+    if {[info exists titles($name)]} { return $titles($name) }
+    return ""
+}
+
+# tab_label - the short name for a plot's tab, falling back to the full title.
+proc ::mdance::plots::tab_label {name title} {
+    variable tab_labels
+    if {[info exists tab_labels($name)]} { return $tab_labels($name) }
+    if {[string length $title] > 18} { return "[string range $title 0 15]..." }
+    return $title
+}
+
+proc ::mdance::plots::set_plot_title {name title} {
+    variable titles
+    set titles($name) $title
+    set w [plot_widget $name]
+    if {![winfo exists $w]} return
+    if {[winfo toplevel $w] eq $w} {
+        catch {wm title $w $title}
+        return
+    }
+    set nb [figures_notebook]
+    if {$nb ne ""} { catch {$nb tab $w -text [tab_label $name $title]} }
+}
+
+# create_plot_window - the container for one plot.
+#
+# Embedded as a tab in the Figures view when the main window is up, and a
+# toplevel otherwise. Either way the body is the widget named `.<name>`, so
+# every chart proc, the redraw registry and the `.mdance_*` teardown in
+# clear_results keep working on the paths they already use: a frame whose parent
+# is "." may be packed into any widget, because everything descends from ".".
+#
+# The toolbar here now carries only per-plot extras (the elbow's score export,
+# the timeline's bar width, the heatmap's CH/DB toggle). Font size and the three
+# exports moved to one shared bar above the notebook, so eleven plots no longer
+# mean eleven copies of the same four controls.
 proc ::mdance::plots::create_plot_window {name title width height} {
     variable font_sizes
     variable plot_font_size
 
-    set w .$name
+    set nb [figures_notebook]
+    set w [plot_widget $name]
     set is_new [expr {![winfo exists $w]}]
 
     if {$is_new} {
-        toplevel $w
-        wm title $w $title
-        wm geometry $w ${width}x${height}
-        wm minsize $w 300 200
+        if {$nb ne ""} {
+            ttk::frame $w
+            $nb add $w -text [tab_label $name $title]
+        } else {
+            toplevel $w
+            wm geometry $w ${width}x${height}
+            wm minsize $w 320 220
+        }
 
-        # Toolbar
+        set font_sizes($name) $plot_font_size
+
+        # Per-plot extras only; empty for most plots, and an empty ttk::frame
+        # costs no height.
         ttk::frame $w.toolbar
         pack $w.toolbar -fill x -padx 5 -pady {2 0}
-
-        ttk::label $w.toolbar.fl -text "Font:"
-        set font_sizes($name) $plot_font_size
-        ttk::spinbox $w.toolbar.fs -from 6 -to 24 -width 3 -increment 1 \
-            -textvariable ::mdance::plots::font_sizes($name) \
-            -command [list ::mdance::plots::on_font_change $name]
-        bind $w.toolbar.fs <Return> [list ::mdance::plots::on_font_change $name]
-
-        ttk::separator $w.toolbar.sep -orient vertical
-        ttk::button $w.toolbar.csv -text "Export CSV" \
-            -command [list ::mdance::plots::export_csv $name]
-        ttk::button $w.toolbar.ps -text "Export PS" \
-            -command [list ::mdance::plots::export_image $name ps]
-        ttk::button $w.toolbar.png -text "Export PNG" \
-            -command [list ::mdance::plots::export_image $name png]
-
-        pack $w.toolbar.fl -side left -padx {0 2}
-        pack $w.toolbar.fs -side left -padx {0 6}
-        pack $w.toolbar.sep -side left -fill y -padx 4 -pady 2
-        pack $w.toolbar.csv -side left -padx 2
-        pack $w.toolbar.ps -side left -padx 2
-        pack $w.toolbar.png -side left -padx 2
 
         canvas $w.c -bg white
         pack $w.c -fill both -expand 1
 
-        # Bind resize
         bind $w.c <Configure> [list ::mdance::plots::on_resize $name %w %h]
-        # Release this plot's cached state and cancel its pending redraw when the
-        # window is closed (the toplevel pathname is in each child's bindtags, so
-        # guard on %W to act only on the toplevel's own <Destroy>).
+        # Release this plot's cached state and cancel its pending redraw when it
+        # is closed (the container pathname is in each child's bindtags, so guard
+        # on %W to act only on the container's own <Destroy>).
         bind $w <Destroy> [list ::mdance::plots::on_plot_destroy $name %W $w]
     } else {
-        wm title $w $title
-        # Clear canvas for redraw
         $w.c delete all
-        # Remove old scrollbars if present
         catch {destroy $w.xsb}
         catch {destroy $w.ysb}
         $w.c configure -scrollregion {} -xscrollcommand {} -yscrollcommand {}
     }
 
+    set_plot_title $name $title
+    if {$nb ne ""} {
+        catch {$nb select $w}
+        sync_shared_bar
+    }
     return $w
+}
+
+# close_figure / close_all_figures - what "closing a plot" means once a plot is
+# a tab rather than a window. Destroying the body fires on_plot_destroy, which
+# releases the cached results dict and removes the tab.
+proc ::mdance::plots::close_figure {{name ""}} {
+    if {$name eq ""} { set name [current_figure] }
+    if {$name eq ""} return
+    catch {destroy [plot_widget $name]}
+    sync_shared_bar
+}
+
+proc ::mdance::plots::close_all_figures {} {
+    set nb [figures_notebook]
+    if {$nb ne ""} {
+        foreach page [$nb tabs] { catch {destroy $page} }
+    }
+    # Standalone plot toplevels, for a session that opened some before the GUI.
+    foreach w [winfo children .] {
+        if {[string match ".mdance_*" $w] && $w ne ".mdance_elbow_cfg" \
+            && $w ne ".mdance_settings"} {
+            catch {destroy $w}
+        }
+    }
+    sync_shared_bar
 }
 
 # ============================================================
@@ -183,7 +304,7 @@ proc ::mdance::plots::do_redraw {name} {
     variable is_redrawing
     catch {unset redraw_after($name)}
     if {$is_redrawing} return
-    if {[info exists redraw_cmds($name)] && [winfo exists .$name]} {
+    if {[info exists redraw_cmds($name)] && [plot_exists $name]} {
         set is_redrawing 1
         if {[catch {{*}$redraw_cmds($name)} err]} {
             puts "MDANCE redraw error ($name): $err"
@@ -202,7 +323,7 @@ proc ::mdance::plots::on_font_change {name} {
 proc ::mdance::plots::redraw_all {} {
     variable redraw_cmds
     foreach name [array names redraw_cmds] {
-        if {[winfo exists .$name]} { do_redraw $name }
+        if {[plot_exists $name]} { do_redraw $name }
     }
 }
 
@@ -212,9 +333,14 @@ proc ::mdance::plots::on_plot_destroy {name W w} {
     if {$W ne $w} return
     variable redraw_after
     catch {after cancel $redraw_after($name)}
-    foreach a {redraw_cmds redraw_after csv_data font_sizes} {
+    foreach a {redraw_cmds redraw_after csv_data font_sizes titles} {
         catch {unset ::mdance::plots::${a}($name)}
     }
+    # An embedded plot leaves its notebook page behind when the body is
+    # destroyed -- clear_results destroys the bodies, so without this the
+    # Figures view keeps a row of empty tabs.
+    set nb [figures_notebook]
+    if {$nb ne ""} { catch {$nb forget $w} }
     # Release the computed-data cache too. These entries hold whole distance
     # matrices, and leaving them behind pinned that memory for the rest of the
     # VMD session -- and served stale numbers to a later re-open of the plot.
@@ -225,6 +351,58 @@ proc ::mdance::plots::on_plot_destroy {name W w} {
         mdance_reprmsd    { catch {unset data(reprmsd)} }
         mdance_silhouette { catch {unset data(silhouette)} }
     }
+}
+
+# sync_shared_bar - point the shared controls at the selected tab: load that
+# plot's font size, and enable or disable the whole bar depending on whether
+# there is a plot to act on.
+proc ::mdance::plots::sync_shared_bar {} {
+    variable font_sizes
+    variable shared_font
+    set bar .mdance.nb.figures.bar
+    if {![winfo exists $bar]} return
+
+    # An empty notebook draws as a bare sunken box, so swap in a placeholder
+    # rather than leaving the user looking at nothing.
+    set nb [figures_notebook]
+    set empty .mdance.nb.figures.empty
+    if {$nb ne "" && [winfo exists $empty]} {
+        if {[llength [$nb tabs]] == 0} {
+            catch {pack forget $nb}
+            catch {pack $empty -fill both -expand 1 -padx 10 -pady {6 10}}
+        } else {
+            catch {pack forget $empty}
+            catch {pack $nb -fill both -expand 1 -padx 10 -pady {6 10}}
+        }
+    }
+
+    set name [current_figure]
+    set state [expr {$name eq "" ? "disabled" : "normal"}]
+    foreach child {fs csv ps png close closeall} {
+        catch {$bar.$child configure -state $state}
+    }
+    if {$name ne "" && [info exists font_sizes($name)]} {
+        set shared_font $font_sizes($name)
+    }
+}
+
+# on_shared_font - the shared spinbox writes through to the current plot.
+proc ::mdance::plots::on_shared_font {} {
+    variable font_sizes
+    variable shared_font
+    set name [current_figure]
+    if {$name eq ""} return
+    set font_sizes($name) $shared_font
+    on_font_change $name
+}
+
+# Shared-bar wrappers, so the buttons need no argument and degrade quietly when
+# no plot is open.
+proc ::mdance::plots::export_current_csv {} {
+    set n [current_figure]; if {$n ne ""} { export_csv $n }
+}
+proc ::mdance::plots::export_current_image {fmt} {
+    set n [current_figure]; if {$n ne ""} { export_image $n $fmt }
 }
 
 proc ::mdance::plots::export_csv {name} {
@@ -251,7 +429,7 @@ proc ::mdance::plots::export_csv {name} {
 }
 
 proc ::mdance::plots::export_image {name fmt} {
-    set w .$name
+    set w [plot_widget $name]
     if {![winfo exists $w]} return
     set c $w.c
 

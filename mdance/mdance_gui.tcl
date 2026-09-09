@@ -159,11 +159,31 @@ namespace eval ::mdance::gui {
 # .results and .prime, so every absolute path in this plugin and the eighteen
 # the test suite pins keep resolving. The panels are placed with `pack -in`,
 # which is legal because each host is a descendant of the panel's parent.
+# init_styles - the plugin's own ttk styles.
+#
+# Namespaced on purpose. VMD's ttk theme paints Treeview headings a saturated
+# green, which makes the loudest thing in the window the header of a table that
+# is usually empty; the slate below is the interactions plugin's headerBg. Bare
+# style names would restyle every other VMD plugin's tables in the same process,
+# so everything here is prefixed and applied per widget.
+proc ::mdance::gui::init_styles {} {
+    catch {
+        ttk::style configure Mdance.Treeview.Heading \
+            -background "#37474f" -foreground "#ffffff" -relief flat -padding {6 5}
+        ttk::style map Mdance.Treeview.Heading \
+            -background [list active "#455a64" pressed "#263238"] \
+            -foreground [list active "#ffffff" pressed "#ffffff"]
+        ttk::style configure Mdance.Treeview -rowheight 22
+    }
+}
+
 proc ::mdance::gui::create_window {} {
     variable algo_current
     variable algo_panels
     variable algo_host
     array unset algo_panels
+
+    init_styles
 
     set w .mdance
     catch {destroy $w}
@@ -187,6 +207,18 @@ proc ::mdance::gui::create_window {} {
     ttk::progressbar $w.status.pb -mode indeterminate -length 120
     ttk::label $w.status.label -textvariable ::mdance::status -anchor w
     pack $w.status.label -side left -fill x -expand 1
+
+    # A slim toolbar, the one piece of the interactions shell that transfers
+    # cleanly: a fixed home for window-level actions that belong to no tab.
+    ttk::frame $w.tools
+    pack $w.tools -side top -fill x -padx 5 -pady {5 0}
+    ttk::button $w.tools.settings -text "Settings..." \
+        -command ::mdance::gui::settings_dialog
+    ttk::label $w.tools.title -text "MDANCE Clustering" -anchor w
+    pack $w.tools.title -side left
+    pack $w.tools.settings -side right
+    ttk::separator $w.toolsep -orient horizontal
+    pack $w.toolsep -side top -fill x -padx 5 -pady {6 0}
 
     ttk::frame $w.nb
     pack $w.nb -fill both -expand 1 -padx 5 -pady 5
@@ -223,16 +255,13 @@ proc ::mdance::gui::create_window {} {
     # its parameters in the middle, and the things touched once a session at the
     # bottom. build_setup_tab packs in its own historical order, which put the
     # backend path and the Quick Start text above the algorithm.
-    foreach f {mol range preview cli display adv help} { catch {pack forget $setup_tab.$f} }
+    foreach f {mol range preview cli} { catch {pack forget $setup_tab.$f} }
     pack $setup_tab.mol     -fill x -padx 10 -pady {10 0}
     pack $setup_tab.range   -fill x -padx 10 -pady {10 0}
     pack $setup_tab.preview -fill x -padx 10
     pack $setup_tab.algo    -fill x -padx 10 -pady {6 0}
     # (the algorithm panel is packed after .algo by select_algorithm)
-    pack $setup_tab.cli     -fill x -padx 10 -pady {10 0}
-    pack $setup_tab.display -fill x -padx 10 -pady {10 0}
-    pack $setup_tab.adv     -fill x -padx 10 -pady {10 0}
-    pack $setup_tab.help    -fill x -padx 10 -pady 10
+    pack $setup_tab.cli     -fill x -padx 10 -pady {10 10}
 
     set algo_panels(kmeans) [ttk::frame $w.nb.kmeans]
     set algo_panels(divine) [ttk::frame $w.nb.divine]
@@ -254,7 +283,7 @@ proc ::mdance::gui::create_window {} {
     # ---- right: the result views ------------------------------------------
     ttk::notebook $w.nb.pane.views.nb
     pack $w.nb.pane.views.nb -fill both -expand 1
-    foreach {key label} {results "Results" figures "Figures" sweep "Sweep" prime "PRIME"} {
+    foreach {key label} {results "Results" figures "Figures" sweep "Sweep" prime "PRIME" help "Help"} {
         set page [ttk::frame $w.nb.pane.views.nb.$key]
         $w.nb.pane.views.nb add $page -text $label
         set body($key) [ttk::frame $w.nb.$key]
@@ -266,6 +295,7 @@ proc ::mdance::gui::create_window {} {
     build_results_tab $body(results) $body(figures)
     build_sweep_tab   $body(sweep)
     build_prime_tab   $body(prime)
+    build_help_tab    $body(help)
 
     # Hide the metric selectors (locked to MSD) now that every panel is gridded.
     register_metric_combos $w
@@ -659,17 +689,11 @@ proc ::mdance::gui::build_setup_tab {parent} {
     ttk::labelframe $parent.mol -text "Molecule" -padding 10
     pack $parent.mol -fill x -padx 10 -pady 10
 
-    ttk::label $parent.mol.mol_label -text "Molecule ID:"
-    ttk::entry $parent.mol.mol_entry -textvariable ::mdance::gui::mol_selection -width 20
-    grid $parent.mol.mol_label -row 0 -column 0 -sticky w -padx {0 10}
-    grid $parent.mol.mol_entry -row 0 -column 1 -sticky ew
-
-    ttk::label $parent.mol.sel_label -text "Atom selection:"
-    ttk::entry $parent.mol.sel_entry -textvariable ::mdance::gui::atom_selection -width 40
-    grid $parent.mol.sel_label -row 1 -column 0 -sticky w -padx {0 10} -pady {10 0}
-    grid $parent.mol.sel_entry -row 1 -column 1 -sticky ew -pady {10 0}
-
-    grid columnconfigure $parent.mol 1 -weight 1
+    # Vendored from the Interactions plugin: a chooser listing the molecules
+    # actually loaded instead of a free-text "top", and a selection field that
+    # reports its atom count as you type instead of at Run time. See
+    # mdance_input.tcl for what was taken and what was adapted.
+    ::mdance::input::build $parent.mol
 
     # Frame range / stride
     ttk::labelframe $parent.range -text "Frame Range" -padding 10
@@ -728,64 +752,103 @@ proc ::mdance::gui::build_setup_tab {parent} {
     pack $parent.preview.btn -side left
     pack $parent.preview.tools -side left -padx {6 0}
     pack $parent.preview.info -side left -padx 10 -fill x -expand 1
+}
 
-    # Display settings
-    ttk::labelframe $parent.display -text "Display Settings" -padding 10
-    pack $parent.display -fill x -padx 10 -pady {10 0}
+# settings_dialog - the preferences that used to sit in two labelframes at the
+# bottom of the input column, taking ~200 px of the column permanently to hold
+# four controls that are touched once a session. Modelled on the interactions
+# plugin's own Settings dialog (interactions/gui/settings.tcl): one reused
+# toplevel, transient to the main window, Escape to dismiss, everything applying
+# live so there is nothing to OK.
+proc ::mdance::gui::settings_dialog {} {
+    set w .mdance_settings
+    if {[winfo exists $w]} { wm deiconify $w; raise $w; focus $w; return $w }
 
-    ttk::label $parent.display.afl -text "App font size:"
-    ttk::spinbox $parent.display.afs -from 8 -to 18 -width 4 -increment 1 \
+    toplevel $w
+    wm title $w "MDANCE Settings"
+    wm resizable $w 0 0
+    catch {wm transient $w .mdance}
+    bind $w <Escape> [list destroy $w]
+
+    ttk::labelframe $w.display -text "Display" -padding 10
+    pack $w.display -fill x -padx 12 -pady {12 0}
+
+    ttk::label $w.display.afl -text "App font size:"
+    ttk::spinbox $w.display.afs -from 8 -to 18 -width 4 -increment 1 \
         -textvariable ::mdance::gui::app_font_size \
         -command ::mdance::gui::apply_app_font
-    bind $parent.display.afs <Return> ::mdance::gui::apply_app_font
+    bind $w.display.afs <Return>   ::mdance::gui::apply_app_font
+    bind $w.display.afs <FocusOut> ::mdance::gui::apply_app_font
 
-    ttk::label $parent.display.pfl -text "Plot font size:"
-    ttk::spinbox $parent.display.pfs -from 6 -to 24 -width 4 -increment 1 \
-        -textvariable ::mdance::plots::plot_font_size
+    ttk::label $w.display.pfl -text "Plot font size:"
+    ttk::spinbox $w.display.pfs -from 6 -to 24 -width 4 -increment 1 \
+        -textvariable ::mdance::plots::plot_font_size \
+        -command ::mdance::plots::redraw_all
+    bind $w.display.pfs <Return>   ::mdance::plots::redraw_all
+    bind $w.display.pfs <FocusOut> ::mdance::plots::redraw_all
 
-    # Off by default: the window title bar already names the plot. Exports still
-    # get the title, since an exported image has no title bar (see export_image).
-    ttk::checkbutton $parent.display.titles -text "Titles inside plots" \
+    # Off by default: the tab already names the plot. Exports still get the
+    # title, since an exported image has no tab to identify it by.
+    ttk::checkbutton $w.display.titles -text "Titles inside plots" \
         -variable ::mdance::plots::plot_titles \
         -command ::mdance::plots::redraw_all
 
-    grid $parent.display.afl -row 0 -column 0 -sticky w -padx {0 10}
-    grid $parent.display.afs -row 0 -column 1 -sticky w
-    grid $parent.display.pfl -row 0 -column 2 -sticky w -padx {20 10}
-    grid $parent.display.pfs -row 0 -column 3 -sticky w
-    grid $parent.display.titles -row 1 -column 0 -columnspan 4 -sticky w -pady {6 0}
+    grid $w.display.afl -row 0 -column 0 -sticky w -padx {0 10}
+    grid $w.display.afs -row 0 -column 1 -sticky w
+    grid $w.display.pfl -row 1 -column 0 -sticky w -padx {0 10} -pady {6 0}
+    grid $w.display.pfs -row 1 -column 1 -sticky w -pady {6 0}
+    grid $w.display.titles -row 2 -column 0 -columnspan 2 -sticky w -pady {8 0}
 
-    # Advanced
-    ttk::labelframe $parent.adv -text "Advanced" -padding 10
-    pack $parent.adv -fill x -padx 10 -pady {10 0}
-    ttk::checkbutton $parent.adv.metric \
-        -text "Unlock metric selection" \
+    ttk::labelframe $w.adv -text "Advanced" -padding 10
+    pack $w.adv -fill x -padx 12 -pady {10 0}
+    ttk::checkbutton $w.adv.metric -text "Unlock metric selection" \
         -variable ::mdance::gui::metric_unlocked \
         -command ::mdance::gui::apply_metric_lock
-    ttk::label $parent.adv.note \
-        -text "Clustering runs on MSD, the only metric with a physical meaning for Cartesian MD frames. The other indices are binary/extended-similarity measures for fingerprint-style data; unlock only if you know your input suits them." \
-        -justify left -wraplength 460 -foreground "#555555"
-    grid $parent.adv.metric -row 0 -column 0 -sticky w
-    grid $parent.adv.note -row 1 -column 0 -sticky w -pady {6 0}
+    ttk::label $w.adv.note -justify left -wraplength 330 -foreground "#555555" \
+        -text "Clustering runs on MSD, the only metric with a physical meaning for Cartesian MD frames. The other indices are binary/extended-similarity measures for fingerprint-style data; unlock only if you know your input suits them."
+    pack $w.adv.metric -anchor w
+    pack $w.adv.note -anchor w -pady {6 0}
 
-    # Help text
-    ttk::labelframe $parent.help -text "Quick Start" -padding 10
-    pack $parent.help -fill both -expand 1 -padx 10 -pady 10
+    ttk::frame $w.btns
+    pack $w.btns -fill x -padx 12 -pady 12
+    ttk::button $w.btns.close -text "Close" -command [list destroy $w]
+    pack $w.btns.close -side right
 
-    set help_text "1. Load a molecule with trajectory in VMD\n\
-2. Set the molecule ID (or 'top' for current)\n\
-3. Set atom selection (e.g., 'protein and name CA')\n\
-4. Click Preview to verify\n\
-5. Choose an algorithm tab and run clustering\n\
-6. View results in the Results tab\n\n\
-Algorithms:\n\
-  KMeans NANI - Fast partitional clustering\n\
-  DIVINE - Divisive hierarchical (top-down)\n\
-  HELM - Agglomerative hierarchical (bottom-up)"
-
-    ttk::label $parent.help.text -text $help_text -justify left -wraplength 450
-    pack $parent.help.text -fill both -expand 1
+    return $w
 }
+
+# build_help_tab - the Quick Start, moved off the input column onto its own
+# view. It is reference text: it does not change, nothing on it is an input, and
+# it was consuming the bottom of the column that the algorithm parameters need.
+proc ::mdance::gui::build_help_tab {parent} {
+    ttk::labelframe $parent.qs -text "Quick Start" -padding 12
+    pack $parent.qs -fill x -padx 12 -pady 12
+
+    set help_text "1. Load a molecule with a trajectory in VMD.\n\
+2. Pick it in the Molecule chooser at the top of the input column.\n\
+3. Type an atom selection. The line under it reports how many atoms match,\n\
+\u0020\u0020 so you can tell a typo from an empty selection before you run.\n\
+4. Optionally set a Frame Range to skip equilibration or decimate.\n\
+5. Choose an algorithm, set its parameters, and press Run.\n\
+6. Read the Results view; open any plot from Figures.\n\n\
+Algorithms:\n\
+\u0020\u0020 KMeans NANI - fast partitional clustering\n\
+\u0020\u0020 DIVINE      - divisive hierarchical (top-down)\n\
+\u0020\u0020 HELM        - agglomerative hierarchical (bottom-up)\n\
+\u0020\u0020 eQUAL       - radial/threshold; k emerges from the threshold\n\n\
+Sweep runs a grid of {algorithm x K x metric x init} and tabulates the scores.\n\
+PRIME predicts the representative frame of a clustered ensemble."
+
+    ttk::label $parent.qs.text -text $help_text -justify left -anchor w
+    pack $parent.qs.text -fill x
+
+    ttk::labelframe $parent.ref -text "Reference" -padding 12
+    pack $parent.ref -fill x -padx 12 -pady {0 12}
+    ttk::label $parent.ref.t -justify left -anchor w -wraplength 520 \
+        -text "Algorithms: MDANCE (Miranda-Quintana group). Backend: CPP-MDANCE.\nHost: VMD, Theoretical and Computational Biophysics Group, UIUC.\nEach algorithm tab carries the citation for the method it runs."
+    pack $parent.ref.t -fill x
+}
+
 
 proc ::mdance::gui::apply_app_font {} {
     variable app_font_size
@@ -1476,7 +1539,8 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     ttk::frame $parent.table.list
     pack $parent.table.list -fill both -expand 1
     set cols {id size pct msd rep}
-    ttk::treeview $parent.table.list.tv -columns $cols -show headings -height 10 \
+    ttk::treeview $parent.table.list.tv -columns $cols -show headings -height 5 \
+        -style Mdance.Treeview \
         -yscrollcommand [list $parent.table.list.sb set]
     ttk::scrollbar $parent.table.list.sb -orient vertical \
         -command [list $parent.table.list.tv yview]
@@ -1563,8 +1627,53 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     ttk::labelframe $plotparent.plots -text "Visualizations" -padding 10
     pack $plotparent.plots -fill x -padx 10 -pady 5
     ttk::label $plotparent.hint -justify left -foreground "#555555" \
-        -text "Every plot opens in its own window. Run a clustering to enable them."
+        -text "Open a plot to add it as a tab below. Run a clustering to enable them."
     pack $plotparent.hint -fill x -padx 10 -pady {0 6} -before $plotparent.plots
+
+    # One export bar for every plot, instead of the same four controls repeated
+    # in eleven separate windows. It acts on whichever tab is selected.
+    ttk::separator $plotparent.barsep -orient horizontal
+    pack $plotparent.barsep -fill x -padx 10 -pady {8 0}
+
+    ttk::frame $plotparent.bar -padding {10 6}
+    pack $plotparent.bar -fill x
+    ttk::label $plotparent.bar.fl -text "Font:"
+    ttk::spinbox $plotparent.bar.fs -from 6 -to 24 -width 3 -increment 1 \
+        -textvariable ::mdance::plots::shared_font \
+        -command ::mdance::plots::on_shared_font
+    bind $plotparent.bar.fs <Return> ::mdance::plots::on_shared_font
+    ttk::separator $plotparent.bar.sep -orient vertical
+    ttk::button $plotparent.bar.csv -text "Export CSV" \
+        -command ::mdance::plots::export_current_csv
+    ttk::button $plotparent.bar.ps -text "Export PS" \
+        -command [list ::mdance::plots::export_current_image ps]
+    ttk::button $plotparent.bar.png -text "Export PNG" \
+        -command [list ::mdance::plots::export_current_image png]
+    ttk::button $plotparent.bar.close -text "Close" \
+        -command ::mdance::plots::close_figure
+    ttk::button $plotparent.bar.closeall -text "Close All" \
+        -command ::mdance::plots::close_all_figures
+    pack $plotparent.bar.fl -side left -padx {0 2}
+    pack $plotparent.bar.fs -side left -padx {0 6}
+    pack $plotparent.bar.sep -side left -fill y -padx 4 -pady 2
+    pack $plotparent.bar.csv -side left -padx 2
+    pack $plotparent.bar.ps -side left -padx 2
+    pack $plotparent.bar.png -side left -padx 2
+    pack $plotparent.bar.closeall -side right -padx {2 0}
+    pack $plotparent.bar.close -side right -padx 2
+
+    # The plots themselves. Empty until one is opened.
+    ttk::notebook $plotparent.nb
+    pack $plotparent.nb -fill both -expand 1 -padx 10 -pady {6 10}
+    bind $plotparent.nb <<NotebookTabChanged>> ::mdance::plots::sync_shared_bar
+
+    # A sibling of the notebook, not a child of it: sync_shared_bar swaps the
+    # two, so an empty Figures view says so instead of showing an empty sunken
+    # box with a plot drawn behind it.
+    ttk::label $plotparent.empty -anchor center -foreground "#777777" \
+        -text "No plot open.\nPick one above to add it as a tab."
+
+    ::mdance::plots::sync_shared_bar
 
     # Row 0: core plots
     ttk::button $plotparent.plots.pop -text "Population" \
@@ -1922,11 +2031,13 @@ proc ::mdance::gui::clear_results {} {
         -message "Clear the current clustering result, the sweep table, the PRIME and Frame Tools selections, and close the plot windows?\n\nExported files and saved sessions are not affected. Any cluster colouring already applied to the molecule is left as it is."]
     if {$ans ne "ok"} return
 
-    # Close plot windows first: each <Destroy> handler releases that plot's
-    # cached results dict and cancels its pending resize redraw.
-    foreach w [winfo children .] {
-        if {[string match ".mdance_*" $w]} { catch {destroy $w} }
-    }
+    # Close the plots first: each <Destroy> handler releases that plot's cached
+    # results dict and cancels its pending resize redraw. They are notebook tabs
+    # now, so this goes through the plots module rather than sweeping the
+    # toplevel list -- but close_all_figures still sweeps it, for a session that
+    # opened plots before the window existed.
+    ::mdance::plots::close_all_figures
+    catch {destroy .mdance_elbow_cfg}
 
     set ::mdance::results ""
     array unset sweep_full
@@ -2049,7 +2160,8 @@ proc ::mdance::gui::build_prime_tab {parent} {
 
     ttk::labelframe $parent.res -text "Predicted Frames" -padding 10
     pack $parent.res -fill both -expand 1 -padx 10 -pady {6 10}
-    ttk::treeview $parent.res.tv -columns {method frame kind} -show headings -height 8
+    ttk::treeview $parent.res.tv -columns {method frame kind} -show headings -height 8 \
+        -style Mdance.Treeview
     foreach {c t w} {method Method 150 frame "VMD frame" 90 kind Type 130} {
         $parent.res.tv heading $c -text $t
         $parent.res.tv column $c -width $w -anchor center

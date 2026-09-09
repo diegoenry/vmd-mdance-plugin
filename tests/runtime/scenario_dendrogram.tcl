@@ -28,7 +28,7 @@ th::test "two separate trees (nClusters=2): every leaf gets laid out" {
         ::mdance::plots::dendrogram \
             [helm_result 2 {{0 1 0.5 2} {2 3 0.7 2}} {0 0 1 1} {2 2} {0 2}]
     }
-    catch {destroy .mdance_dendro}
+    catch {destroy [::mdance::plots::plot_widget mdance_dendro]}
 }
 
 th::test "a forest with unmerged single-leaf trees (nClusters=3)" {
@@ -37,7 +37,7 @@ th::test "a forest with unmerged single-leaf trees (nClusters=3)" {
         ::mdance::plots::dendrogram \
             [helm_result 3 {{0 1 0.5 2}} {0 0 1 2} {2 1 1} {0 2 3}]
     }
-    catch {destroy .mdance_dendro}
+    catch {destroy [::mdance::plots::plot_widget mdance_dendro]}
 }
 
 th::test "the single-root case (nClusters=1) still renders" {
@@ -46,7 +46,7 @@ th::test "the single-root case (nClusters=1) still renders" {
         ::mdance::plots::dendrogram \
             [helm_result 1 {{0 1 0.5 2} {3 2 0.9 3}} {0 0 0} {3} {0}]
     }
-    catch {destroy .mdance_dendro}
+    catch {destroy [::mdance::plots::plot_widget mdance_dendro]}
 }
 
 th::test "a deeper forest: two balanced trees of four leaves each" {
@@ -57,7 +57,7 @@ th::test "a deeper forest: two balanced trees of four leaves each" {
         ::mdance::plots::dendrogram \
             [helm_result 2 $z {0 0 0 0 1 1 1 1} {4 4} {0 4}]
     }
-    catch {destroy .mdance_dendro}
+    catch {destroy [::mdance::plots::plot_widget mdance_dendro]}
 }
 
 # ------------------------------------------------------------------
@@ -71,7 +71,7 @@ set r [::mdance::run_clustering kmeans $params]
 th::test "a real clustering still builds its dendrogram from centroid distances" {
     th::false [dict exists $r zMatrix] "this path must not have a backend zMatrix"
     th::ok { ::mdance::plots::dendrogram $::mdance::results }
-    catch {destroy .mdance_dendro}
+    catch {destroy [::mdance::plots::plot_widget mdance_dendro]}
 }
 
 exit [th::done "runtime:dendrogram"]

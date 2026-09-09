@@ -27,15 +27,15 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
   from its representative) simultaneously for direct comparison, or overlay
   arbitrary frame ranges such as `0-100,500,900-1000`; export the top-*N* frame
   indices and labels
-- **Elbow K-scan** on each algorithm tab (KMeans, DIVINE and HELM), keeping every
+- **Elbow K-scan** on each algorithm's panel (KMeans, DIVINE and HELM), keeping every
   K's partition so hovering a point shows that K's population split
 - Export cluster labels to CSV
-- **Clear Results** - purge a result and everything derived from it (table, plot
-  windows, sweep table, PRIME / Frame Tools selections, overlay)
+- **Clear Results** - purge a result and everything derived from it (table, open
+  plot tabs, sweep table, PRIME / Frame Tools selections, overlay)
 - **Export representative structures** (PDB/DCD) and **per-cluster trajectory split**
 - **Extended-similarity (iSIM) analysis** - ensemble similarity plus per-cluster
   compactness and outlier (least-representative) frames
-- **Frame Tools** (Setup tab) - select frames without clustering: most-diverse
+- **Frame Tools** (left column) - select frames without clustering: most-diverse
   subset, outlier frames, representative density sampling, or the single
   medoid/outlier; navigate to or export the selection
 - **Cancellable runs with live progress** - coordinate extraction reports
@@ -45,7 +45,8 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
   progress
 - **Session save/load** - save a result (with its parameters and frame map) to a
   `.mdance` file and reopen it later
-- **Interactive plot windows** with auto-resize, adjustable font size, and data/image export
+- **Plots as tabs** in the Figures view, with auto-resize and one shared bar for
+  font size and CSV / PS / PNG export
 - **Native library mode** - pass coordinates directly in memory (no temp files)
 
 > **Scope note.** MDANCE's *SHINE* (pathway/ensemble) method clusters *whole
@@ -131,43 +132,54 @@ mdance::gui
 
 ### Workflow
 
-1. Load a molecule with trajectory in VMD
+The window is split: everything you set is in the left column, everything the run
+produces is on the right, with one status band across the bottom.
+
+1. Load a molecule with a trajectory in VMD
 2. Open the MDANCE plugin
-3. **Setup tab**: Set molecule ID and atom selection (e.g., `protein and name CA`).
-   Optionally set a **Frame Range** (first/last/stride) to cluster a subset — `Last = -1`
-   means the final frame; `Stride = 10` keeps every 10th frame. Click **Preview Selection**
-   to see how many frames are selected.
-4. Check the **MDANCE Backend** section — it shows whether the native library or CLI mode is active
-5. Choose an algorithm tab (KMeans, DIVINE, or HELM), **or** use the **Sweep tab** to
-   scan a grid of parameters at once
-6. Configure parameters and click "Run"
-7. **Results tab**: View scores and the cluster table (cluster, size, % of frames,
-   MSD, representative frame) — click any column heading to sort by it
-8. Click "Color by Cluster" to visualize
-9. Click "Go to Representative" to navigate to medoid frames, or use **Frame
-   Overlay** to show the selected cluster's top *N* frames at once
-10. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD,
+3. **Molecule** (left column): pick the molecule from the chooser — it lists what is
+   actually loaded — and type an atom selection (e.g. `protein and name CA`). The line
+   under the field reports how many atoms match as you type, so a typo or an empty
+   selection is visible before you run rather than after.
+4. Optionally set a **Frame Range** (first/last/stride) to cluster a subset — `Last = -1`
+   means the final frame; `Stride = 10` keeps every 10th frame. **Preview Selection**
+   reports how many frames are selected.
+5. Check the **MDANCE Backend** group — it shows whether native library or CLI mode is active
+6. Pick an algorithm in the **Algorithm** list (KMeans, DIVINE, HELM, eQUAL). The
+   parameters below it change to that algorithm's; what you typed into the others is
+   kept. For a batch scan use the **Sweep** view on the right instead.
+7. Set the parameters and press **Run**
+8. **Results** (right): scores and the cluster table (cluster, size, % of frames, MSD,
+   representative frame) — click any column heading to sort by it
+9. Click "Color by Cluster" to visualize
+10. Click "Go to Representative" to navigate to medoid frames, or use **Frame
+    Overlay** to show the selected cluster's top *N* frames at once
+11. Use **Export Representatives...** to save each cluster's medoid as a PDB/DCD,
     **Export Clusters...** to write one trajectory file per cluster, or **Export Top
     Frames...** for the top-*N* frame indices of every cluster. **Similarity** opens
     the iSIM compactness/outlier analysis.
-11. Open any plot — each plot window includes a toolbar with:
-    - **Font size** control to adjust text in the figure
-    - **Export CSV** to save the underlying plot data
-    - **Export PS** / **Export PNG** to save the figure as an image
-12. Plot windows auto-resize when you resize the window
+12. **Figures** (right): every plot opens as a tab in this view rather than as a
+    separate window. One shared bar above the tabs carries:
+    - **Font size** for the selected plot
+    - **Export CSV** for the underlying plot data
+    - **Export PS** / **Export PNG** for the figure
+    - **Close** / **Close All** for the open plots
+13. Plots redraw to fit whenever the pane is resized
+14. **Help** (right) carries the Quick Start and the credits
 
-### Display Settings
+### Settings
 
-The **Setup** tab includes a **Display Settings** section:
+**Settings...** in the toolbar opens a small dialog. Everything in it applies live.
 
-- **App font size** — adjusts the font size of all UI elements (labels, buttons, tabs)
-- **Plot font size** — sets the default baseline font size for new plot windows (each plot window can also adjust its own font independently via the toolbar)
-- **Titles inside plots** — off by default, since the window title bar already
-  names the plot. Informational captions (a skipped-K caveat, a units qualifier,
-  a computed mean) are always drawn regardless, and exported images re-enable the
-  title because an exported figure has no title bar to identify it by.
+- **App font size** — the interface font size
+- **Plot font size** — the baseline font size new plots start at (the shared bar on
+  the Figures view sets the size of the plot you are looking at)
+- **Titles inside plots** — off by default, since the tab already names the plot.
+  Informational captions (a skipped-K caveat, a units qualifier, a computed mean) are
+  always drawn regardless, and exported images re-enable the title because an exported
+  figure has no tab to identify it by.
 
-The **Advanced** section holds one switch:
+The dialog's **Advanced** group holds one switch:
 
 - **Unlock metric selection** — clustering runs on MSD, the only metric with a
   physical meaning for Cartesian MD frames, so the metric selectors are hidden by
@@ -192,7 +204,7 @@ set env(MDANCE_CLI) "/path/to/mdance-cli"
 set env(MDANCE_LIB) "/path/to/mdance_tcl.so"
 ```
 
-The plugin also searches for the binary and library in the plugin directory and common build paths. You can configure the path interactively from the Setup tab in the plugin GUI.
+The plugin also searches for the binary and library in the plugin directory and common build paths. You can configure the path interactively from the **MDANCE Backend** group in the plugin's left column.
 
 ## Architecture
 

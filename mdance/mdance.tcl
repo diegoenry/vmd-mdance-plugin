@@ -38,6 +38,7 @@ namespace eval ::mdance {
 # Source companion files from same directory
 set _mdance_dir [file dirname [info script]]
 source [file join $_mdance_dir mdance_utils.tcl]
+source [file join $_mdance_dir mdance_input.tcl]
 source [file join $_mdance_dir mdance_gui.tcl]
 source [file join $_mdance_dir mdance_plots.tcl]
 source [file join $_mdance_dir mdance_sweep.tcl]

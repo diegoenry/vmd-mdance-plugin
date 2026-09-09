@@ -265,7 +265,7 @@ th::section "Clear Results purges everything derived from the run"
 # ------------------------------------------------------------------
 th::test "it closes plot windows, empties the table and disables the plots" {
     ::mdance::plots::population_chart $::mdance::results
-    th::true [winfo exists .mdance_pop] "fixture check: a plot window is open"
+    th::true [winfo exists [::mdance::plots::plot_widget mdance_pop]] "fixture check: a plot window is open"
     # A plot window pins its own copy of the results dict for redraws.
     th::true [info exists ::mdance::plots::redraw_cmds(mdance_pop)]
 
@@ -274,7 +274,7 @@ th::test "it closes plot windows, empties the table and disables the plots" {
 
     th::eq "" $::mdance::results
     th::eq 0 [llength [$TV children {}]]
-    th::false [winfo exists .mdance_pop] "the plot window must be closed"
+    th::false [winfo exists [::mdance::plots::plot_widget mdance_pop]] "the plot window must be closed"
     th::false [info exists ::mdance::plots::redraw_cmds(mdance_pop)] \
         "and its cached results dict released"
     foreach b [::mdance::gui::_result_plot_buttons] {

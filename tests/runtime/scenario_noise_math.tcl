@@ -50,12 +50,12 @@ th::test "every row of the exported matrix now sums to 1" {
         th::near 1.0 $sum 0.0001 "row $i must be a complete probability distribution"
     }
 }
-catch {destroy .mdance_trans}
+catch {destroy [::mdance::plots::plot_widget mdance_trans]}
 
 th::section "The timeline gives noise its own lane instead of drawing off-axis"
 ::mdance::plots::timeline_chart $res
 th::test "a 'noise' lane label is drawn" {
-    set c .mdance_timeline.c
+    set c [::mdance::plots::plot_widget mdance_timeline].c
     set found 0
     foreach id [$c find all] {
         if {[$c type $id] eq "text" && [$c itemcget $id -text] eq "noise"} { set found 1 }
@@ -64,7 +64,7 @@ th::test "a 'noise' lane label is drawn" {
 }
 th::test "no plotted band is drawn below the x-axis" {
     # Lane -1 put noise bands underneath y1, over the frame-number labels.
-    set c .mdance_timeline.c
+    set c [::mdance::plots::plot_widget mdance_timeline].c
     set maxy 0
     foreach id [$c find all] {
         if {[$c type $id] ne "rectangle"} continue
@@ -75,7 +75,7 @@ th::test "no plotted band is drawn below the x-axis" {
     set axis_y [expr {[winfo height $c] - 50}]
     th::true [expr {$maxy <= $axis_y + 1}] "lowest band $maxy must not pass the axis at $axis_y"
 }
-catch {destroy .mdance_timeline}
+catch {destroy [::mdance::plots::plot_widget mdance_timeline]}
 
 th::section "A result with no noise is unchanged"
 set clean [dict create \
@@ -86,6 +86,6 @@ set clean [dict create \
 th::test "no -1 column is emitted when there is no noise" {
     th::eq "" [csv_prob $::mdance::plots::csv_data(mdance_trans) 0 -1]
 }
-catch {destroy .mdance_trans}
+catch {destroy [::mdance::plots::plot_widget mdance_trans]}
 
 exit [th::done "runtime:noise_math"]

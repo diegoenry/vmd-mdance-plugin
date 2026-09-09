@@ -99,7 +99,7 @@ proc ::mdance::gui::build_sweep_tab {parent} {
     pack $parent.res -fill both -expand 1 -padx 10 -pady {8 10}
 
     set cols {algo K Kact metric kinit CH DB top}
-    ttk::treeview $parent.res.tv -columns $cols -show headings -height 8 \
+    ttk::treeview $parent.res.tv -columns $cols -show headings -height 8 -style Mdance.Treeview \
         -yscrollcommand [list $parent.res.sb set]
     ttk::scrollbar $parent.res.sb -orient vertical -command [list $parent.res.tv yview]
     foreach {c text w} {algo Algorithm 80  K K 45  Kact "K act" 50  metric Metric 60 \
