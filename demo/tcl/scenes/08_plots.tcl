@@ -174,16 +174,13 @@
     -hold 2.5
 
 ::demo::beat toolbar \
-    -caption "Every plot window has the same toolbar" \
-    -say "Every one of these windows carries the same strip along the top: a font size control, so\
-          a figure stays readable on a projector, and three export buttons for CSV, PostScript and\
-          PNG." \
+    -caption "One font size, one place to close" \
+    -say "The plots carry no controls of their own. Font size is in Settings, under the gear, and\
+          it reaches every plot already on screen, so one change makes the whole gallery readable\
+          on a projector. Closing is the small cross on each tab. Exporting is in the toolbar." \
     -do {
-        # Font size is per window and is seeded only when the window is created,
-        # so the global default cannot change an open plot - set the window's
-        # own entry and push it through on_font_change.
-        set ::mdance::plots::font_sizes(mdance_timeline) 14
-        ::mdance::plots::on_font_change mdance_timeline
+        set ::mdance::plots::plot_font_size 14
+        ::mdance::plots::apply_plot_font
     } \
     -at 0.45f \
     -hold 1.2

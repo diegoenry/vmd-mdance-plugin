@@ -52,9 +52,37 @@ namespace eval ::mdance::plots {
     variable titles
     array set titles {}
 
-    # The shared export bar's font spinbox edits the CURRENT plot's size, so it
-    # needs a variable of its own that follows the selected tab.
-    variable shared_font 10
+    # ------------------------------------------------------------------
+    # Palette.
+    #
+    # Every colour a plot draws comes from here. The previous values were the
+    # saturated primaries -- pure #0000ff / #00ff00 / #ff0000 out of the cluster
+    # ramp, #ff3737 at the hot end of the heatmap, #2255cc and #cc2222 for the
+    # elbow's two series -- which on a white canvas at eleven-clusters-wide is
+    # more glare than information: everything shouts equally, so nothing reads
+    # as more important than anything else. These are the same hues at lower
+    # saturation and value. Nothing about the ORDER changes, so a reader who
+    # knows the old figures still reads blue as low and red as high.
+    #
+    # cluster_lo/mid/hi are also mirrored onto VMD's own BGR colour scale by
+    # ::mdance::apply_cluster_colors, so a cluster keeps the same colour in the
+    # 3D view as it has in the plots. Change one and change the other.
+    variable c_cluster_lo  {61 106 158}    ;# muted blue
+    variable c_cluster_mid {95 158 99}     ;# muted green
+    variable c_cluster_hi  {176 96 63}     ;# muted brick
+    variable c_noise       "#8c8c8c"
+    # Diverging ramp for the heatmaps: cool, warm neutral, warm.
+    variable c_heat_lo  {74 111 165}
+    variable c_heat_mid {234 230 222}
+    variable c_heat_hi  {168 85 63}
+    # The two series the elbow scan draws against its two axes.
+    variable c_series_a "#3f6fa8"          ;# Calinski-Harabasz, left axis
+    variable c_series_b "#b0503f"          ;# Davies-Bouldin, right axis
+    variable c_accent   "#b0503f"          ;# reference lines (silhouette mean)
+    variable c_muted    "#8a8a8a"          ;# annotations, faint furniture
+
+    # The tab whose close X is currently held down, "" when none is.
+    variable close_armed ""
 
     # Tab labels. The full titles ("Within-Cluster MSD (Compactness)") are what
     # an export needs and what the window used to show, but a strip of eleven of
@@ -79,33 +107,168 @@ namespace eval ::mdance::plots {
 }
 
 # ============================================================
-# Color mapping - BGR scale matching VMD's User field coloring
+# Color mapping - the BGR ramp VMD's User field coloring uses, muted
 # ============================================================
 
-proc ::mdance::plots::cluster_color {cid nclusters} {
-    # Noise / unassigned (-1) -> neutral gray. Clamp out-of-range ids so the
-    # channel math below can never leave [0,255]; otherwise format "#%02x%02x%02x"
-    # emits a >6-hex-digit string that Tk rejects, aborting the canvas draw.
-    if {$cid < 0} { return "#808080" }
-    if {$cid >= $nclusters} { set cid [expr {$nclusters - 1}] }
-    set t [expr {$nclusters > 1 ? double($cid) / ($nclusters - 1) : 0.0}]
+# ramp3 - linear interpolation through three {r g b} anchors, t in [0,1].
+# Every gradient in this file is one of these, so the clamping and the hex
+# formatting live in one place: an out-of-range channel makes format emit a
+# >6-digit string, which Tk rejects and which aborts the whole canvas draw.
+proc ::mdance::plots::ramp3 {lo mid hi t} {
+    # Total by construction: every caller feeds this straight into a canvas
+    # -fill, and a canvas item that cannot parse its colour raises -- from a
+    # <Enter> binding in the elbow's case, i.e. on mouse motion. A NaN t (a
+    # degenerate range divided out) compares false against BOTH bounds, so the
+    # explicit non-number test has to come first rather than relying on the
+    # clamps below to catch it.
+    if {![string is double -strict $t] || $t != $t} { set t 0.0 }
+    if {$t < 0.0} { set t 0.0 }
+    if {$t > 1.0} { set t 1.0 }
     if {$t < 0.5} {
-        set s [expr {$t * 2.0}]
-        set r 0
-        set g [expr {int(255 * $s)}]
-        set b [expr {int(255 * (1.0 - $s))}]
+        set s [expr {$t * 2.0}] ; set a $lo ; set b $mid
     } else {
-        set s [expr {($t - 0.5) * 2.0}]
-        set r [expr {int(255 * $s)}]
-        set g [expr {int(255 * (1.0 - $s))}]
-        set b 0
+        set s [expr {($t - 0.5) * 2.0}] ; set a $mid ; set b $hi
     }
-    return [format "#%02x%02x%02x" $r $g $b]
+    set out {}
+    foreach ca $a cb $b {
+        set v [expr {int(round($ca + ($cb - $ca) * $s))}]
+        if {$v < 0} { set v 0 }
+        if {$v > 255} { set v 255 }
+        lappend out $v
+    }
+    # Three channels exactly, or "#%02x%02x%02x" quietly produces a string Tk
+    # rejects -- a two-element anchor would emit "#3d6a" and a four-element one
+    # would drop the extra without complaint.
+    if {[llength $out] != 3} { return "#808080" }
+    return [format "#%02x%02x%02x" {*}$out]
+}
+
+# scale_anchor - one end of the cluster ramp as the {r g b} floats in 0..1 that
+# VMD's `color scale colors` wants. The plots and the molecule read the same
+# three constants through this, so they cannot drift apart.
+proc ::mdance::plots::scale_anchor {which} {
+    variable c_cluster_lo
+    variable c_cluster_mid
+    variable c_cluster_hi
+    switch -- $which {
+        lo  { set rgb $c_cluster_lo }
+        mid { set rgb $c_cluster_mid }
+        hi  { set rgb $c_cluster_hi }
+        default { error "unknown anchor \"$which\"" }
+    }
+    set out {}
+    foreach ch $rgb { lappend out [format "%.3f" [expr {$ch / 255.0}]] }
+    return $out
+}
+
+proc ::mdance::plots::cluster_color {cid nclusters} {
+    variable c_cluster_lo
+    variable c_cluster_mid
+    variable c_cluster_hi
+    variable c_noise
+    # Noise / unassigned (-1) -> neutral gray. Clamp out-of-range ids too.
+    # Non-numeric ids reach here from result dicts the backend produced, so they
+    # are turned into the noise colour rather than allowed to poison the expr
+    # below (which would return a string, not a colour).
+    if {![string is integer -strict $cid] || ![string is integer -strict $nclusters]} {
+        return $c_noise
+    }
+    if {$cid < 0} { return $c_noise }
+    if {$cid >= $nclusters} { set cid [expr {$nclusters - 1}] }
+    if {$cid < 0} { return $c_noise }
+    set t [expr {$nclusters > 1 ? double($cid) / ($nclusters - 1) : 0.0}]
+    return [ramp3 $c_cluster_lo $c_cluster_mid $c_cluster_hi $t]
 }
 
 # ============================================================
 # Plot window creation with toolbar
 # ============================================================
+
+# ============================================================
+# A close button on each tab
+#
+# The Figures view used to close plots from two buttons on a bar below the
+# launcher -- "Close" for the selected tab and "All" for the rest. Both are
+# indirections: the thing you want to close is the tab you are looking at, and
+# the place you expect to click is the tab itself.
+#
+# ttk::notebook has no close button, so this is the standard recipe: a custom
+# image element added to a derived Tab style's layout, and a click handler that
+# asks `identify element` what is under the pointer. `identify` reports the
+# element by the name given to `element create`, so the test is exact rather
+# than a guess from coordinates.
+#
+# The glyphs are drawn here rather than shipped as files, like the toolbar's
+# Unicode icons: no assets, no loader, nothing to find at run time.
+# ============================================================
+
+proc ::mdance::plots::_close_glyph {name fg} {
+    if {[lsearch -exact [image names] $name] >= 0} { return $name }
+    # A new photo is fully transparent, so only the two strokes are drawn and
+    # the tab's own background (which differs between selected and unselected)
+    # shows through untouched.
+    set img [image create photo $name -width 13 -height 13]
+    for {set i 3} {$i <= 9} {incr i} {
+        $img put $fg -to $i $i [expr {$i + 1}] [expr {$i + 1}]
+        $img put $fg -to [expr {12 - $i}] $i [expr {13 - $i}] [expr {$i + 1}]
+    }
+    return $img
+}
+
+# init_tab_style - define Mdance.Figures.TNotebook, whose tabs carry the X.
+# Safe to call more than once; the element may only be created once per
+# interpreter, and a second attempt is what the catch absorbs.
+proc ::mdance::plots::init_tab_style {} {
+    catch {
+        _close_glyph ::mdance::plots::img_close   "#8a8a8a"
+        _close_glyph ::mdance::plots::img_close_a "#b0503f"
+        ttk::style element create mdanceclose image \
+            [list ::mdance::plots::img_close active ::mdance::plots::img_close_a] \
+            -sticky {} -border 2
+        ttk::style layout Mdance.Figures.TNotebook.Tab {
+            Notebook.tab -sticky nswe -children {
+                Notebook.padding -side top -sticky nswe -children {
+                    Notebook.focus -side top -sticky nswe -children {
+                        Notebook.label -side left -sticky {}
+                        mdanceclose -side right -sticky {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+# on_tab_press / on_tab_release - close the tab whose X was pressed.
+#
+# Press and release both have to land on the same tab's X, so a press that
+# drifts off cancels rather than closing something the user is merely passing
+# over.
+#
+# on_tab_press returns 1 when it took the click, and the BINDING turns that into
+# a `break` so the notebook does not also select the tab on the way out. The
+# break belongs there rather than in a `return -code break` here: from a binding
+# the two are equivalent, but a proc that unwinds with `break` cannot be called
+# from anywhere else -- including a test -- without erroring.
+proc ::mdance::plots::on_tab_press {nb x y} {
+    variable close_armed
+    set close_armed ""
+    if {[catch {$nb identify element $x $y} el] || $el ne "mdanceclose"} { return 0 }
+    if {[catch {$nb identify tab $x $y} idx] || $idx eq ""} { return 0 }
+    set close_armed [lindex [$nb tabs] $idx]
+    return 1
+}
+
+proc ::mdance::plots::on_tab_release {nb x y} {
+    variable close_armed
+    set want $close_armed
+    set close_armed ""
+    if {$want eq "" || ![winfo exists $want]} return
+    if {[catch {$nb identify element $x $y} el] || $el ne "mdanceclose"} { return }
+    if {[catch {$nb identify tab $x $y} idx] || $idx eq ""} { return }
+    if {[lindex [$nb tabs] $idx] ne $want} { return }
+    catch {destroy $want}
+    sync_figures_view
+}
 
 # figures_notebook - the notebook that hosts embedded plots, or "" when the
 # main window is not up (a script or a test can still call a chart proc
@@ -228,17 +391,10 @@ proc ::mdance::plots::create_plot_window {name title width height} {
     set_plot_title $name $title
     if {$nb ne ""} {
         catch {$nb select $w}
-        # Give the canvas the launcher's height the moment there is something to
-        # draw in it. Only on the first plot, so a user who deliberately reopened
-        # the launcher is not fought with.
-        if {$is_new && [llength [$nb tabs]] == 1} {
-            catch {
-                if {!$::mdance::gui::fold_state(.mdance.nb.figures.plots)} {
-                    ::mdance::gui::fold_toggle .mdance.nb.figures.plots
-                }
-            }
-        }
-        sync_shared_bar
+        # No launcher to fold out of the way any more: the strip above is one
+        # row tall whether a plot is open or not, so the canvas below keeps the
+        # same height from the first plot to the eleventh.
+        sync_figures_view
     }
     return $w
 }
@@ -250,7 +406,7 @@ proc ::mdance::plots::close_figure {{name ""}} {
     if {$name eq ""} { set name [current_figure] }
     if {$name eq ""} return
     catch {destroy [plot_widget $name]}
-    sync_shared_bar
+    sync_figures_view
 }
 
 proc ::mdance::plots::close_all_figures {} {
@@ -265,7 +421,7 @@ proc ::mdance::plots::close_all_figures {} {
             catch {destroy $w}
         }
     }
-    sync_shared_bar
+    sync_figures_view
 }
 
 # ============================================================
@@ -363,20 +519,20 @@ proc ::mdance::plots::on_plot_destroy {name W w} {
     }
 }
 
-# sync_shared_bar - point the shared controls at the selected tab: load that
-# plot's font size, and enable or disable the whole bar depending on whether
-# there is a plot to act on.
-proc ::mdance::plots::sync_shared_bar {} {
-    variable font_sizes
-    variable shared_font
-    set bar .mdance.nb.figures.bar
-    if {![winfo exists $bar]} return
-
+# sync_figures_view - show the notebook or the "nothing open" placeholder, and
+# keep the toolbar's export buttons in step with what is showing.
+#
+# It used to be sync_figures_view, and also drove a row of controls under the
+# launcher: a font spinbox, Close and Close All. The font moved to Settings,
+# where every other display preference already lives, and closing moved onto
+# the tabs themselves -- which left the bar with nothing on it, so it went too.
+proc ::mdance::plots::sync_figures_view {} {
     # An empty notebook draws as a bare sunken box, so swap in a placeholder
     # rather than leaving the user looking at nothing.
     set nb [figures_notebook]
+    if {$nb eq ""} return
     set empty .mdance.nb.figures.empty
-    if {$nb ne "" && [winfo exists $empty]} {
+    if {[winfo exists $empty]} {
         if {[llength [$nb tabs]] == 0} {
             catch {pack forget $nb}
             catch {pack $empty -fill both -expand 1 -padx 10 -pady {6 10}}
@@ -385,26 +541,22 @@ proc ::mdance::plots::sync_shared_bar {} {
             catch {pack $nb -fill both -expand 1 -padx 10 -pady {6 10}}
         }
     }
-
     catch {::mdance::gui::sync_export_buttons}
-    set name [current_figure]
-    set state [expr {$name eq "" ? "disabled" : "normal"}]
-    foreach child {fs csv ps png close closeall} {
-        catch {$bar.$child configure -state $state}
-    }
-    if {$name ne "" && [info exists font_sizes($name)]} {
-        set shared_font $font_sizes($name)
-    }
 }
 
-# on_shared_font - the shared spinbox writes through to the current plot.
-proc ::mdance::plots::on_shared_font {} {
+# apply_plot_font - push the Settings font size onto every open plot.
+#
+# There used to be a per-plot spinbox on the Figures bar, so each plot carried
+# its own size and the Settings value only seeded new ones. With the spinbox
+# gone, Settings has to reach the plots already on screen, or changing it would
+# appear to do nothing until the next plot was opened.
+proc ::mdance::plots::apply_plot_font {} {
     variable font_sizes
-    variable shared_font
-    set name [current_figure]
-    if {$name eq ""} return
-    set font_sizes($name) $shared_font
-    on_font_change $name
+    variable plot_font_size
+    foreach name [array names font_sizes] {
+        set font_sizes($name) $plot_font_size
+    }
+    redraw_all
 }
 
 # Shared-bar wrappers, so the buttons need no argument and degrade quietly when
@@ -725,22 +877,14 @@ proc ::mdance::plots::draw_xtick_labels {c x0 y1 x1 labels} {
 
 # Map a scalar value to a blue-white-red color gradient
 proc ::mdance::plots::heatmap_color {val vmin vmax} {
-    if {$vmax <= $vmin} { return "#FFFFFF" }
+    variable c_heat_lo
+    variable c_heat_mid
+    variable c_heat_hi
+    # A degenerate range has no gradient to draw: return the neutral midpoint
+    # rather than white, so an all-equal matrix still reads as a filled grid.
+    if {$vmax <= $vmin} { return [ramp3 $c_heat_lo $c_heat_mid $c_heat_hi 0.5] }
     set t [expr {($val - $vmin) / double($vmax - $vmin)}]
-    if {$t < 0.0} { set t 0.0 }
-    if {$t > 1.0} { set t 1.0 }
-    if {$t < 0.5} {
-        set s [expr {$t * 2.0}]
-        set r [expr {int(59 + 196 * $s)}]
-        set g [expr {int(76 + 179 * $s)}]
-        set b [expr {int(192 + 63 * $s)}]
-    } else {
-        set s [expr {($t - 0.5) * 2.0}]
-        set r [expr {int(255)}]
-        set g [expr {int(255 - 200 * $s)}]
-        set b [expr {int(255 - 200 * $s)}]
-    }
-    return [format "#%02x%02x%02x" $r $g $b]
+    return [ramp3 $c_heat_lo $c_heat_mid $c_heat_hi $t]
 }
 
 # Draw a vertical color scale legend on the right side of a heatmap
@@ -1705,6 +1849,9 @@ proc ::mdance::plots::run_elbow_analysis {config_win} {
 }
 
 proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
+    variable c_series_a
+    variable c_series_b
+    variable c_muted
     variable current_plot
     set current_plot mdance_elbow
 
@@ -1736,10 +1883,10 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     }
 
     # Left and bottom axes
-    $c create line $x0 $y1 $x0 $y0 -width 2 -fill "#2255cc"
+    $c create line $x0 $y1 $x0 $y0 -width 2 -fill $c_series_a
     $c create line $x0 $y1 $x1 $y1 -width 2 -fill black
     # Right axis
-    $c create line $x1 $y1 $x1 $y0 -width 2 -fill "#cc2222"
+    $c create line $x1 $y1 $x1 $y0 -width 2 -fill $c_series_b
 
     # Extract ranges
     set ks {}; set chs {}; set dbs {}
@@ -1793,9 +1940,9 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     set ch_range [expr {$ch_max - $ch_min}]
     foreach v $ch_ticks {
         set py [expr {$y1 - ($v - $ch_min) / $ch_range * $plot_h}]
-        $c create line [expr {$x0 - 5}] $py $x0 $py -fill "#2255cc"
+        $c create line [expr {$x0 - 5}] $py $x0 $py -fill $c_series_a
         $c create text [expr {$x0 - 8}] $py -text [format "%.0f" $v] \
-            -anchor e -font [plot_font -1] -fill "#2255cc"
+            -anchor e -font [plot_font -1] -fill $c_series_a
     }
 
     # Right Y-axis ticks (DB - red)
@@ -1803,9 +1950,9 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     set db_range [expr {$db_max - $db_min}]
     foreach v $db_ticks {
         set py [expr {$y1 - ($v - $db_min) / $db_range * $plot_h}]
-        $c create line $x1 $py [expr {$x1 + 5}] $py -fill "#cc2222"
+        $c create line $x1 $py [expr {$x1 + 5}] $py -fill $c_series_b
         $c create text [expr {$x1 + 8}] $py -text [format "%.2f" $v] \
-            -anchor w -font [plot_font -1] -fill "#cc2222"
+            -anchor w -font [plot_font -1] -fill $c_series_b
     }
 
     # Draw CH line (blue) with dots
@@ -1816,10 +1963,10 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
         set px [expr {$x0 + double($k - $k_min) / ($k_max - $k_min) * $plot_w}]
         set py [expr {$y1 - ($ch_val - $ch_min) / $ch_range * $plot_h}]
         if {$prev_px ne ""} {
-            $c create line $prev_px $prev_py $px $py -fill "#2255cc" -width 2
+            $c create line $prev_px $prev_py $px $py -fill $c_series_a -width 2
         }
         $c create oval [expr {$px - 4}] [expr {$py - 4}] [expr {$px + 4}] [expr {$py + 4}] \
-            -fill "#2255cc" -outline "#2255cc"
+            -fill $c_series_a -outline $c_series_a
         # A generous invisible hit area over the whole column at this K, so the
         # partition view is reachable without pixel-hunting a 8px dot.
         set hit [$c create rectangle [expr {$px - 6}] $y0 [expr {$px + 6}] $y1 \
@@ -1837,22 +1984,22 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
         set px [expr {$x0 + double($k - $k_min) / ($k_max - $k_min) * $plot_w}]
         set py [expr {$y1 - ($db_val - $db_min) / $db_range * $plot_h}]
         if {$prev_px ne ""} {
-            $c create line $prev_px $prev_py $px $py -fill "#cc2222" -width 2
+            $c create line $prev_px $prev_py $px $py -fill $c_series_b -width 2
         }
         $c create oval [expr {$px - 4}] [expr {$py - 4}] [expr {$px + 4}] [expr {$py + 4}] \
-            -fill "#cc2222" -outline "#cc2222"
+            -fill $c_series_b -outline $c_series_b
         set prev_px $px; set prev_py $py
     }
 
     # Legend
     set lx [expr {$x0 + 20}]; set ly [expr {$y0 + 10}]
-    $c create rectangle $lx $ly [expr {$lx + 15}] [expr {$ly + 3}] -fill "#2255cc" -outline ""
+    $c create rectangle $lx $ly [expr {$lx + 15}] [expr {$ly + 3}] -fill $c_series_a -outline ""
     $c create text [expr {$lx + 20}] $ly -text "Calinski-Harabasz (higher=better)" \
-        -anchor nw -font [plot_font -1] -fill "#2255cc"
+        -anchor nw -font [plot_font -1] -fill $c_series_a
     $c create rectangle $lx [expr {$ly + 18}] [expr {$lx + 15}] [expr {$ly + 21}] \
-        -fill "#cc2222" -outline ""
+        -fill $c_series_b -outline ""
     $c create text [expr {$lx + 20}] [expr {$ly + 18}] -text "Davies-Bouldin (lower=better)" \
-        -anchor nw -font [plot_font -1] -fill "#cc2222"
+        -anchor nw -font [plot_font -1] -fill $c_series_b
 
     # Axis labels
     $c create text [expr {$cw / 2}] [expr {$ch - 5}] -text "Number of Clusters (K)" \
@@ -1861,7 +2008,7 @@ proc ::mdance::plots::draw_elbow_chart {data_points {failed_ks {}}} {
     # is the same as not having one.
     $c create text [expr {$cw - 8}] [expr {$ch - 5}] \
         -text "hover a K for its population split" \
-        -anchor se -font [plot_font -3] -fill "#888888"
+        -anchor se -font [plot_font -3] -fill $c_muted
 
     # Store redraw command and CSV data
     set ::mdance::plots::redraw_cmds(mdance_elbow) \
@@ -2634,6 +2781,7 @@ proc ::mdance::plots::msd_vs_population {results} {
 # ============================================================
 
 proc ::mdance::plots::silhouette_plot {results {use_cache 0}} {
+    variable c_accent
     if {$results eq ""} {
         tk_messageBox -icon warning -title "MDANCE" -message "No results available."
         return
@@ -2815,7 +2963,7 @@ proc ::mdance::plots::silhouette_plot {results {use_cache 0}} {
 
     # Mean silhouette line
     set mean_x [expr {$x0 + ($mean_sil - $sil_min) / $sil_range * $plot_w}]
-    $c create line $mean_x $y0 $mean_x $y1 -fill red -dash {6 3} -width 1.5
+    $c create line $mean_x $y0 $mean_x $y1 -fill $c_accent -dash {6 3} -width 1.5
 
     # Draw horizontal bars
     set bar_h [expr {$total_bars > 0 ? double($plot_h) / $total_bars : 1}]

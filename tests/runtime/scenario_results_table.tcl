@@ -306,4 +306,132 @@ th::test "declining the confirmation keeps the results" {
     proc tk_messageBox {args} { return ok }
 }
 
+# ------------------------------------------------------------------
+th::section "The Figures view: a strip that never folds, and no bar"
+# ------------------------------------------------------------------
+th::test "the launcher is a scrolling strip, not a foldable block" {
+    th::true [winfo exists .mdance.nb.figures.strip.c] "the strip's canvas"
+    th::false [info exists ::mdance::gui::fold_state(.mdance.nb.figures.plots)] \
+        "the launcher must not be foldable any more"
+    # Every tile on one row: what makes the strip 60 px instead of 160.
+    foreach b [::mdance::gui::_result_plot_buttons] {
+        th::eq 0 [dict get [grid info .mdance.nb.figures.plots.$b] -row] "$b"
+    }
+}
+th::test "the tiles keep the paths the rest of the plugin addresses them by" {
+    # They are hosted in the canvas rather than parented to it precisely so
+    # this stays true; see the comment on _scrollrow.
+    th::eq ".mdance.nb.figures.plots" [::mdance::gui::_plots_frame]
+    # Hosted BY the canvas (so it scrolls) without being a CHILD of it (so the
+    # paths are unchanged) -- winfo manager reports the former, winfo parent
+    # the latter.
+    th::eq "canvas" [winfo manager .mdance.nb.figures.plots]
+    th::eq ".mdance.nb.figures" [winfo parent .mdance.nb.figures.plots]
+}
+th::test "the font spinbox and the Close/All buttons are gone" {
+    foreach w {bar bar.fs bar.close bar.closeall barsep hint} {
+        th::false [winfo exists .mdance.nb.figures.$w] "$w must be gone"
+    }
+    # Only meaningful with ~/.vmdrc out of the way (run_tests.sh passes
+    # -startup): an installed copy of the plugin on auto_path would still be
+    # supplying this proc after the repo copy dropped it.
+    th::eq "" [info commands ::mdance::plots::on_shared_font]
+    th::eq "" [info commands ::mdance::plots::sync_shared_bar]
+}
+th::test "opening a plot no longer shrinks anything to make room" {
+    ::mdance::run_clustering kmeans $params
+    ::mdance::gui::update_results_tab
+    set before [winfo reqheight .mdance.nb.figures.strip.c]
+    ::mdance::plots::population_chart $::mdance::results
+    update idletasks
+    th::eq $before [winfo reqheight .mdance.nb.figures.strip.c] \
+        "the strip must be the same height with a plot open"
+}
+
+# ------------------------------------------------------------------
+th::section "Closing a plot from the X on its tab"
+# ------------------------------------------------------------------
+# _close_x finds a point inside a tab's close element the way a user's pointer
+# would: ask the notebook what is under each x along the tab strip.
+proc _close_x {nb want_tab} {
+    # Nothing on an unselected view is mapped, and `identify` on an unmapped
+    # notebook reports nothing at all -- so bring Figures to the front and let
+    # it lay out before asking where anything is.
+    ::mdance::gui::show_view figures
+    update idletasks
+    for {set x 2} {$x < 900} {incr x 2} {
+        if {[catch {$nb identify element $x 12} el]} continue
+        if {$el ne "mdanceclose"} continue
+        if {[catch {$nb identify tab $x 12} idx] || $idx ne $want_tab} continue
+        return $x
+    }
+    return -1
+}
+th::test "every tab carries a close element" {
+    ::mdance::plots::timeline_chart $::mdance::results
+    update idletasks
+    set nb .mdance.nb.figures.nb
+    th::eq 2 [llength [$nb tabs]]
+    foreach i {0 1} { th::gt [_close_x $nb $i] 0 "tab $i has no X" }
+}
+th::test "pressing and releasing on the X closes that tab, and only that one" {
+    set nb .mdance.nb.figures.nb
+    set keep [lindex [$nb tabs] 1]
+    set x [_close_x $nb 0]
+    ::mdance::plots::on_tab_press $nb $x 12
+    ::mdance::plots::on_tab_release $nb $x 12
+    update idletasks
+    th::eq 1 [llength [$nb tabs]]
+    th::eq $keep [lindex [$nb tabs] 0] "the other tab must survive"
+}
+th::test "a press that drifts off the X before release closes nothing" {
+    ::mdance::plots::population_chart $::mdance::results
+    ::mdance::gui::show_view figures
+    update idletasks
+    set nb .mdance.nb.figures.nb
+    set n [llength [$nb tabs]]
+    set x [_close_x $nb 0]
+    ::mdance::plots::on_tab_press $nb $x 12
+    # Release over the label instead: the same tab, not the same element.
+    ::mdance::plots::on_tab_release $nb 6 12
+    th::eq $n [llength [$nb tabs]] "nothing may close"
+    th::eq "" $::mdance::plots::close_armed "and the arm must be released"
+}
+th::test "clicking the label still just selects the tab" {
+    set nb .mdance.nb.figures.nb
+    set n [llength [$nb tabs]]
+    ::mdance::plots::on_tab_press $nb 6 12
+    ::mdance::plots::on_tab_release $nb 6 12
+    th::eq $n [llength [$nb tabs]]
+}
+th::test "closing the last tab shows the placeholder again" {
+    set nb .mdance.nb.figures.nb
+    foreach page [$nb tabs] { ::mdance::plots::close_figure \
+        [string range [lindex [split $page .] end] 2 end] }
+    update idletasks
+    th::eq 0 [llength [$nb tabs]]
+    th::ne "" [winfo manager .mdance.nb.figures.empty] "the placeholder must be up"
+    th::eq "" [winfo manager $nb] "and the empty notebook down"
+}
+
+# ------------------------------------------------------------------
+th::section "Plot font size now lives only in Settings"
+# ------------------------------------------------------------------
+th::test "changing it reaches plots that are ALREADY open" {
+    # The regression this guards: with the per-plot spinbox removed, a Settings
+    # change that only called redraw_all re-rendered each plot at the size it
+    # already had, and the control looked inert.
+    ::mdance::plots::population_chart $::mdance::results
+    ::mdance::plots::timeline_chart $::mdance::results
+    set ::mdance::plots::plot_font_size 14
+    ::mdance::plots::apply_plot_font
+    foreach n {mdance_pop mdance_timeline} {
+        th::eq 14 $::mdance::plots::font_sizes($n) "$n did not follow Settings"
+    }
+    set ::mdance::plots::plot_font_size 10
+    ::mdance::plots::apply_plot_font
+    th::eq 10 $::mdance::plots::font_sizes(mdance_pop)
+    ::mdance::plots::close_all_figures
+}
+
 exit [th::done "runtime:results_table"]

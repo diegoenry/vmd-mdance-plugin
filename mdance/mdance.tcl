@@ -1270,6 +1270,18 @@ proc ::mdance::apply_cluster_colors {} {
     mol modcolor 0 $molid User
     mol scaleminmax $molid 0 0.0 [expr {max(1.0, double($nclusters - 1))}]
     color scale method BGR
+    # Redefine BGR's three anchors to the plugin's muted ramp, so a cluster is
+    # the same colour in the 3D view as it is in every plot. Without this the
+    # plots (softened deliberately) and the molecule (VMD's saturated stock
+    # BGR) would disagree about which cluster is which, which is worse than
+    # either palette on its own. `color scale colors` is VMD 1.9.4+, hence the
+    # catch: on an older VMD the molecule simply keeps the stock ramp.
+    catch {
+        color scale colors BGR \
+            {*}[list [::mdance::plots::scale_anchor lo] \
+                     [::mdance::plots::scale_anchor mid] \
+                     [::mdance::plots::scale_anchor hi]]
+    }
     display update
 
     # Never let a partial colouring look complete. Returns the number of samples

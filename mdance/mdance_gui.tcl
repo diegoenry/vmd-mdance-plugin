@@ -172,6 +172,15 @@ namespace eval ::mdance::gui {
 # The icons are 28 px renderings of each plot drawn from a real clustering, so
 # the button shows the shape of the thing it opens -- stripes for the timeline,
 # a grid for the heatmaps, a tree for the dendrogram.
+#
+# When the palette was muted they were remapped rather than re-rendered: every
+# pixel was matched to the (ramp position, shade, coverage) that explained it on
+# the OLD ramp and reassigned the same position on the new one, leaving the
+# grays and the axis lines untouched. Re-rendering from the test fixture would
+# have given correct colours and useless pictures -- 24 frames and 8 atoms draw
+# an empty timeline and a two-cell heatmap, where these came from a real
+# trajectory. Anything that changes ::mdance::plots' palette needs the same
+# treatment here, or the tiles stop matching the plots they open.
 proc ::mdance::gui::plot_icon {key} {
     variable plot_icons
     variable plugin_dir
@@ -1316,12 +1325,15 @@ proc ::mdance::gui::settings_dialog {} {
     bind $w.display.afs <Return>   ::mdance::gui::apply_app_font
     bind $w.display.afs <FocusOut> ::mdance::gui::apply_app_font
 
+    # apply_plot_font, not redraw_all: each plot carries its own size (seeded
+    # from this one when it opens), so a redraw alone would re-render every plot
+    # at the size it already had and this control would look inert.
     ttk::label $w.display.pfl -text "Plot font size:"
     ttk::spinbox $w.display.pfs -from 6 -to 24 -width 4 -increment 1 \
         -textvariable ::mdance::plots::plot_font_size \
-        -command ::mdance::plots::redraw_all
-    bind $w.display.pfs <Return>   ::mdance::plots::redraw_all
-    bind $w.display.pfs <FocusOut> ::mdance::plots::redraw_all
+        -command ::mdance::plots::apply_plot_font
+    bind $w.display.pfs <Return>   ::mdance::plots::apply_plot_font
+    bind $w.display.pfs <FocusOut> ::mdance::plots::apply_plot_font
 
     # Off by default: the tab already names the plot. Exports still get the
     # title, since an exported image has no tab to identify it by.
@@ -2239,58 +2251,49 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     grid $parent.ov.note -row 3 -column 0 -columnspan 4 -sticky w -pady {6 0}
     grid columnconfigure $parent.ov 2 -weight 1
 
-    # Visualization buttons
-    ttk::labelframe $plotparent.plots -text "Visualizations" -padding 10
-    pack $plotparent.plots -fill x -padx 10 -pady 5
-    ttk::label $plotparent.hint -justify left -foreground "#555555" \
-        -text "Open a plot to add it as a tab below. Run a clustering to enable them."
-    pack $plotparent.hint -fill x -padx 10 -pady {0 6} -before $plotparent.plots
+    # ---- the launcher strip -------------------------------------------
+    #
+    # Eleven tiles on ONE row inside a horizontally scrolling canvas, rather
+    # than a foldable 4-wide block. The block was ~160 px of a pane that is
+    # ~400 px tall, so it folded itself the moment a plot opened -- and then
+    # reopening it to pick a second plot squeezed the plot you were looking at
+    # down to nothing. A strip is 60 px whether it is scrolled or not, so it
+    # never has to fold, the plot below it never changes size, and picking a
+    # second plot costs one click instead of three.
+    #
+    # $plotparent.plots is a SIBLING of the scrolling canvas rather than a child
+    # of it: a canvas window item may host any descendant of the canvas's
+    # toplevel, and keeping the path means every launcher button stays at
+    # .mdance.nb.figures.plots.<key>, which the enable/disable pass and the test
+    # suite both address directly.
+    ttk::frame $plotparent.strip
+    pack $plotparent.strip -fill x -padx 10 -pady {8 0}
+    ttk::frame $plotparent.plots
+    _scrollrow $plotparent.strip $plotparent.plots
 
-    # One export bar for every plot, instead of the same four controls repeated
-    # in eleven separate windows. It acts on whichever tab is selected.
-    ttk::separator $plotparent.barsep -orient horizontal
-    pack $plotparent.barsep -fill x -padx 10 -pady {8 0}
-
-    ttk::frame $plotparent.bar -padding {10 6}
-    pack $plotparent.bar -fill x
-    ttk::label $plotparent.bar.fl -text "Font:"
-    ttk::spinbox $plotparent.bar.fs -from 6 -to 24 -width 3 -increment 1 \
-        -textvariable ::mdance::plots::shared_font \
-        -command ::mdance::plots::on_shared_font
-    bind $plotparent.bar.fs <Return> ::mdance::plots::on_shared_font
-    ttk::separator $plotparent.bar.sep -orient vertical
-    ttk::button $plotparent.bar.close -style Mdance.Toolbutton.TButton -text "\u2716 Close" \
-        -command ::mdance::plots::close_figure
-    ttk::button $plotparent.bar.closeall -style Mdance.Toolbutton.TButton -text "\u2716 All" \
-        -command ::mdance::plots::close_all_figures
-    pack $plotparent.bar.fl -side left -padx {0 2}
-    pack $plotparent.bar.fs -side left -padx {0 6}
-    pack $plotparent.bar.sep -side left -fill y -padx 4 -pady 2
-    # All on the left: packed -side right they were the slaves pack dropped when
-    # the pane got narrow, so Close and Close All simply were not there.
-    ttk::separator $plotparent.bar.sep2 -orient vertical
-    pack $plotparent.bar.sep2 -side left -fill y -padx 4 -pady 2
-    pack $plotparent.bar.close -side left -padx 2
-    pack $plotparent.bar.closeall -side left -padx 2
+    ttk::separator $plotparent.stripsep -orient horizontal
+    pack $plotparent.stripsep -fill x -padx 10 -pady {6 0}
 
     # The plots themselves. Empty until one is opened.
-    ttk::notebook $plotparent.nb
+    ::mdance::plots::init_tab_style
+    ttk::notebook $plotparent.nb -style Mdance.Figures.TNotebook
     pack $plotparent.nb -fill both -expand 1 -padx 10 -pady {6 10}
-    bind $plotparent.nb <<NotebookTabChanged>> ::mdance::plots::sync_shared_bar
+    bind $plotparent.nb <<NotebookTabChanged>> ::mdance::plots::sync_figures_view
+    # Closing is on the tab now, so the press has to be inspected before the
+    # notebook's own binding selects the tab -- hence the widget-level binding,
+    # which runs first, and the `break` it returns when the X was hit.
+    bind $plotparent.nb <Button-1> \
+        {if {[::mdance::plots::on_tab_press %W %x %y]} break}
+    bind $plotparent.nb <ButtonRelease-1> \
+        [list ::mdance::plots::on_tab_release %W %x %y]
 
-    # A sibling of the notebook, not a child of it: sync_shared_bar swaps the
+    # A sibling of the notebook, not a child of it: sync_figures_view swaps the
     # two, so an empty Figures view says so instead of showing an empty sunken
     # box with a plot drawn behind it.
     ttk::label $plotparent.empty -anchor center -foreground "#777777" \
-        -text "No plot open.\nPick one above to add it as a tab."
+        -text "No plot open.\nPick one above to add it as a tab.\nRun a clustering first if the tiles are greyed out."
 
-    # The eleven launcher buttons are ~160 px of the Figures pane, which at the
-    # default window size left the plot canvas 96 px tall. Fold the launcher and
-    # the plot gets the room; opening one folds it automatically, and its header
-    # is one click away to pick another.
-    foldable $plotparent.plots 0
-
-    ::mdance::plots::sync_shared_bar
+    ::mdance::plots::sync_figures_view
 
     # Row 0: core plots
     ttk::button $plotparent.plots.pop -text "Population" \
@@ -2321,12 +2324,10 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
     ttk::button $plotparent.plots.isim -text "Similarity" \
         -command ::mdance::gui::run_similarity_analysis -state disabled
 
-    # Six buttons across two rows of five: the old 6-wide grid clipped its last
-    # column until the user resized the window.
     # A tile per plot: the thumbnail alone on the button, its name on a label
     # directly underneath. Keeping the caption out of the button lets the image
     # be big enough to actually read -- inside it, the label and the icon were
-    # competing for the same 4-column width and the names truncated.
+    # competing for the same width and the names truncated.
     #
     # The label is a sibling of the button rather than a child, so the button
     # keeps the path everything else already uses.
@@ -2335,7 +2336,7 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
                reprmsd "Rep. RMSD" trans Transitions residence Residence
                isim Similarity}
     set pcol 0
-    foreach b {pop timeline msd dendro silhouette cdist msdpop reprmsd trans residence isim} {
+    foreach b [_result_plot_buttons] {
         set ic [plot_icon $b]
         if {$ic ne ""} {
             # -compound image shows the picture only; -text stays set so the
@@ -2349,15 +2350,65 @@ proc ::mdance::gui::build_results_tab {parent {plotparent ""}} {
             # The caption is part of the target: clicking it opens the plot too.
             bind $lbl <Button-1> [list $plotparent.plots.$b invoke]
         }
-        set r [expr {($pcol / 4) * 2}]
-        set c [expr {$pcol % 4}]
-        grid $plotparent.plots.$b   -row $r          -column $c -padx 6 -pady {6 0} -sticky ew
-        grid $lbl                   -row [expr {$r + 1}] -column $c -padx 6 -pady {1 6} -sticky ew
+        grid $plotparent.plots.$b -row 0 -column $pcol -padx 6 -pady {6 0} -sticky ew
+        grid $lbl                 -row 1 -column $pcol -padx 6 -pady {1 6} -sticky ew
         incr pcol
     }
-    for {set col 0} {$col < 4} {incr col} {
-        grid columnconfigure $plotparent.plots $col -weight 1
+}
+
+# _scrollrow - a horizontally scrolling strip. $row is the content frame; it is
+# hosted in the canvas rather than parented to it, so its children keep the
+# paths they had before the strip existed.
+#
+# The scrollbar appears only when the content is actually wider than the strip:
+# eleven tiles overflow a 400 px pane and need it, but the same view dragged out
+# to full width does not, and a permanent scrollbar with a full-width thumb is
+# 15 px spent saying "nothing to scroll".
+proc ::mdance::gui::_scrollrow {parent row} {
+    canvas $parent.c -highlightthickness 0 -borderwidth 0 -height 1
+    ttk::scrollbar $parent.sb -orient horizontal -command [list $parent.c xview]
+    $parent.c configure -xscrollcommand [list ::mdance::gui::_scrollrow_set $parent]
+    pack $parent.c -side top -fill x
+    set id [$parent.c create window 0 0 -anchor nw -window $row]
+    bind $row <Configure> [list ::mdance::gui::_scrollrow_fit $parent $id]
+    bind $parent.c <Configure> [list ::mdance::gui::_scrollrow_fit $parent $id]
+    foreach ev {<MouseWheel> <Button-4> <Button-5>} {
+        bind $parent.c $ev [list ::mdance::gui::_scrollrow_wheel $parent %D %b]
     }
+    return $row
+}
+
+# _scrollrow_fit - match the canvas height to the strip, and its scrollregion to
+# the strip's width. The canvas has no natural size of its own: without this it
+# is 1 px tall and the tiles are invisible.
+proc ::mdance::gui::_scrollrow_fit {parent id} {
+    if {![winfo exists $parent.c]} return
+    set w [$parent.c itemcget $id -window]
+    if {$w eq "" || ![winfo exists $w]} return
+    catch {$parent.c configure -height [winfo reqheight $w]}
+    catch {$parent.c configure -scrollregion [list 0 0 [winfo reqwidth $w] [winfo reqheight $w]]}
+}
+
+# _scrollrow_set - the xscrollcommand. Pack the scrollbar only while the thumb
+# would be shorter than the trough.
+proc ::mdance::gui::_scrollrow_set {parent first last} {
+    if {![winfo exists $parent.sb]} return
+    $parent.sb set $first $last
+    if {$first <= 0.0 && $last >= 1.0} {
+        catch {pack forget $parent.sb}
+    } elseif {![winfo ismapped $parent.sb]} {
+        catch {pack $parent.sb -side top -fill x}
+    }
+}
+
+# _scrollrow_wheel - a vertical wheel scrolls the strip sideways; there is
+# nothing else it could usefully do over a one-row strip. X11 sends buttons 4/5
+# rather than <MouseWheel>, so both forms are handled (as in _scrollcol_wheel).
+proc ::mdance::gui::_scrollrow_wheel {parent delta button} {
+    # X11 delivers wheel as Button-4/5 with no %D; Windows/macOS use %D.
+    if {$button eq "4"} { set n -2 } elseif {$button eq "5"} { set n 2 } \
+        elseif {$delta ne "" && $delta ne "??"} { set n [expr {$delta > 0 ? -2 : 2}] } else { return }
+    catch {$parent.c xview scroll $n units}
 }
 
 # fmt_score - format a score for display, tolerating a missing key or a
