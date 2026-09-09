@@ -45,9 +45,12 @@ A VMD plugin for running MDANCE clustering algorithms on molecular dynamics traj
   progress
 - **Session save/load** - save a result (with its parameters and frame map) to a
   `.mdance` file and reopen it later
-- **Plots as tabs** in the Figures view, with auto-resize and one shared bar for
-  font size and CSV / PS / PNG export; each launcher button carries a thumbnail of
-  the plot it opens
+- **Plots as tabs** in the Figures view, with auto-resize; each launcher button
+  carries a thumbnail of the plot it opens
+- **One export path** — CSV and image buttons in the toolbar that act on whichever
+  view is in front (Results, Figures, Sweep or PRIME), rather than a different
+  button per surface. Figures are composed at a proper size for export even when
+  the pane is small
 - **One toolbar** carrying Run (which names the selected algorithm), Cancel, Clear,
   Help and Settings, and a toggle that folds the whole input column away
 - **Foldable parameter sections** — the algorithms ship usable defaults, so the
@@ -108,6 +111,32 @@ cd vmd-mdance-plugin
 ./install.sh
 ```
 
+The runtime scenarios drive real Tk widgets, so `run_tests.sh` needs an X display
+(the `unit` subset does not). On a headless machine a nested server is enough:
+
+```bash
+Xephyr :9 -screen 1600x1200x24 -ac &   # or Xvfb :9 -screen 0 1600x1200x24 &
+DISPLAY=:9 ./tests/run_tests.sh
+```
+
+### Checking the backend against reference runs
+
+The suite drives a deterministic fake backend, which proves the plumbing but not
+the science. One scenario checks the real `mdance-cli` against trajectories whose
+expected output is known, and it is skipped unless you point it at them:
+
+```bash
+MDANCE_REF_RUNS=/path/to/mdance_vmd_runs ./tests/run_tests.sh runtime
+```
+
+`MDANCE_REF_RUNS` is a directory holding `inputs/` and `results/` from the sample
+set (~37 MB, too large to vendor here); `MDANCE_CLI` must be a real binary, and
+the scenario refuses `fake_mdance_cli` by name rather than comparing the fake
+backend against real reference numbers. NANI is asserted to reproduce the
+reference partition on two systems and three initialisations; HELM is asserted
+structurally only, because it does *not* reproduce it — see `tests/README.md` for
+the measured divergence.
+
 Then in VMD: **Extensions → Analysis → MDANCE Clustering**.
 
 `install.sh` prints `Skipping build: no CMakeLists.txt` — that is correct here. The C++
@@ -140,14 +169,13 @@ mdance::gui
 ### The window
 
 ```
- ◧ Hide setup │ ▶ Run KMeans │ ■ Cancel │ ↻ Clear        ℹ Help   ⚙ Settings
+ ◧ Hide │ ▶ Run KMeans  ∟ Elbow  ■ Cancel │ ↻ │ ⇩ CSV  ⇩ Image      ℹ  ⚙
 ├──────────────────────┬────────────────────────────────────────────────────┤
-│  Molecule            │  Results │ Figures │ Sweep │ PRIME │ Help          │
+│  Molecule        ↻   │  Results │ Figures │ Sweep │ PRIME │ Help          │
 │  ▶ Frame Range       │                                                    │
 │  Preview  Frame Tools│    the result of the run, and the plots it feeds    │
 │  Algorithm  ( ) ...  │                                                    │
 │  ▶ KMeans Parameters │                                                    │
-│  Elbow Plot...       │                                                    │
 │  ▶ MDANCE Backend    │                                                    │
 ├──────────────────────┴────────────────────────────────────────────────────┤
 │ Done: 6 clusters found                                                    │
@@ -156,16 +184,19 @@ mdance::gui
 Everything you set is in the left column, everything a run produces is on the right,
 one toolbar across the top and one status band along the bottom.
 
-- **Run** sits in the toolbar and names the algorithm it will run, following the
-  **Algorithm** selection in the left column. **Cancel** is beside it and becomes
-  live while a run is going.
-- **Hide setup** folds the whole left column away, and brings it back with
-  everything still typed into it.
+- **Run** and **Elbow** both act on the algorithm selected in the left column, and
+  Run names it. **Cancel** goes live while a run is going. Elbow is disabled for
+  eQUAL, which derives its own cluster count and so has no *k* to scan.
+- **⇩ CSV** and **⇩ Image** export whatever view is showing, and grey out where
+  there is nothing to give. See [Exporting](#exporting).
+- **◧ Hide** folds the whole left column away and brings it back with everything
+  still typed into it.
 - Sections marked **▶** are folded. Click the header to open one. The algorithm
   parameters ship folded because every algorithm has usable defaults — the common
   case is pick one and Run.
 - The **Results**, **PRIME** and **Help** views scroll, so a small window hides
-  nothing.
+  nothing. If the window gets too narrow for the toolbar, it drops its labels to
+  glyphs rather than dropping buttons off the end.
 
 ### Workflow
 
@@ -176,6 +207,10 @@ one toolbar across the top and one status band along the bottom.
    `protein and name CA`). The line under the field reports how many atoms match as
    you type, so a typo or an empty selection is visible before you run rather than
    after.
+   The list follows VMD on its own as molecules are loaded and deleted. The **↻**
+   beside it is for the case that does not notify: loading more frames into a
+   molecule already in the list changes its frame count, and only a refresh picks
+   that up.
 4. Optionally open **Frame Range** and set first/last/stride to cluster a subset —
    `Last = -1` means the final frame; `Stride = 10` keeps every 10th frame.
    **Preview Selection** reports how many frames are selected.
@@ -184,9 +219,12 @@ one toolbar across the top and one status band along the bottom.
    parameter section below it becomes that algorithm's; what you typed into the
    others is kept. For a batch scan use the **Sweep** view on the right instead.
 7. Open the parameter section if you want to change anything, then press **Run** in
-   the toolbar
+   the toolbar. **Elbow** beside it scans a range of *k* for the same algorithm.
 8. **Results** (right): scores and the cluster table (cluster, size, % of frames, MSD,
-   representative frame) — click any column heading to sort by it
+   representative frame) — click any column heading to sort by it.
+   Read the MSD column alongside the sizes: one cluster at an order of magnitude
+   more MSD than the others is a bin of outliers, not a conformational state, and
+   the summary scores will not tell you that.
 9. Click "Color by Cluster" to visualize. Note this colours *frames*, not atoms, so a
    single rendered frame comes out in that frame's cluster colour.
 10. Click "Go to Representative" to navigate to medoid frames, or use **Frame
@@ -196,14 +234,36 @@ one toolbar across the top and one status band along the bottom.
     Frames...** for the top-*N* frame indices of every cluster. **Similarity** opens
     the iSIM compactness/outlier analysis.
 12. **Figures** (right): each button carries a thumbnail of the plot it opens, and
-    every plot opens as a tab in this view rather than as a separate window. One
-    shared bar above the tabs carries:
-    - **Font size** for the selected plot
-    - **⇩ CSV** for the underlying plot data
-    - **⇩ PS** / **⇩ PNG** for the figure
-    - **✖ Close** / **✖ All** for the open plots
+    every plot opens as a tab in this view rather than as a separate window. The bar
+    above the tabs sets the **font size** of the selected plot and closes plots
+    (**✖ Close** / **✖ All**); exporting is in the toolbar, with everything else.
+    The launcher folds itself away when the first plot opens so the canvas gets the
+    room; its header reopens it.
 13. Plots redraw to fit whenever the pane is resized
-14. **Help** (right) carries the Quick Start and the credits
+14. **Help** (right) carries the Quick Start and every algorithm's **References**
+
+### Exporting
+
+Two buttons in the toolbar, acting on whichever view is in front:
+
+| view | **⇩ CSV** | **⇩ Image** |
+|---|---|---|
+| Results | provenance header + the cluster table | — |
+| Figures | the selected plot's own data | PNG or PostScript |
+| Sweep | the full grid, with requested *k* and run status | — |
+| PRIME | the predicted frames | — |
+
+Both grey out when the view has nothing to give, so an empty table cannot be
+exported by mistake. The Results CSV carries a `#` header naming the algorithm,
+*k*, the scores, the molecule and the selection — a table of numbers is not much
+use a week later without it.
+
+**⇩ Image** takes its format from the extension you choose (`.png` or `.ps`). PNG
+needs a rasteriser: **Ghostscript** (`gs`) is used first and is present on most
+systems, with ImageMagick and GraphicsMagick after it; without any of them the
+export falls back to PostScript and says so. Figures are composed at 820×600 for
+export regardless of how small the pane is, so a plot exported from a cramped
+window is still a usable figure rather than a flattened one.
 
 ### Settings
 
@@ -234,6 +294,9 @@ The dialog's **Advanced** group holds one switch:
 
 - `MDANCE_CLI` - Path to the `mdance-cli` binary (overrides automatic detection)
 - `MDANCE_LIB` - Path to the `mdance_tcl` shared library (overrides automatic detection)
+- `MDANCE_REF_RUNS` - Test-only. Points the reference-run scenario at the sample
+  set; without it that scenario skips. See
+  [Checking the backend against reference runs](#checking-the-backend-against-reference-runs).
 
 Set these in your shell profile (e.g., `~/.bashrc` or `~/.zshrc`):
 ```bash
@@ -241,7 +304,8 @@ export MDANCE_CLI="/path/to/mdance-cli"
 export MDANCE_LIB="/path/to/mdance_tcl.so"
 ```
 
-Or in your `~/.vmdrc`:
+`~/.bashrc` only exports to interactive shells, so VMD started from a desktop
+launcher will not see it. `~/.vmdrc` is read however VMD was started:
 ```tcl
 set env(MDANCE_CLI) "/path/to/mdance-cli"
 set env(MDANCE_LIB) "/path/to/mdance_tcl.so"
