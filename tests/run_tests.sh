@@ -44,6 +44,18 @@ run_unit() {
 # run_vmd <script> : run a runtime scenario, echo its output, track failures.
 # The harness writes results to MDANCE_TEST_OUT (a file we control) because
 # VMD's stdout/Tk console is an unreliable place to read test output from.
+#
+# Text mode is requested through VMDDISPLAYDEVICE rather than `-dispdev text`.
+# On Linux the `vmd` launcher UNSETS DISPLAY when it sees that flag, and Tk
+# cannot build a widget without one -- so `package require Tk` fails, the plugin
+# never loads, and every runtime scenario fails with "no display name and no
+# $DISPLAY environment variable". The launcher does not touch VMDDISPLAYDEVICE,
+# so this asks for the same text mode and leaves DISPLAY alone. (The interactions
+# plugin's demo/run.sh documents the same launcher behaviour.)
+#
+# A display is therefore still required to run the runtime scenarios: they drive
+# real Tk widgets. Any X display will do -- a desktop session, or a nested one
+# such as `Xephyr :9 -screen 1600x1200x24 -ac` with DISPLAY=:9.
 run_vmd() {
     local script="$1" name vmdlog resfile rc
     name="$(basename "$script")"
@@ -51,12 +63,12 @@ run_vmd() {
     resfile="$(mktemp)"
     echo ">>> $name"
     if command -v timeout >/dev/null 2>&1; then
-        MDANCE_TEST_OUT="$resfile" timeout "$VMD_TIMEOUT" \
-            "$VMD" -dispdev text -eofexit -e "$script" >"$vmdlog" 2>&1
+        MDANCE_TEST_OUT="$resfile" VMDDISPLAYDEVICE=text timeout "$VMD_TIMEOUT" \
+            "$VMD" -eofexit -e "$script" >"$vmdlog" 2>&1
         rc=$?
     else
-        MDANCE_TEST_OUT="$resfile" \
-            "$VMD" -dispdev text -eofexit -e "$script" >"$vmdlog" 2>&1
+        MDANCE_TEST_OUT="$resfile" VMDDISPLAYDEVICE=text \
+            "$VMD" -eofexit -e "$script" >"$vmdlog" 2>&1
         rc=$?
     fi
     cat "$resfile"

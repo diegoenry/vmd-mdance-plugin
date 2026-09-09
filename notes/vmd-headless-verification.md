@@ -9,7 +9,9 @@ metadata:
 
 The MDANCE VMD plugin (`vmd_plugin/mdance/*.tcl`) can be loaded and exercised headlessly for verification — no display window pops up:
 
-`vmd -dispdev text -eofexit -e script.tcl` (full binary: `~/software/VMD2.app/Contents/vmd2/bin/vmd`).
+`VMDDISPLAYDEVICE=text vmd -eofexit -e script.tcl` (full binary: `~/software/VMD2.app/Contents/vmd2/bin/vmd`).
+
+**Not** `vmd -dispdev text`: on Linux the `vmd` launcher unsets `DISPLAY` when it sees that flag, and Tk cannot build a widget without one — so `package require Tk` fails and the plugin never loads. `VMDDISPLAYDEVICE` asks for the same text mode and the launcher leaves it alone. This means "headless" here is text-mode *rendering*, not "no X server": anything that builds widgets still needs a display (`Xephyr`/`Xvfb` is enough).
 
 In the script: `source .../vmd_plugin/mdance/mdance.tcl` loads the whole plugin (it `package require Tk`, which VMD provides). `::mdance::gui::create_window` actually builds the Tk notebook + all tabs (catches widget/treeview/grid typos that a plain `tclsh` parse can't, since tclsh has no Tk). Stub dialogs with `proc tk_messageBox {args} {return ok}` etc. Force CLI mode with `set ::mdance::use_library 0; set ::mdance::cli_path <mdance-cli>` (and `set env(MDANCE_CLI) ...`). Load a multi-model PDB as a test trajectory.
 

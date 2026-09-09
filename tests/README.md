@@ -22,8 +22,21 @@ mimic the loaded C extension.
 ```sh
 ./tests/run_tests.sh            # everything (unit + runtime)
 ./tests/run_tests.sh unit       # unit only (fast, no VMD)
-./tests/run_tests.sh runtime    # runtime only (needs VMD)
+./tests/run_tests.sh runtime    # runtime only (needs VMD and a display)
 ```
+
+The runtime scenarios drive real Tk widgets, so they need an X display — `unit`
+does not. Any display works; on a headless box a nested server is enough:
+
+```bash
+Xephyr :9 -screen 1600x1200x24 -ac &   # or Xvfb :9 -screen 0 1600x1200x24 &
+DISPLAY=:9 ./tests/run_tests.sh
+```
+
+They still run VMD in *text* mode, but text mode is requested through
+`VMDDISPLAYDEVICE=text` rather than `-dispdev text`: on Linux the `vmd` launcher
+unsets `DISPLAY` when it sees that flag, which kills Tk and fails every runtime
+scenario with `no display name and no $DISPLAY environment variable`.
 
 Config via environment:
 
