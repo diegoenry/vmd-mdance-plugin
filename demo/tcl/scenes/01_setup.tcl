@@ -35,11 +35,11 @@
     -hold 0.5
 
 ::demo::beat molecule \
-    -caption "Molecule ID: top, or a number" \
-    -say "First the molecule. The default is the word top, meaning whichever molecule VMD has in\
-          front. With several loaded it is worth putting the number in explicitly, so the plugin\
-          cannot quietly pick the wrong one." \
-    -spotlight .mdance.nb.setup.mol.mol_entry \
+    -caption "The molecule chooser lists what is loaded" \
+    -say "First the molecule. The chooser lists the molecules VMD actually has open, each with its\
+          frame count, so there is no guessing which one is in front. The small refresh beside it\
+          is for the case VMD does not announce: more frames loaded into a molecule already listed." \
+    -spotlight .mdance.nb.setup.mol.combo \
     -do { ::demo::param mol_selection [::demo::vmd::molid] } \
     -at 0.6f \
     -hold 0.5
@@ -48,8 +48,9 @@
     -caption "Atom selection: protein and name CA" \
     -say "Then the atom selection. Protein and name CA gives one atom per residue: three hundred\
           and fifty two of them, instead of five thousand three hundred and twenty nine. A much\
-          smaller matrix, and backbone motion is what conformational clustering is usually about." \
-    -spotlight .mdance.nb.setup.mol.sel_entry \
+          smaller matrix, and backbone motion is what conformational clustering is usually about.\
+          The line under the field counts the match as you type, so a typo shows itself immediately." \
+    -spotlight .mdance.nb.setup.mol.sel \
     -do { ::demo::param atom_selection "protein and name CA" } \
     -at 0.35f \
     -hold 0.6
@@ -59,7 +60,7 @@
     -say "The selection is the question. Cluster the peptide's own alpha carbons instead, and you\
           are clustering binding modes rather than protein conformations. One hard rule: the\
           selection must contain the same atoms in every frame." \
-    -spotlight .mdance.nb.setup.mol.sel_entry \
+    -spotlight .mdance.nb.setup.mol.sel \
     -do { ::demo::vmd::show_peptide 1 } \
     -at 0.25f \
     -hold 0.8
@@ -109,17 +110,17 @@
     -at 0.3f \
     -hold 1.2
 
-::demo::beat preview \
-    -caption "Preview Selection, before every run" \
-    -say "Preview Selection is the cheap check. It resolves the molecule, evaluates the selection,\
-          and reports how many atoms and how many frames you are about to hand to the backend. It\
-          catches a typo in a second, instead of after a run." \
-    -spotlight .mdance.nb.setup.preview.btn \
+::demo::beat checks \
+    -caption "Both counts are live: atoms, and frames" \
+    -say "Nothing here has to be asked for. The line under the selection reports how many atoms it\
+          matches, and the line below the frame range reports how many frames the range keeps.\
+          Between them you know exactly what the backend is about to receive, before you run it." \
+    -spotlight {.mdance.nb.setup.mol.status .mdance.nb.setup.frames.info} \
     -do {
         ::demo::vmd::sweep_stop
         ::demo::vmd::goto_frame 0
-        ::demo::click .mdance.nb.setup.preview.btn
-        ::demo::note "Preview: [.mdance.nb.setup.preview.info cget -text]"
+        ::demo::note "Selection: [.mdance.nb.setup.mol.status cget -text]"
+        ::demo::note "Frames: [.mdance.nb.setup.frames.info cget -text]"
     } \
     -at 0.55f \
     -hold 1.2
@@ -136,14 +137,14 @@
 
 ::demo::beat stride \
     -caption "Stride 10 keeps every tenth frame" \
-    -say "Stride decimates. Set it to ten and preview again: a thousand frames becomes a hundred.\
-          On a long, densely sampled run that is often plenty, and it makes the expensive plots\
-          much quicker to draw." \
-    -spotlight .mdance.nb.setup.range.stride \
+    -say "Stride decimates. Set it to ten and the count below updates on its own: a thousand frames\
+          becomes a hundred. On a long, densely sampled run that is often plenty, and it makes the\
+          expensive plots much quicker to draw." \
+    -spotlight {.mdance.nb.setup.range.stride .mdance.nb.setup.frames.info} \
     -do {
         ::demo::param frame_stride 10
-        ::demo::click .mdance.nb.setup.preview.btn
-        ::demo::note "Stride 10 -> [.mdance.nb.setup.preview.info cget -text]"
+        # The readout is debounced by 200 ms, so read it after that has landed.
+        after 400 {::demo::note "Stride 10 -> [.mdance.nb.setup.frames.info cget -text]"}
     } \
     -at 0.45f \
     -hold 1.4
@@ -154,23 +155,21 @@
           true VMD frame numbers: the colouring, Go to Representative, every plot axis, every\
           export. Never a position inside the subset." \
     -spotlight .mdance.nb.setup.range.note \
-    -do {
-        ::demo::param frame_stride 1
-        ::demo::click .mdance.nb.setup.preview.btn
-    } \
+    -do { ::demo::param frame_stride 1 } \
     -at 0.2f \
     -hold 0.8
 
 ::demo::beat backend \
     -caption "Backend: native library, or the command line" \
-    -say "The MDANCE Backend box says where the clustering actually runs. Library mode loads a\
-          native extension straight into VMD. CLI mode writes a CSV and runs the command line\
-          binary as a subprocess. This walkthrough uses CLI mode, because a subprocess run streams\
-          its progress and can be cancelled." \
-    -spotlight .mdance.nb.setup.cli \
+    -say "Where the clustering actually runs is in Settings, under the gear, because it is a\
+          property of the machine rather than of the analysis. Library mode loads a native\
+          extension straight into VMD. CLI mode writes a CSV and runs the command line binary as a\
+          subprocess. This walkthrough uses CLI mode, because a subprocess run streams its progress\
+          and can be cancelled." \
     -do {
-        ::demo::note "Backend: [.mdance.nb.setup.cli.mode_value cget -text] -\
-                      [.mdance.nb.setup.cli.status cget -text]"
+        ::mdance::gui::settings_dialog
+        ::demo::note "Backend: [.mdance_settings.backend.mode_value cget -text] -\
+                      [.mdance_settings.backend.status cget -text]"
     } \
     -at 0.5f \
     -hold 1.0
@@ -180,7 +179,7 @@
     -say "Display Settings is small but worth knowing. App font size scales the plugin's own text.\
           Plot font size sets the starting size for every plot window you open afterwards. Turn\
           both up before you present." \
-    -spotlight .mdance.nb.setup.display \
+    -spotlight .mdance_settings.display \
     -do {
         # The spinbox's -command fires on a click, not on a write to its
         # -textvariable, so the font has to be applied by hand here.
@@ -196,6 +195,7 @@
     -say "That is Setup. A molecule, an atom selection, a frame range, an aligned trajectory and a\
           live backend. Everything from here is just choosing an algorithm, and KMeans is next." \
     -do {
+        catch {destroy .mdance_settings}
         ::demo::param app_font_size 10
         ::mdance::gui::apply_app_font
         set ::mdance::plots::plot_font_size 10
@@ -206,6 +206,7 @@
 ::demo::teardown {
     ::demo::vmd::sweep_stop
     ::demo::vmd::show_peptide 0
+    catch {destroy .mdance_settings}
     # Restore the fonts even if the chapter was cut short before `handoff`.
     ::demo::param app_font_size 10
     ::mdance::gui::apply_app_font

@@ -135,11 +135,21 @@ namespace eval ::mdance::gui {
     variable cluster_sort_col ""
     variable cluster_sort_desc 0
 
-    # CLI binary display
+    # Backend detection, reported in the Settings dialog. The detection itself
+    # runs once at window creation and has to set ::mdance::use_library and
+    # ::mdance::cli_path whether or not anything is on screen to show it, so the
+    # result is kept in variables and the dialog's labels merely read them.
     variable cli_display_path ""
+    variable backend_mode ""
+    variable backend_mode_color "#333333"
+    variable backend_status ""
+    variable backend_status_color "#333333"
 
     # Display settings
     variable app_font_size 10
+
+    # Pending debounced refresh of the "N of M frames" readout.
+    variable frame_info_after ""
 
     # Which algorithm's parameter panel the input column is showing, the panels
     # themselves (built once, so switching preserves what has been typed into
@@ -148,6 +158,8 @@ namespace eval ::mdance::gui {
     variable algo_panels
     array set algo_panels {}
     variable algo_host ""
+    # key -> label, in the order the chooser lists them.
+    variable algo_labels {kmeans "KMeans NANI" divine "DIVINE" helm "HELM" equal "eQUAL"}
 
     # Plot thumbnails for the Visualizations buttons, keyed by plot suffix.
     # Cached photo images; a missing file just means no icon.
@@ -229,6 +241,13 @@ proc ::mdance::gui::init_styles {} {
         # Toolbar buttons: the glyph carries the meaning, the text confirms it.
         ttk::style configure Mdance.Toolbutton.TButton -font MdanceUI -padding {8 3}
         ttk::style configure Mdance.Run.TButton -font MdanceUIBold -padding {10 3}
+
+        # A glyph button that sits beside an entry or a combobox. The default
+        # TButton padding (which VMD's theme sets generously) made the molecule
+        # chooser's refresh button wider than it is tall and taller than the
+        # combobox it belongs to; this trims it to the glyph, and the caller
+        # grids it -sticky ns so it takes the combobox's height exactly.
+        ttk::style configure Mdance.Icon.TButton -font MdanceUI -padding {2 0}
     }
 }
 
@@ -311,6 +330,7 @@ proc ::mdance::gui::create_window {} {
     variable algo_current
     variable algo_panels
     variable algo_host
+    variable algo_labels
     array unset algo_panels
 
     init_styles
@@ -343,8 +363,8 @@ proc ::mdance::gui::create_window {} {
     #
     # An earlier review argued against a global Run on the grounds that it would
     # have to mean "run whichever tab is showing". That objection does not apply
-    # to this layout -- the algorithm is now an explicit radio selection in the
-    # input column, so Run has an unambiguous subject and says which one it is.
+    # to this layout -- the algorithm is an explicit choice in the input column,
+    # so Run has an unambiguous subject and says which one it is.
     #
     # Icons are Unicode glyphs, not the 13 PNG assets the interactions icon layer
     # ships: they need no files, no image loader and no scaling pass, and every
@@ -421,25 +441,27 @@ proc ::mdance::gui::create_window {} {
     # $w.nb.setup is a descendant of $w.nb, so `pack -in` may host them there.
     set algo_host $setup_tab
 
-    ttk::labelframe $setup_tab.algo -text "Algorithm" -padding {8 4}
-    foreach {key label} {kmeans "KMeans NANI" divine "DIVINE" helm "HELM" equal "eQUAL"} {
-        ttk::radiobutton $setup_tab.algo.$key -text $label \
-            -variable ::mdance::gui::algo_current -value $key \
-            -command [list ::mdance::gui::select_algorithm $key]
-        pack $setup_tab.algo.$key -anchor w -pady 1
-    }
+    # One of four, mutually exclusive, and only ever one at a time: a combobox,
+    # not four radiobuttons. It says the same thing in one line instead of four,
+    # which in a column this narrow is the difference between the parameters
+    # being on screen and being scrolled off. The variable behind it is
+    # unchanged -- algo_current still holds the key, and select_algorithm is
+    # still the one place that sets it.
+    ttk::labelframe $setup_tab.algo -text "Algorithm" -padding {8 6}
+    ttk::combobox $setup_tab.algo.cb -state readonly \
+        -values [dict values $algo_labels]
+    pack $setup_tab.algo.cb -fill x
+    bind $setup_tab.algo.cb <<ComboboxSelected>> ::mdance::gui::on_algo_selected
 
-    # Reassert the column order: what you set first at the top, the algorithm and
-    # its parameters in the middle, and the things touched once a session at the
-    # bottom. build_setup_tab packs in its own historical order, which put the
-    # backend path and the Quick Start text above the algorithm.
-    foreach f {mol range preview cli} { catch {pack forget $setup_tab.$f} }
-    pack $setup_tab.mol     -fill x -padx 6 -pady {6 0}
-    pack $setup_tab.range   -fill x -padx 6 -pady {6 0}
-    pack $setup_tab.preview -fill x -padx 6
-    pack $setup_tab.algo    -fill x -padx 6 -pady {6 0}
+    # Reassert the column order: what you set first at the top, then the
+    # algorithm and its parameters. build_setup_tab packs in its own historical
+    # order, which put the frame readout above the algorithm.
+    foreach f {mol range frames} { catch {pack forget $setup_tab.$f} }
+    pack $setup_tab.mol    -fill x -padx 6 -pady {6 0}
+    pack $setup_tab.range  -fill x -padx 6 -pady {6 0}
+    pack $setup_tab.frames -fill x -padx 6
+    pack $setup_tab.algo   -fill x -padx 6 -pady {6 0}
     # (the algorithm panel is packed after .algo by select_algorithm)
-    pack $setup_tab.cli     -fill x -padx 6 -pady {6 6}
 
     set algo_panels(kmeans) [ttk::frame $w.nb.kmeans]
     set algo_panels(divine) [ttk::frame $w.nb.divine]
@@ -497,7 +519,6 @@ proc ::mdance::gui::create_window {} {
         catch {foldable $w.nb.$lf 1}
     }
     catch {foldable $setup_tab.range 1}
-    catch {foldable $setup_tab.cli 1}
 
     return $w
 }
@@ -517,7 +538,24 @@ proc ::mdance::gui::select_algorithm {name} {
     pack $algo_panels($name) -in $algo_host -after $algo_host.algo \
         -fill x -padx 6 -pady {2 0}
     _fit_wraplengths $algo_panels($name) 290
+    # Called programmatically too -- create_window seeds it, and the tests and
+    # session loader set the algorithm without touching the chooser -- so the
+    # chooser follows the variable rather than the other way round.
+    variable algo_labels
+    if {[winfo exists $algo_host.algo.cb] && [dict exists $algo_labels $name]} {
+        $algo_host.algo.cb set [dict get $algo_labels $name]
+    }
     sync_run_button
+}
+
+# on_algo_selected - the chooser changed; map its label back to the key.
+proc ::mdance::gui::on_algo_selected {} {
+    variable algo_labels
+    variable algo_host
+    set cb $algo_host.algo.cb
+    set idx [$cb current]
+    if {$idx < 0} return
+    select_algorithm [lindex [dict keys $algo_labels] $idx]
 }
 
 # _fit_wraplengths - clamp any -wraplength wider than the column it now lives
@@ -1186,63 +1224,65 @@ proc ::mdance::gui::build_setup_tab {parent} {
     # mdance_input.tcl for what was taken and what was adapted.
     ::mdance::input::build $parent.mol
 
-    # Frame range / stride
+    # Frame range / stride.
+    #
+    # Label above spinbox, three columns: at 330 px the six-cell single row
+    # (First: [] Last: [] Stride: []) ran past the column edge and Stride was
+    # cut in half. Stacked, the three fit with room to spare, and the columns
+    # share the width evenly so they stay aligned as the pane is dragged.
     ttk::labelframe $parent.range -text "Frame Range" -padding 10
     pack $parent.range -fill x -padx 10 -pady {10 0}
 
-    ttk::label $parent.range.lf -text "First:"
+    ttk::label $parent.range.lf -text "First" -anchor w
     ttk::spinbox $parent.range.first -textvariable ::mdance::gui::frame_first \
-        -from 0 -to 1000000 -width 8
-    ttk::label $parent.range.ll -text "Last:"
+        -from 0 -to 1000000 -width 6
+    ttk::label $parent.range.ll -text "Last" -anchor w
     ttk::spinbox $parent.range.last -textvariable ::mdance::gui::frame_last \
-        -from -1 -to 1000000 -width 8
-    ttk::label $parent.range.ls -text "Stride:"
+        -from -1 -to 1000000 -width 6
+    ttk::label $parent.range.ls -text "Stride" -anchor w
     ttk::spinbox $parent.range.stride -textvariable ::mdance::gui::frame_stride \
-        -from 1 -to 100000 -width 8
-    grid $parent.range.lf     -row 0 -column 0 -sticky w -padx {0 4}
-    grid $parent.range.first  -row 0 -column 1 -sticky w -padx {0 12}
-    grid $parent.range.ll     -row 0 -column 2 -sticky w -padx {0 4}
-    grid $parent.range.last   -row 0 -column 3 -sticky w -padx {0 12}
-    grid $parent.range.ls     -row 0 -column 4 -sticky w -padx {0 4}
-    grid $parent.range.stride -row 0 -column 5 -sticky w
+        -from 1 -to 100000 -width 6
+    grid $parent.range.lf     -row 0 -column 0 -sticky w
+    grid $parent.range.ll     -row 0 -column 1 -sticky w -padx {8 0}
+    grid $parent.range.ls     -row 0 -column 2 -sticky w -padx {8 0}
+    grid $parent.range.first  -row 1 -column 0 -sticky ew
+    grid $parent.range.last   -row 1 -column 1 -sticky ew -padx {8 0}
+    grid $parent.range.stride -row 1 -column 2 -sticky ew -padx {8 0}
+    foreach c {0 1 2} { grid columnconfigure $parent.range $c -weight 1 -uniform range }
     ttk::label $parent.range.note \
         -text "Cluster a subset of frames. Last = -1 means the final frame. Stride decimates (e.g. 10 keeps every 10th frame)." \
         -justify left -wraplength 460 -foreground "#555555"
-    grid $parent.range.note -row 1 -column 0 -columnspan 6 -sticky w -pady {6 0}
+    grid $parent.range.note -row 2 -column 0 -columnspan 3 -sticky w -pady {6 0}
 
-    # MDANCE backend location
-    ttk::labelframe $parent.cli -text "MDANCE Backend" -padding 10
-    pack $parent.cli -fill x -padx 10 -pady {10 0}
+    # What used to be the Preview Selection row.
+    #
+    # The button is gone: the Molecule group validates the selection as you type
+    # and reports its atom count, so pressing Preview to learn the same thing was
+    # a step with nothing behind it. The half it reported that nothing else did --
+    # how many frames the range actually keeps -- stays, and is now live: it
+    # follows the spinboxes and the chosen molecule instead of waiting to be
+    # asked. It sits outside the (foldable) Frame Range group on purpose, so the
+    # count is still there when the group is closed.
+    ttk::frame $parent.frames -padding {10 6}
+    pack $parent.frames -fill x -padx 10
 
-    ttk::label $parent.cli.mode_label -text "Mode:"
-    ttk::label $parent.cli.mode_value -text "" -anchor w
-    grid $parent.cli.mode_label -row 0 -column 0 -sticky w -padx {0 10}
-    grid $parent.cli.mode_value -row 0 -column 1 -columnspan 2 -sticky w
+    ttk::button $parent.frames.tools -text "Frame Tools..." -command ::mdance::gui::frame_tools_dialog
+    ttk::label $parent.frames.info -text "" -anchor w
+    pack $parent.frames.tools -side left
+    pack $parent.frames.info -side left -padx {10 0} -fill x -expand 1
 
-    ttk::label $parent.cli.path_label -text "Path:"
-    ttk::entry $parent.cli.path_entry -textvariable ::mdance::gui::cli_display_path -width 24 -state readonly
-    ttk::button $parent.cli.browse -text "Browse..." -command ::mdance::gui::browse_cli
-    ttk::label $parent.cli.status -text "" -anchor w
+    foreach v {frame_first frame_last frame_stride mol_selection} {
+        catch {trace remove variable ::mdance::gui::$v write \
+            [list ::mdance::gui::on_frame_range_var]}
+        trace add variable ::mdance::gui::$v write \
+            [list ::mdance::gui::on_frame_range_var]
+    }
+    update_frame_info
 
-    grid $parent.cli.path_label -row 1 -column 0 -sticky w -padx {0 10} -pady {5 0}
-    grid $parent.cli.path_entry -row 1 -column 1 -sticky ew -padx {0 5} -pady {5 0}
-    grid $parent.cli.browse -row 1 -column 2 -sticky w -pady {5 0}
-    grid $parent.cli.status -row 2 -column 0 -columnspan 3 -sticky w -pady {5 0}
-    grid columnconfigure $parent.cli 1 -weight 1
-
-    # Detect backend on tab creation
-    detect_backend $parent
-
-    # Preview button
-    ttk::frame $parent.preview -padding 10
-    pack $parent.preview -fill x -padx 10
-
-    ttk::button $parent.preview.btn -text "Preview Selection" -command ::mdance::gui::preview_selection
-    ttk::button $parent.preview.tools -text "Frame Tools..." -command ::mdance::gui::frame_tools_dialog
-    ttk::label $parent.preview.info -text "" -anchor w
-    pack $parent.preview.btn -side left
-    pack $parent.preview.tools -side left -padx {6 0}
-    pack $parent.preview.info -side left -padx 10 -fill x -expand 1
+    # Detect the backend. It reports into the Settings dialog now, but the
+    # detection has to happen here regardless: it is what sets use_library and
+    # cli_path, and a run started before Settings is ever opened needs both.
+    detect_backend
 }
 
 # settings_dialog - the preferences that used to sit in two labelframes at the
@@ -1252,6 +1292,11 @@ proc ::mdance::gui::build_setup_tab {parent} {
 # toplevel, transient to the main window, Escape to dismiss, everything applying
 # live so there is nothing to OK.
 proc ::mdance::gui::settings_dialog {} {
+    variable backend_mode
+    variable backend_mode_color
+    variable backend_status
+    variable backend_status_color
+
     set w .mdance_settings
     if {[winfo exists $w]} { wm deiconify $w; raise $w; focus $w; return $w }
 
@@ -1289,6 +1334,34 @@ proc ::mdance::gui::settings_dialog {} {
     grid $w.display.pfl -row 1 -column 0 -sticky w -padx {0 10} -pady {6 0}
     grid $w.display.pfs -row 1 -column 1 -sticky w -pady {6 0}
     grid $w.display.titles -row 2 -column 0 -columnspan 2 -sticky w -pady {8 0}
+
+    # Backend, moved off the input column. It is a machine setting: which of the
+    # two backends this VMD found, and where. You read it when something is
+    # wrong and never again, so it was 90 px of permanent column for a fact that
+    # does not change during a session -- and it sat below the algorithm
+    # parameters, which is where the eye goes least.
+    ttk::labelframe $w.backend -text "MDANCE Backend" -padding 10
+    pack $w.backend -fill x -padx 12 -pady {10 0}
+
+    ttk::label $w.backend.mode_label -text "Mode:"
+    ttk::label $w.backend.mode_value -text $backend_mode -foreground $backend_mode_color -anchor w
+    grid $w.backend.mode_label -row 0 -column 0 -sticky w -padx {0 10}
+    grid $w.backend.mode_value -row 0 -column 1 -columnspan 2 -sticky w
+
+    ttk::label $w.backend.path_label -text "Path:"
+    ttk::entry $w.backend.path_entry -textvariable ::mdance::gui::cli_display_path \
+        -width 30 -state readonly
+    ttk::button $w.backend.browse -text "Browse..." -command ::mdance::gui::browse_cli
+    ttk::label $w.backend.status -text $backend_status -foreground $backend_status_color -anchor w
+
+    grid $w.backend.path_label -row 1 -column 0 -sticky w -padx {0 10} -pady {5 0}
+    grid $w.backend.path_entry -row 1 -column 1 -sticky ew -padx {0 5} -pady {5 0}
+    grid $w.backend.browse -row 1 -column 2 -sticky w -pady {5 0}
+    grid $w.backend.status -row 2 -column 0 -columnspan 3 -sticky w -pady {5 0}
+    grid columnconfigure $w.backend 1 -weight 1
+
+    ttk::button $w.backend.redetect -text "Re-detect" -command ::mdance::gui::detect_backend
+    grid $w.backend.redetect -row 3 -column 0 -columnspan 3 -sticky w -pady {8 0}
 
     ttk::labelframe $w.adv -text "Advanced" -padding 10
     pack $w.adv -fill x -padx 12 -pady {10 0}
@@ -1379,36 +1452,82 @@ proc ::mdance::gui::add_range {paramsVar} {
     return 1
 }
 
-proc ::mdance::gui::preview_selection {} {
-    variable mol_selection
-    variable atom_selection
+# update_frame_info - how many frames the current range actually keeps.
+#
+# What is left of Preview Selection, minus the button. Counted arithmetically
+# rather than by calling ::mdance::frame_list: this runs on every keystroke in a
+# spinbox, and frame_list materialises the whole index list, which on a long
+# trajectory is a list per keystroke for a number we can divide out. The
+# clamping below mirrors frame_list's exactly -- if the two ever disagree, this
+# label is the one that is wrong.
+proc ::mdance::gui::update_frame_info {} {
     variable frame_first
     variable frame_last
     variable frame_stride
 
-    set parent .mdance.nb.setup
+    set lbl .mdance.nb.setup.frames.info
+    if {![winfo exists $lbl]} return
 
-    set molid $mol_selection
-    if {$molid eq "top"} {
-        set molid [molinfo top]
+    set molid [::mdance::input::selected_molid]
+    if {$molid < 0 || [catch {molinfo $molid get numframes} total]} {
+        $lbl configure -text "No molecule loaded" -foreground $::mdance::input::c_warn
+        return
+    }
+    if {$total == 0} {
+        $lbl configure -text "No frames loaded" -foreground $::mdance::input::c_warn
+        return
     }
 
-    if {[catch {
-        set nframes [molinfo $molid get numframes]
-        set sel [atomselect $molid $atom_selection]
-        set natoms [$sel num]
-        $sel delete
-        set nsel [llength [::mdance::frame_list $molid $frame_first $frame_last $frame_stride]]
-        $parent.preview.info configure \
-            -text "$natoms atoms, $nsel of $nframes frames selected (molid=$molid)"
-    } err]} {
-        $parent.preview.info configure -text "Error: $err"
+    foreach {label val} [list "First" $frame_first "Last" $frame_last "Stride" $frame_stride] {
+        if {![string is integer -strict $val]} {
+            $lbl configure -text "$label must be a whole number" \
+                -foreground $::mdance::input::c_error
+            return
+        }
     }
+
+    set first $frame_first
+    set last $frame_last
+    set stride $frame_stride
+    if {$first < 0} { set first 0 }
+    if {$last < 0 || $last >= $total} { set last [expr {$total - 1}] }
+    if {$stride < 1} { set stride 1 }
+    if {$first > $last} {
+        $lbl configure -text "First ($first) is past last ($last)" \
+            -foreground $::mdance::input::c_error
+        return
+    }
+    set n [expr {($last - $first) / $stride + 1}]
+    $lbl configure -foreground "#555555" \
+        -text "[::mdance::input::count $n] of [::mdance::input::count $total] frames"
+}
+
+# The three spinboxes write their -textvariable on every keystroke, and the
+# molecule chooser writes mol_selection, so this fires often. Debounced through
+# the same 200 ms as the selection field for the same reason.
+proc ::mdance::gui::on_frame_range_var {args} {
+    variable frame_info_after
+    if {[info exists frame_info_after] && $frame_info_after ne ""} {
+        catch {after cancel $frame_info_after}
+    }
+    set frame_info_after [after 200 {
+        set ::mdance::gui::frame_info_after ""
+        ::mdance::gui::update_frame_info
+    }]
 }
 
 # --- Backend Detection ---
-proc ::mdance::gui::detect_backend {parent} {
+#
+# Writes the result to the namespace variables the Settings dialog reads, and
+# refreshes that dialog if it happens to be open. It is called once at window
+# creation -- before any dialog exists -- because it is also what decides
+# use_library and cli_path for every run in the session.
+proc ::mdance::gui::detect_backend {} {
     variable cli_display_path
+    variable backend_mode
+    variable backend_mode_color
+    variable backend_status
+    variable backend_status_color
 
     # Try library first. Must use the explicit "Mdance" prefix exactly like
     # ::mdance::init does: the extension only exports Mdance_Init, so a bare
@@ -1419,25 +1538,48 @@ proc ::mdance::gui::detect_backend {parent} {
     if {$lib_path ne "" && ![catch {load $lib_path Mdance}]} {
         set ::mdance::use_library 1
         set cli_display_path $lib_path
-        $parent.cli.mode_value configure -text "Library (native)" -foreground "#006600"
-        $parent.cli.status configure -text "Loaded" -foreground "#006600"
+        set backend_mode "Library (native)"
+        set backend_mode_color "#006600"
+        set backend_status "Loaded"
+        set backend_status_color "#006600"
+        _backend_sync
         return
     }
 
     # Fall back to CLI
-    $parent.cli.mode_value configure -text "CLI (subprocess)" -foreground "#333333"
+    set backend_mode "CLI (subprocess)"
+    set backend_mode_color "#333333"
     if {[catch {set path [::mdance::utils::find_cli]} err]} {
         set cli_display_path ""
-        $parent.cli.status configure -text "Not found. Set MDANCE_CLI env var or use Browse." -foreground red
+        set backend_status "Not found. Set MDANCE_CLI env var or use Browse."
+        set backend_status_color "red"
     } else {
         set cli_display_path $path
         set ::mdance::cli_path $path
-        $parent.cli.status configure -text "Found" -foreground "#006600"
+        set backend_status "Found"
+        set backend_status_color "#006600"
     }
+    _backend_sync
+}
+
+# _backend_sync - push the detected state onto the Settings dialog's labels, if
+# it is open. The path field is bound to cli_display_path and needs nothing;
+# these two carry a colour, which -textvariable cannot.
+proc ::mdance::gui::_backend_sync {} {
+    variable backend_mode
+    variable backend_mode_color
+    variable backend_status
+    variable backend_status_color
+    set w .mdance_settings.backend
+    if {![winfo exists $w]} return
+    catch {$w.mode_value configure -text $backend_mode -foreground $backend_mode_color}
+    catch {$w.status configure -text $backend_status -foreground $backend_status_color}
 }
 
 proc ::mdance::gui::browse_cli {} {
     variable cli_display_path
+    variable backend_status
+    variable backend_status_color
 
     set f [tk_getOpenFile -title "Locate mdance-cli binary"]
     if {$f ne ""} {
@@ -1448,7 +1590,9 @@ proc ::mdance::gui::browse_cli {} {
         }
         set cli_display_path $f
         set ::mdance::cli_path $f
-        .mdance.nb.setup.cli.status configure -text "Found" -foreground "#006600"
+        set backend_status "Found"
+        set backend_status_color "#006600"
+        _backend_sync
     }
 }
 

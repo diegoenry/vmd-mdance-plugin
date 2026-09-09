@@ -69,11 +69,11 @@
 
 ::demo::beat backend \
     -caption "The backend: native library or command-line" \
-    -say "The clustering itself happens in a C plus plus backend. The Setup tab shows which one is\
-          live: a native library loaded straight into VMD, or the command line binary as a\
-          fallback. Everything else in the plugin works the same either way." \
+    -say "The clustering itself happens in a C plus plus backend. Settings, under the gear, shows\
+          which one is live: a native library loaded straight into VMD, or the command line binary\
+          as a fallback. Everything else in the plugin works the same either way." \
     -tab setup \
-    -spotlight .mdance.nb.setup.cli \
+    -spotlight .mdance.tools.settings \
     -do {
         ::demo::note "Backend: [expr {$::mdance::use_library ? {native library, in-process} \
                                                             : {mdance-cli subprocess}}]"

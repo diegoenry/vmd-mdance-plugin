@@ -115,7 +115,6 @@ proc ::demo::start {} {
     # The plugin's own window, exactly as a user would open it.
     ::mdance::init
     ::mdance::gui::create_window
-    ::mdance::gui::detect_backend .mdance.nb.setup
 
     ::demo::caption::create
     ::demo::caption::hide

@@ -364,4 +364,123 @@ th::test "the GUI default combination is a safe one" {
         $::mdance::gui::div_anchors $::mdance::gui::div_refine]
 }
 
+# ------------------------------------------------------------------
+th::section "The algorithm chooser and the panel it drives"
+# ------------------------------------------------------------------
+# Four radiobuttons became one combobox. algo_current is still the variable
+# everything downstream reads, so the two directions both have to hold: picking
+# in the chooser must set the key, and setting the key must move the chooser.
+th::test "the chooser lists every algorithm, in the panel order" {
+    set cb .mdance.nb.setup.algo.cb
+    th::eq [dict values $::mdance::gui::algo_labels] [$cb cget -values]
+    th::eq "readonly" [$cb cget -state] "typing into it must not be possible"
+}
+th::test "choosing in the chooser sets the key, not the label" {
+    set cb .mdance.nb.setup.algo.cb
+    $cb current [lsearch -exact [$cb cget -values] "HELM"]
+    ::mdance::gui::on_algo_selected
+    th::eq "helm" $::mdance::gui::algo_current
+    # `pack info` THROWS on an unpacked widget rather than returning empty, so
+    # ask the geometry manager instead: "" means nothing is managing it.
+    th::eq "pack" [winfo manager $::mdance::gui::algo_panels(helm)] "HELM's panel must show"
+    th::eq "" [winfo manager $::mdance::gui::algo_panels(kmeans)] "KMeans' must not"
+}
+th::test "setting the algorithm in code moves the chooser with it" {
+    # Session load and the tests set the algorithm without touching the widget.
+    ::mdance::gui::select_algorithm equal
+    th::eq "eQUAL" [.mdance.nb.setup.algo.cb get]
+    th::eq "equal" $::mdance::gui::algo_current
+    ::mdance::gui::select_algorithm kmeans
+    th::eq "KMeans NANI" [.mdance.nb.setup.algo.cb get]
+}
+th::test "Run still names the algorithm the chooser is showing" {
+    ::mdance::gui::select_algorithm divine
+    ::mdance::gui::_toolbar_labels .mdance.tools 0
+    th::match "*DIVINE*" [.mdance.tools.run cget -text]
+    ::mdance::gui::select_algorithm kmeans
+    ::mdance::gui::_toolbar_labels .mdance.tools 0
+    th::match "*KMeans*" [.mdance.tools.run cget -text]
+}
+
+# ------------------------------------------------------------------
+th::section "The live frame count that replaced Preview Selection"
+# ------------------------------------------------------------------
+# It is counted arithmetically rather than by building the index list, so the
+# thing that can go wrong is disagreeing with ::mdance::frame_list. Every case
+# here asserts against frame_list itself rather than a hard-coded number.
+proc frame_info_for {first last stride} {
+    set ::mdance::gui::frame_first $first
+    set ::mdance::gui::frame_last $last
+    set ::mdance::gui::frame_stride $stride
+    ::mdance::gui::update_frame_info
+    return [.mdance.nb.setup.frames.info cget -text]
+}
+th::test "the count agrees with frame_list for every range shape" {
+    set ::mdance::gui::mol_selection $mol
+    foreach {first last stride} {0 -1 1   0 -1 3   4 18 2   5 5 1   0 100 7} {
+        set want [llength [::mdance::frame_list $mol $first $last $stride]]
+        th::match "$want of *frames" [frame_info_for $first $last $stride]             "first=$first last=$last stride=$stride"
+    }
+}
+th::test "it reports the trajectory length too, not just the subset" {
+    set total [molinfo $mol get numframes]
+    th::eq "$total of $total frames" [frame_info_for 0 -1 1]
+}
+th::test "a non-numeric field names the field instead of counting" {
+    th::match "Stride must be a whole number*" [frame_info_for 0 -1 "1o"]
+    th::match "First must be a whole number*" [frame_info_for "x" -1 1]
+    th::match "Last must be a whole number*" [frame_info_for 0 "" 1]
+}
+th::test "first past last is refused here as frame_list refuses it" {
+    th::match "First (9) is past last (4)*" [frame_info_for 9 4 1]
+    th::throws {::mdance::frame_list $mol 9 4 1} "*first*past*last*"
+}
+th::test "the readout follows the spinboxes on its own, debounced" {
+    # The whole point of dropping the Preview button: nothing is pressed.
+    # (The previous test left an invalid range behind on purpose.)
+    set ::mdance::gui::frame_first 0
+    set ::mdance::gui::frame_last -1
+    set ::mdance::gui::frame_stride 1
+    ::mdance::gui::update_frame_info
+    set before [.mdance.nb.setup.frames.info cget -text]
+    set ::mdance::gui::frame_stride 4
+    # The trace debounces by 200 ms, so the label is deliberately stale here.
+    th::eq $before [.mdance.nb.setup.frames.info cget -text]
+    after 400 {set ::SETTLED 1}
+    vwait ::SETTLED
+    set want [llength [::mdance::frame_list $mol 0 -1 4]]
+    th::match "$want of *frames" [.mdance.nb.setup.frames.info cget -text]
+    set ::mdance::gui::frame_stride 1
+}
+
+# ------------------------------------------------------------------
+th::section "The backend group moved to Settings"
+# ------------------------------------------------------------------
+th::test "nothing on the Setup column reports the backend any more" {
+    th::false [winfo exists .mdance.nb.setup.cli] "the old group must be gone"
+    th::false [winfo exists .mdance.nb.setup.preview] "so must Preview Selection"
+    th::true [winfo exists .mdance.nb.setup.frames.tools] "Frame Tools stays"
+}
+th::test "detection still runs at window creation, with no dialog open" {
+    # It is what sets use_library and cli_path; a run started before Settings is
+    # ever opened depends on it having happened.
+    th::false [winfo exists .mdance_settings] "fixture check: dialog closed"
+    th::ne "" $::mdance::gui::backend_mode
+    th::ne "" $::mdance::gui::backend_status
+}
+th::test "the dialog shows the state that was detected earlier" {
+    ::mdance::gui::settings_dialog
+    th::eq $::mdance::gui::backend_mode [.mdance_settings.backend.mode_value cget -text]
+    th::eq $::mdance::gui::backend_status [.mdance_settings.backend.status cget -text]
+    th::eq "readonly" [.mdance_settings.backend.path_entry cget -state]         "the path is reported, not typed"
+}
+th::test "re-detecting with the dialog open updates it in place" {
+    set ::mdance::gui::backend_mode "stale"
+    .mdance_settings.backend.mode_value configure -text "stale"
+    ::mdance::gui::detect_backend
+    th::ne "stale" [.mdance_settings.backend.mode_value cget -text]
+    th::eq $::mdance::gui::backend_mode [.mdance_settings.backend.mode_value cget -text]
+    destroy .mdance_settings
+}
+
 exit [th::done "runtime:gui_controls"]

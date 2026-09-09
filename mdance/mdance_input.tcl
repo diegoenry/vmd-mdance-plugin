@@ -133,7 +133,14 @@ proc ::mdance::input::build {parent} {
     # into an existing molecule takes it from 24 frames to 48 and the trace says
     # nothing, so the frame count in the label goes stale. This corrects it
     # without reopening the plugin.
-    ttk::button $parent.refresh -text "\u21BB" -width 3 \
+    #
+    # Sized to the glyph and stretched to the chooser's height (-sticky ns
+    # below): at the default TButton padding it was a button-shaped object next
+    # to a field, wider than it was tall and taller than the combobox, reading
+    # as the primary control of the group rather than the small correction it
+    # is.
+    ttk::button $parent.refresh -text "\u21BB" -width 2 \
+        -style Mdance.Icon.TButton \
         -command ::mdance::input::refresh_molecules
 
     ttk::label $parent.sell -text "Atom selection" -anchor w
@@ -144,7 +151,7 @@ proc ::mdance::input::build {parent} {
     # everything else stacks under it, and mixing -side right with the default
     # top-packing in one container put the selection label on the chooser's row.
     grid $mol_combo       -row 0 -column 0 -sticky ew
-    grid $parent.refresh  -row 0 -column 1 -sticky w -padx {4 0}
+    grid $parent.refresh  -row 0 -column 1 -sticky ns -padx {4 0}
     grid $parent.sell     -row 1 -column 0 -columnspan 2 -sticky ew -pady {8 2}
     grid $sel_entry       -row 2 -column 0 -columnspan 2 -sticky ew
     grid $sel_status      -row 3 -column 0 -columnspan 2 -sticky ew -pady {2 0}

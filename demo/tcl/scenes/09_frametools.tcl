@@ -92,7 +92,7 @@
           frames: a diverse handful to run something expensive on, the outliers to check for\
           artefacts, or a sample that follows the density." \
     -tab setup \
-    -spotlight .mdance.nb.setup.preview.tools \
+    -spotlight .mdance.nb.setup.frames.tools \
     -do { ::demo::close_plots } \
     -at 0.15 \
     -hold 0.5
@@ -103,7 +103,7 @@
           range of its own, so whatever these two boxes say is exactly what it works on." \
     -spotlight {.mdance.nb.setup.mol .mdance.nb.setup.range} \
     -do {
-        ::demo::click .mdance.nb.setup.preview.tools
+        ::demo::click .mdance.nb.setup.frames.tools
         # frame_tools_dialog sets a size but no position, so the window manager
         # would drop it wherever it likes. Park it over the free left side,
         # clear of the plugin window and the caption bar.
