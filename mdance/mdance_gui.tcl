@@ -13,11 +13,28 @@ namespace eval ::mdance::gui {
     variable frame_last -1
     variable frame_stride 1
 
-    # KMeans
+    # KMeans (NANI)
     variable km_nclusters 10
     variable km_metric "MSD"
-    variable km_kinit "CompSim"
+    # StratAll is the default initialization on the MDANCE authors' advice: on
+    # the reviewer's own benchmark runs it is 9-12x faster than CompSim
+    # (0.11 s vs 1.27 s on a 6001-frame trajectory) at comparable cluster
+    # quality, and it is the initialization the Stratified-NANI paper describes.
+    variable km_kinit "StratAll"
     variable km_percentage 10
+
+    # Metric selection is LOCKED to MSD for MD data. MSD is the only metric with
+    # a physical meaning for Cartesian frames; the other ten are extended-
+    # similarity indices meant for binary/fingerprint data (the Sweep tab has
+    # always carried a note saying so). Nothing is removed -- every *_metric
+    # variable and every backend call site is untouched -- so unlocking is a
+    # pure GUI switch. PRIME is deliberately NOT included: its metric is an
+    # n-ary similarity index rather than a distance, so MSD is not the same
+    # axis and forcing it there would change documented PRIME behaviour.
+    variable metric_unlocked 0
+    variable metric_all {MSD BUB Fai Gle Ja JT RT RR SM SS1 SS2}
+    variable metric_slots      ;# array: combobox path -> its saved `grid info`
+    array set metric_slots {}
 
     # DIVINE
     variable div_nclusters 3
@@ -67,8 +84,16 @@ namespace eval ::mdance::gui {
     variable helm_min_samples 0.01
     variable helm_trim_val 0
     variable helm_trim_k 0
+    # Which trim criterion is active. The backend rejects trim-val and trim-k
+    # given TOGETHER (whether or not trimming is on), so they cannot be two
+    # independent entry fields -- they are one choice.
+    variable helm_trim_mode "k"
     variable helm_labels_source "auto"
     variable helm_pre_k 50
+    # Pre-cluster KMeans settings, defaulted to the KMeans tab's own defaults so
+    # the hidden first stage of a HELM run matches a single KMeans run.
+    variable helm_pre_kinit "StratAll"
+    variable helm_pre_percentage 10
     variable helm_labels_file ""
 
     # CLI binary display
@@ -128,6 +153,9 @@ proc ::mdance::gui::create_window {} {
     ttk::progressbar $w.status.pb -mode indeterminate -length 120
     ttk::label $w.status.label -textvariable ::mdance::status -anchor w
     pack $w.status.label -side left -fill x -expand 1
+
+    # Hide the metric selectors (locked to MSD) now that every tab is gridded.
+    register_metric_combos $w
 
     return $w
 }
@@ -272,6 +300,89 @@ proc ::mdance::gui::_busy_guard {} {
     return 1
 }
 
+# _find_metric_combos - Every combobox bound to a *_metric variable under $root.
+# Discovering them by their -textvariable rather than by hardcoded widget paths
+# keeps the lock working when a tab's rows are reordered, and picks up the Frame
+# Tools dialog when that toplevel is created. prime_metric is excluded on
+# purpose (see the metric_unlocked comment).
+proc ::mdance::gui::_find_metric_combos {root} {
+    set found {}
+    if {![winfo exists $root]} { return $found }
+    foreach c [winfo children $root] {
+        if {[winfo class $c] eq "TCombobox"} {
+            set tv ""
+            catch {set tv [$c cget -textvariable]}
+            if {[string match "::mdance::gui::*_metric" $tv]
+                && $tv ne "::mdance::gui::prime_metric"} {
+                lappend found $c
+            }
+        }
+        lappend found {*}[_find_metric_combos $c]
+    }
+    return $found
+}
+
+# _register_metric_combo - Remember a metric combobox and its grid cell so the
+# lock can swap a plain "MSD" label in and out of that exact cell. The grid info
+# has to be captured now, while the widget is still managed: once it is
+# `grid forget`-ten there is nothing left to read it from.
+proc ::mdance::gui::_register_metric_combo {cb} {
+    variable metric_slots
+    if {[info exists metric_slots($cb)]} return
+    set gi [grid info $cb]
+    if {$gi eq ""} return
+    if {![winfo exists ${cb}L]} { ttk::label ${cb}L -text "MSD" -anchor w }
+    set metric_slots($cb) $gi
+}
+
+# register_metric_combos - Find and register every metric combobox under $root.
+proc ::mdance::gui::register_metric_combos {root} {
+    foreach cb [_find_metric_combos $root] { _register_metric_combo $cb }
+    apply_metric_lock
+}
+
+# apply_metric_lock - Show either the combobox or a static "MSD" label in each
+# registered cell, and keep the Sweep tab's metric checkboxes in step.
+proc ::mdance::gui::apply_metric_lock {} {
+    variable metric_slots
+    variable metric_unlocked
+    variable metric_all
+    variable sweep_metric
+
+    if {!$metric_unlocked} {
+        # Re-locking must RESET the values, not just hide the widget: a metric
+        # chosen while unlocked would otherwise keep going to the backend behind
+        # a hidden control the user can no longer see or correct.
+        foreach v {km_metric div_metric helm_metric eq_metric ft_metric} {
+            set ::mdance::gui::$v "MSD"
+        }
+    }
+    foreach cb [array names metric_slots] {
+        if {![winfo exists $cb]} { unset metric_slots($cb); continue }
+        set gi $metric_slots($cb)
+        if {$metric_unlocked} {
+            catch {grid forget ${cb}L}
+            $cb configure -values $metric_all -state readonly
+            catch {grid $cb {*}$gi}
+        } else {
+            catch {grid forget $cb}
+            catch {grid ${cb}L {*}$gi}
+        }
+    }
+    # The Sweep tab sweeps OVER metrics, so locking means "MSD only" there.
+    foreach m $metric_all {
+        set wpath .mdance.nb.sweep.met.m$m
+        if {![winfo exists $wpath]} continue
+        if {$metric_unlocked} {
+            $wpath configure -state normal
+        } else {
+            if {$m ne "MSD"} { set sweep_metric($m) 0 }
+            $wpath configure -state [expr {$m eq "MSD" ? "normal" : "disabled"}]
+        }
+    }
+    if {!$metric_unlocked} { set sweep_metric(MSD) 1 }
+}
+
 # _chknum - validate a numeric entry value at submit time. kind is "double" or
 # "int"; min (optional) is an inclusive lower bound. Shows an actionable message
 # and returns 0 on failure. Besides catching typos/blank fields, this keeps any
@@ -384,6 +495,19 @@ proc ::mdance::gui::build_setup_tab {parent} {
     grid $parent.display.afs -row 0 -column 1 -sticky w
     grid $parent.display.pfl -row 0 -column 2 -sticky w -padx {20 10}
     grid $parent.display.pfs -row 0 -column 3 -sticky w
+
+    # Advanced
+    ttk::labelframe $parent.adv -text "Advanced" -padding 10
+    pack $parent.adv -fill x -padx 10 -pady {10 0}
+    ttk::checkbutton $parent.adv.metric \
+        -text "Unlock metric selection" \
+        -variable ::mdance::gui::metric_unlocked \
+        -command ::mdance::gui::apply_metric_lock
+    ttk::label $parent.adv.note \
+        -text "Clustering runs on MSD, the only metric with a physical meaning for Cartesian MD frames. The other indices are binary/extended-similarity measures for fingerprint-style data; unlock only if you know your input suits them." \
+        -justify left -wraplength 460 -foreground "#555555"
+    grid $parent.adv.metric -row 0 -column 0 -sticky w
+    grid $parent.adv.note -row 1 -column 0 -sticky w -pady {6 0}
 
     # Help text
     ttk::labelframe $parent.help -text "Quick Start" -padding 10
@@ -693,56 +817,140 @@ proc ::mdance::gui::build_helm_tab {parent} {
         incr row
     }
 
-    # Trim options
+    # Trim Options
+    #
+    # These fields are NOT peers, which is exactly why "Min samples" was
+    # reported as non-functional. In the backend (src/cluster/helm.cpp):
+    #   * minSamples is read ONLY inside trimClusters(), which runs only when
+    #     trim-start is set -- so setting it with trimming off did nothing at all;
+    #   * trim-start is REFUSED unless one of trim-val / trim-k is given, so
+    #     setting Min samples alone produced a backend exception, not an effect;
+    #   * trim-val and trim-k together are refused whether or not trimming is
+    #     on, so two leftover values in "inert" fields failed the run.
+    # The controls below express that dependency instead of hiding it.
     ttk::labelframe $parent.trim -text "Trim Options" -padding 10
     pack $parent.trim -fill x -padx 10 -pady 5
 
     ttk::checkbutton $parent.trim.enable -text "Enable trimming" \
-        -variable ::mdance::gui::helm_trim_start
-    grid $parent.trim.enable -row 0 -column 0 -columnspan 2 -sticky w -pady 3
+        -variable ::mdance::gui::helm_trim_start \
+        -command ::mdance::gui::_helm_trim_sync
+    grid $parent.trim.enable -row 0 -column 0 -columnspan 3 -sticky w -pady 3
 
-    set trow 1
-    foreach {label var} {
-        "Min samples:" helm_min_samples
-        "Trim value:" helm_trim_val
-        "Trim K:" helm_trim_k
-    } {
-        ttk::label $parent.trim.l$trow -text $label
-        ttk::entry $parent.trim.w$trow -textvariable ::mdance::gui::$var -width 10
-        grid $parent.trim.l$trow -row $trow -column 0 -sticky w -padx {0 10} -pady 3
-        grid $parent.trim.w$trow -row $trow -column 1 -sticky w -pady 3
-        incr trow
-    }
+    ttk::radiobutton $parent.trim.ck -text "Discard the loosest" \
+        -variable ::mdance::gui::helm_trim_mode -value "k" \
+        -command ::mdance::gui::_helm_trim_sync
+    ttk::entry $parent.trim.ek -textvariable ::mdance::gui::helm_trim_k -width 8
+    ttk::label $parent.trim.lk -text "clusters (highest MSD)"
+    grid $parent.trim.ck -row 1 -column 0 -sticky w -padx {20 6} -pady 3
+    grid $parent.trim.ek -row 1 -column 1 -sticky w -pady 3
+    grid $parent.trim.lk -row 1 -column 2 -sticky w -padx {6 0} -pady 3
+
+    ttk::radiobutton $parent.trim.cval -text "Discard clusters with MSD above" \
+        -variable ::mdance::gui::helm_trim_mode -value "val" \
+        -command ::mdance::gui::_helm_trim_sync
+    ttk::entry $parent.trim.eval -textvariable ::mdance::gui::helm_trim_val -width 8
+    grid $parent.trim.cval -row 2 -column 0 -sticky w -padx {20 6} -pady 3
+    grid $parent.trim.eval -row 2 -column 1 -sticky w -pady 3
+
+    ttk::label $parent.trim.lms -text "Also discard clusters smaller than:"
+    ttk::entry $parent.trim.ems -textvariable ::mdance::gui::helm_min_samples -width 8
+    grid $parent.trim.lms -row 3 -column 0 -sticky w -padx {20 6} -pady {8 3}
+    grid $parent.trim.ems -row 3 -column 1 -sticky w -pady {8 3}
+    ttk::label $parent.trim.nms \
+        -text "Below 1 this is a fraction of the total frames (0.01 = 1%); 1 or more is an absolute frame count. Applies only while trimming is enabled." \
+        -justify left -wraplength 430 -foreground "#555555"
+    grid $parent.trim.nms -row 4 -column 0 -columnspan 3 -sticky w -pady {2 0}
 
     # Initial labels source
     ttk::labelframe $parent.labels -text "Initial Labels" -padding 10
     pack $parent.labels -fill x -padx 10 -pady 5
 
     ttk::radiobutton $parent.labels.auto -text "Auto pre-cluster with KMeans" \
-        -variable ::mdance::gui::helm_labels_source -value "auto"
+        -variable ::mdance::gui::helm_labels_source -value "auto" \
+        -command ::mdance::gui::_helm_labels_sync
     ttk::label $parent.labels.lprek -text "Pre-cluster K:"
     ttk::spinbox $parent.labels.prek -textvariable ::mdance::gui::helm_pre_k \
         -from 5 -to 500 -width 8
-    grid $parent.labels.auto -row 0 -column 0 -columnspan 2 -sticky w -pady 3
+    # This stage IS a KMeans run, so it gets KMeans' parameters. It used to be
+    # given only the metric and K, silently falling back to whatever the backend
+    # defaults its initialization to -- so the hidden first half of a HELM run
+    # did not match the single KMeans run the user had tuned on the KMeans tab.
+    ttk::label $parent.labels.lpinit -text "Initialization:"
+    ttk::combobox $parent.labels.pinit -textvariable ::mdance::gui::helm_pre_kinit \
+        -values {StratAll StratReduced CompSim DivSelect KmeansPP Random VanillaKmeansPP} \
+        -state readonly -width 18
+    ttk::label $parent.labels.lppct -text "Sampling %:"
+    ttk::spinbox $parent.labels.ppct -textvariable ::mdance::gui::helm_pre_percentage \
+        -from 1 -to 100 -width 8
+    grid $parent.labels.auto -row 0 -column 0 -columnspan 3 -sticky w -pady 3
     grid $parent.labels.lprek -row 1 -column 0 -sticky w -padx {20 10} -pady 3
     grid $parent.labels.prek -row 1 -column 1 -sticky w -pady 3
+    grid $parent.labels.lpinit -row 2 -column 0 -sticky w -padx {20 10} -pady 3
+    grid $parent.labels.pinit -row 2 -column 1 -columnspan 2 -sticky w -pady 3
+    grid $parent.labels.lppct -row 3 -column 0 -sticky w -padx {20 10} -pady 3
+    grid $parent.labels.ppct -row 3 -column 1 -sticky w -pady 3
 
     ttk::radiobutton $parent.labels.file -text "Load from file:" \
-        -variable ::mdance::gui::helm_labels_source -value "file"
+        -variable ::mdance::gui::helm_labels_source -value "file" \
+        -command ::mdance::gui::_helm_labels_sync
     ttk::entry $parent.labels.fentry -textvariable ::mdance::gui::helm_labels_file -width 30
     ttk::button $parent.labels.browse -text "Browse..." -command {
         set f [tk_getOpenFile -filetypes {{"CSV files" ".csv"} {"All files" "*"}}]
         if {$f ne ""} { set ::mdance::gui::helm_labels_file $f }
     }
-    grid $parent.labels.file -row 2 -column 0 -sticky w -pady 3
-    grid $parent.labels.fentry -row 2 -column 1 -sticky ew -pady 3
-    grid $parent.labels.browse -row 2 -column 2 -sticky w -padx 5 -pady 3
+    grid $parent.labels.file -row 4 -column 0 -sticky w -pady {8 3}
+    grid $parent.labels.fentry -row 4 -column 1 -sticky ew -pady {8 3}
+    grid $parent.labels.browse -row 4 -column 2 -sticky w -padx 5 -pady {8 3}
     grid columnconfigure $parent.labels 1 -weight 1
 
     ttk::frame $parent.run -padding 10
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run HELM" -command ::mdance::gui::run_helm
     pack $parent.run.btn -side left
+
+    # Put the dependent controls into the right state for the initial values.
+    _helm_trim_sync
+    _helm_labels_sync
+}
+
+# _helm_trim_sync - Enable only the trim controls that can currently do
+# something. Everything under "Enable trimming" is inert while it is off (the
+# backend ignores min-samples and refuses trim-start without a criterion), and
+# only the selected criterion's entry is live, because the backend refuses
+# trim-val and trim-k together.
+proc ::mdance::gui::_helm_trim_sync {} {
+    variable helm_trim_start
+    variable helm_trim_mode
+    set t .mdance.nb.helm.trim
+    if {![winfo exists $t]} return
+    set on [expr {$helm_trim_start ? "normal" : "disabled"}]
+    foreach w {ck cval ems} { catch {$t.$w configure -state $on} }
+    foreach w {lk lms nms} {
+        catch {$t.$w configure -foreground [expr {$helm_trim_start ? "#000000" : "#999999"}]}
+    }
+    catch {$t.ek configure -state \
+        [expr {$helm_trim_start && $helm_trim_mode eq "k" ? "normal" : "disabled"}]}
+    catch {$t.eval configure -state \
+        [expr {$helm_trim_start && $helm_trim_mode eq "val" ? "normal" : "disabled"}]}
+}
+
+# _helm_labels_sync - The pre-cluster parameters only apply when HELM is
+# generating its own initial labels; grey them out when they come from a file.
+proc ::mdance::gui::_helm_labels_sync {} {
+    variable helm_labels_source
+    set l .mdance.nb.helm.labels
+    if {![winfo exists $l]} return
+    set auto [expr {$helm_labels_source eq "auto" ? "normal" : "disabled"}]
+    foreach w {prek pinit ppct} { catch {$l.$w configure -state $auto} }
+    # pinit is a readonly combobox: "normal" would make it editable, so restore
+    # its readonly state rather than a plain normal one.
+    if {$helm_labels_source eq "auto"} { catch {$l.pinit configure -state readonly} }
+    foreach w {lprek lpinit lppct} {
+        catch {$l.$w configure -foreground \
+            [expr {$helm_labels_source eq "auto" ? "#000000" : "#999999"}]}
+    }
+    set fromfile [expr {$helm_labels_source eq "file" ? "normal" : "disabled"}]
+    foreach w {fentry browse} { catch {$l.$w configure -state $fromfile} }
 }
 
 proc ::mdance::gui::run_helm {} {
@@ -757,8 +965,11 @@ proc ::mdance::gui::run_helm {} {
     variable helm_min_samples
     variable helm_trim_val
     variable helm_trim_k
+    variable helm_trim_mode
     variable helm_labels_source
     variable helm_pre_k
+    variable helm_pre_kinit
+    variable helm_pre_percentage
     variable helm_labels_file
 
     set molid $mol_selection
@@ -770,15 +981,8 @@ proc ::mdance::gui::run_helm {} {
         molid $molid \
         atomsel $atom_selection \
         metric $helm_metric \
-        merge-scheme $helm_merge \
-        min-samples $helm_min_samples \
-        trim-val $helm_trim_val \
-        trim-k $helm_trim_k]
+        merge-scheme $helm_merge]
     if {![add_range params]} return
-
-    if {$helm_trim_start} {
-        dict set params trim-start 1
-    }
 
     # Set stopping criterion
     if {$helm_stop_mode eq "nclusters"} {
@@ -789,13 +993,6 @@ proc ::mdance::gui::run_helm {} {
         dict set params eps $helm_eps
     }
 
-    # Set initial labels
-    if {$helm_labels_source eq "file" && $helm_labels_file ne ""} {
-        dict set params initial-labels $helm_labels_file
-    } else {
-        dict set params pre-k $helm_pre_k
-    }
-
     # Validate numeric inputs (also keeps any redirection metacharacter out of
     # the backend command line)
     if {$helm_stop_mode eq "eps"} {
@@ -803,14 +1000,52 @@ proc ::mdance::gui::run_helm {} {
     } else {
         if {![_chknum $helm_nclusters "Number of clusters" int 2]} return
     }
-    # Unconditional: min-samples / trim-val / trim-k are put into $params above
-    # on every run, not only when "trim start" is checked, so they reach the
-    # backend command line either way and must be validated either way.
-    if {![_chknum $helm_min_samples "Min samples" double 0]} return
-    if {![_chknum $helm_trim_val "Trim value" double]} return
-    if {![_chknum $helm_trim_k "Trim K" int 0]} return
-    if {$helm_labels_source ne "file" || $helm_labels_file eq ""} {
+
+    # Set initial labels
+    if {$helm_labels_source eq "file" && $helm_labels_file ne ""} {
+        dict set params initial-labels $helm_labels_file
+    } else {
         if {![_chknum $helm_pre_k "Pre-cluster K" int 2]} return
+        if {![_chknum $helm_pre_percentage "Pre-cluster sampling %" int 1]} return
+        dict set params pre-k $helm_pre_k
+        dict set params pre-kinit $helm_pre_kinit
+        dict set params pre-percentage $helm_pre_percentage
+    }
+
+    # Trim parameters reach the backend ONLY when trimming is enabled.
+    #
+    # They used to be sent on every run, which was actively harmful rather than
+    # merely untidy: the backend refuses trim-val and trim-k given together
+    # whether or not trim-start is set, so two leftover values in fields the
+    # user believed inert failed the whole run. And min-samples is read only
+    # inside the backend's trimming step, so sending it without trim-start did
+    # nothing at all -- the reason the field was reported as non-functional.
+    if {$helm_trim_start} {
+        if {![_chknum $helm_min_samples "Min samples" double 0]} return
+        if {$helm_trim_mode eq "k"} {
+            if {![_chknum $helm_trim_k "Number of clusters to discard" int 1]} return
+            # The backend throws "trimK is too large!" once the count reaches
+            # the cluster total, and warns past half. We know the total up front
+            # in the auto pre-cluster case, so say so here instead.
+            if {$helm_labels_source ne "file" || $helm_labels_file eq ""} {
+                if {$helm_trim_k >= $helm_pre_k - 1} {
+                    tk_messageBox -icon error -title "MDANCE" \
+                        -message "Discarding $helm_trim_k of $helm_pre_k pre-clusters would leave nothing to cluster.\n\nChoose a number below [expr {$helm_pre_k - 1}], or raise Pre-cluster K."
+                    return
+                }
+            }
+            dict set params trim-k $helm_trim_k
+        } else {
+            if {![_chknum $helm_trim_val "MSD ceiling" double]} return
+            if {$helm_trim_val <= 0} {
+                tk_messageBox -icon error -title "MDANCE" \
+                    -message "The MSD ceiling must be greater than 0.\n\nTrimming keeps only clusters whose MSD is below it, so 0 would discard every cluster."
+                return
+            }
+            dict set params trim-val $helm_trim_val
+        }
+        dict set params trim-start 1
+        dict set params min-samples $helm_min_samples
     }
 
     run_guarded helm $params
@@ -1406,6 +1641,10 @@ proc ::mdance::gui::frame_tools_dialog {} {
         -values {MSD BUB Fai Gle Ja JT RT RR SM SS1 SS2}
     grid $w.p.lmet -row 1 -column 0 -sticky w -padx {0 10} -pady 3
     grid $w.p.metric -row 1 -column 1 -sticky w -pady 3
+    # This dialog is created on demand, so its metric selector is registered
+    # here rather than in create_window's sweep of the main window.
+    _register_metric_combo $w.p.metric
+    apply_metric_lock
 
     ttk::label $w.p.lparam -text "Param:"
     ttk::entry $w.p.param -textvariable ::mdance::gui::ft_param -width 10

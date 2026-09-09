@@ -579,8 +579,14 @@ being clustered -- check the Setup tab's First/Last/Stride against the file."
                 update idletasks
 
                 set pre_k [expr {[dict exists $params pre-k] ? [dict get $params pre-k] : 50}]
+                # The pre-cluster stage IS a KMeans run, so it takes KMeans'
+                # parameters. It used to be handed only the metric and K, so it
+                # silently used whatever the backend defaults its initialization
+                # to rather than what the user selected.
+                set pre_kinit [expr {[dict exists $params pre-kinit] ? [dict get $params pre-kinit] : "StratAll"}]
+                set pre_pct [expr {[dict exists $params pre-percentage] ? [dict get $params pre-percentage] : 10}]
                 set pre_result [::mdance::kmeans $flat_coords $nframes $natoms $pre_k \
-                    -metric $metric]
+                    -metric $metric -kinit $pre_kinit -percentage $pre_pct]
                 set init_labels [dict get $pre_result labels]
 
                 set status "Running HELM clustering (library)..."
@@ -930,14 +936,17 @@ being clustered -- check the Setup tab's First/Last/Stride against the file."
                 update idletasks
 
                 set pre_k [expr {[dict exists $params pre-k] ? [dict get $params pre-k] : 50}]
-                set pre_output [::mdance::utils::mktmp "_pre.json"]
+                # See the library path above: this stage takes KMeans'
+                # parameters, not just the metric and K.
                 set pre_cmd [list $cli_path \
                     --algorithm kmeans \
                     --input $csv_path \
-                    --output $pre_output \
+                    --output [set pre_output [::mdance::utils::mktmp "_pre.json"]] \
                     --natoms $natoms \
                     --nclusters $pre_k \
-                    --metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}]]
+                    --metric [expr {[dict exists $params metric] ? [dict get $params metric] : "MSD"}] \
+                    --kinit [expr {[dict exists $params pre-kinit] ? [dict get $params pre-kinit] : "StratAll"}] \
+                    --percentage [expr {[dict exists $params pre-percentage] ? [dict get $params pre-percentage] : 10}]]
 
                 if {[catch {run_cli_capture $pre_cmd ::mdance::_cli_progress} pre_err]} {
                     if {$pre_err eq "CANCELLED"} {
@@ -1687,8 +1696,10 @@ proc ::mdance::run_single_k {algorithm csv_path natoms nclusters} {
         set extract [dict create mode cli csv $csv_path natoms $natoms]
     }
 
+    # kinit tracks the KMeans tab default (StratAll), so an elbow curve is
+    # comparable with the single runs the user makes from that tab.
     return [run_one_config $extract \
-        [dict create algorithm $algorithm nclusters $nclusters metric MSD kinit CompSim]]
+        [dict create algorithm $algorithm nclusters $nclusters metric MSD kinit StratAll]]
 }
 
 # gui - Main entry point called by VMD extension registration

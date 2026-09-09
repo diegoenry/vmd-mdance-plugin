@@ -31,7 +31,7 @@ namespace eval ::mdance::gui {
     variable sweep_metric
     array set sweep_metric {MSD 1 BUB 0 Fai 0 Gle 0 Ja 0 JT 0 RT 0 RR 0 SM 0 SS1 0 SS2 0}
     variable sweep_kinit
-    array set sweep_kinit {StratAll 0 StratReduced 0 CompSim 1 DivSelect 0 KmeansPP 0 Random 0 VanillaKmeansPP 0}
+    array set sweep_kinit {StratAll 1 StratReduced 0 CompSim 0 DivSelect 0 KmeansPP 0 Random 0 VanillaKmeansPP 0}
 }
 
 # --- Sweep Tab ---
