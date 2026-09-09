@@ -96,6 +96,20 @@ namespace eval ::mdance::gui {
     variable helm_pre_percentage 10
     variable helm_labels_file ""
 
+    # Backend combinations that CRASH rather than fail, and so must never be
+    # launched. CPP-MDANCE src/cluster/divine.cpp indexes its LOCAL subdata
+    # matrix with GLOBAL frame indices inside the refine block, so with
+    # anchor = OutlierPair or SplinterPair AND refine on it reads out of bounds
+    # and takes VMD down with it (see notes/mdance-divine-refine-bug.md; the
+    # NANI anchor uses the correct pattern and is unaffected).
+    #
+    # This table is the whole guard: delete an entry when the backend is fixed,
+    # and the guard for it disappears. The Sweep tab and the elbow scan cannot
+    # reach the combination -- run_one_config passes neither --anchors nor
+    # --refine, so the backend's own safe defaults apply -- so only the DIVINE
+    # tab needs checking.
+    variable divine_crash_anchors {OutlierPair SplinterPair}
+
     # Multi-frame overlay. overlay_rep is the index of the dedicated
     # representation the overlay owns, so it can be removed without touching any
     # representation the user made themselves.
@@ -395,6 +409,56 @@ proc ::mdance::gui::apply_metric_lock {} {
     if {!$metric_unlocked} { set sweep_metric(MSD) 1 }
 }
 
+# _citation_footer - Put a reference footer at the bottom of an algorithm tab.
+#
+# A read-only text widget rather than a label so the DOI can be selected and
+# copied, which is the whole point of showing a citation. Packed -side bottom so
+# it can never push the controls above it off a short window, -wrap word so long
+# citations reflow, and -font TkDefaultFont so it follows the app font-size
+# setting (apply_app_font reconfigures that named font).
+#
+# The references shown are ONLY those the MDANCE authors supplied. The backend
+# repo's own docs are not usable as a source here: docs/reference/publications.md
+# and docs/algorithms/kmeans-nani.md cite one title/DOI while
+# docs/concepts/clustering-overview.md cites a different title and DOI for the
+# same authors, volume and pages, so at least one is wrong. Tabs with no
+# supplied reference say so rather than showing a guess.
+proc ::mdance::gui::_citation_footer {parent refs} {
+    ttk::labelframe $parent.cite -text "Reference" -padding {8 4}
+    pack $parent.cite -side bottom -fill x -padx 10 -pady {0 8}
+
+    set body [join $refs "\n\n"]
+    # Height in display lines: enough for each reference to wrap over a few
+    # lines without leaving a large empty gap. Nothing depends on it being
+    # exact; the widget simply must not consume the tab.
+    set h [expr {2 * [llength $refs] + 1}]
+    text $parent.cite.t -height $h -wrap word -relief flat -padx 2 -pady 2 \
+        -font TkDefaultFont -cursor "" -takefocus 0 \
+        -background [ttk::style lookup TFrame -background]
+    $parent.cite.t insert end $body
+    # Disable AFTER inserting: a disabled text widget rejects inserts, but still
+    # allows the mouse selection that makes the DOI copyable.
+    $parent.cite.t configure -state disabled
+    pack $parent.cite.t -fill x
+    return $parent.cite
+}
+
+# Citations, exactly as supplied by the MDANCE authors.
+proc ::mdance::gui::_refs_nani {} {
+    return [list \
+        "Chen, L.; Roe, D. R.; Kochert, M.; Simmerling, C.; Miranda-Quintana, R. A. K-Means NANI: An Improved Clustering Algorithm for Molecular Dynamics Simulations. J. Chem. Theory Comput. 2024, 20 (13), 5583-5597. https://doi.org/10.1021/acs.jctc.4c00308" \
+        "Santos, J. B. W.; Chen, L.; Miranda-Quintana, R. A. Scaling k-Means for Multi-Million Frames: A Stratified NANI Approach for Large-Scale MD Simulations. J. Chem. Inf. Model. 2026, acs.jcim.5c02741. https://doi.org/10.1021/acs.jcim.5c02741"]
+}
+proc ::mdance::gui::_refs_helm {} {
+    return [list \
+        "Chen, L.; Santos, Jherome Brylle Woody; Gaza, J.; Perez, A.; Miranda-Quintana, R. A. Hierarchical Extended Linkage Method (HELM)'s Deep Dive into Hybrid Clustering Strategies. J. Chem. Inf. Model. 2025, 65 (12), 6209-6220. https://doi.org/10.1021/acs.jcim.5c00539"]
+}
+# For algorithms with no reference on file. Naming the absence beats printing a
+# citation nobody verified.
+proc ::mdance::gui::_refs_none {what} {
+    return [list "No $what reference is recorded in this build. MDANCE project: https://github.com/mqcomplab/MDANCE"]
+}
+
 # _chknum - validate a numeric entry value at submit time. kind is "double" or
 # "int"; min (optional) is an inclusive lower bound. Shows an actionable message
 # and returns 0 on failure. Besides catching typos/blank fields, this keeps any
@@ -666,6 +730,8 @@ proc ::mdance::gui::build_kmeans_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run KMeans" -command ::mdance::gui::run_kmeans
     pack $parent.run.btn -side left
+
+    _citation_footer $parent [_refs_nani]
 }
 
 proc ::mdance::gui::run_kmeans {} {
@@ -750,6 +816,22 @@ proc ::mdance::gui::build_divine_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run DIVINE" -command ::mdance::gui::run_divine
     pack $parent.run.btn -side left
+
+    _citation_footer $parent [_refs_none "DIVINE"]
+}
+
+# _divine_combo_ok - Refuse a DIVINE configuration that would crash the backend
+# instead of failing it. Returns 1 when the run may proceed.
+#
+# Refusing rather than silently forcing refine off is deliberate: refinement
+# changes the clustering, so quietly turning it off would hand the user
+# different results than the ones they configured, with nothing to say so.
+proc ::mdance::gui::_divine_combo_ok {anchors refine} {
+    variable divine_crash_anchors
+    if {!$refine || [lsearch -exact $divine_crash_anchors $anchors] < 0} { return 1 }
+    tk_messageBox -icon error -title "MDANCE" -message \
+        "The $anchors anchor combined with Refine crashes the MDANCE backend (an out-of-bounds read that would take VMD down with it), so this run has been stopped.\n\nEither turn Refine off to use $anchors, or keep Refine on and choose the NANI anchor, which is unaffected."
+    return 0
 }
 
 proc ::mdance::gui::run_divine {} {
@@ -768,6 +850,7 @@ proc ::mdance::gui::run_divine {} {
     if {![_chknum $div_nclusters "Number of clusters" int 2]} return
     if {![_chknum $div_percentage "Sampling %" int 1]} return
     if {![_chknum $div_threshold "DIVINE threshold" double 0]} return
+    if {![_divine_combo_ok $div_anchors $div_refine]} return
 
     set molid $mol_selection
     if {$molid eq "top"} {
@@ -919,6 +1002,8 @@ proc ::mdance::gui::build_helm_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run HELM" -command ::mdance::gui::run_helm
     pack $parent.run.btn -side left
+
+    _citation_footer $parent [_refs_helm]
 
     # Put the dependent controls into the right state for the initial values.
     _helm_trim_sync
@@ -1110,6 +1195,8 @@ proc ::mdance::gui::build_equal_tab {parent} {
     pack $parent.run -fill x -padx 10
     ttk::button $parent.run.btn -text "Run eQUAL" -command ::mdance::gui::run_equal
     pack $parent.run.btn -side left
+
+    _citation_footer $parent [_refs_none "eQUAL"]
 }
 
 proc ::mdance::gui::run_equal {} {
@@ -1743,6 +1830,7 @@ proc ::mdance::gui::build_prime_tab {parent} {
     ttk::button $parent.res.goto -text "Go to Selected Frame" \
         -command ::mdance::gui::goto_prime_frame
     pack $parent.res.goto -side left -pady {6 0}
+    _citation_footer $parent [_refs_none "PRIME"]
 }
 
 proc ::mdance::gui::run_prime_analysis {} {

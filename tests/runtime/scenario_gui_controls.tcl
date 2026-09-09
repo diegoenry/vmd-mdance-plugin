@@ -275,4 +275,86 @@ th::test "pre-cluster controls grey out when labels come from a file" {
         "the init combobox must go back to readonly, not editable"
 }
 
+# ------------------------------------------------------------------
+th::section "Each algorithm tab carries a citation footer"
+# ------------------------------------------------------------------
+th::test "every algorithm tab has one, anchored at the bottom" {
+    foreach tab {kmeans divine helm equal prime} {
+        set f .mdance.nb.$tab.cite
+        th::true [winfo exists $f] "$tab must have a citation footer"
+        th::eq "bottom" [dict get [pack info $f] -side] \
+            "packed -side bottom so it cannot push the controls off"
+    }
+}
+th::test "the NANI tab carries both supplied NANI references" {
+    set t [.mdance.nb.kmeans.cite.t get 1.0 end]
+    th::match "*K-Means NANI*" $t
+    th::match "*10.1021/acs.jctc.4c00308*" $t
+    th::match "*Stratified NANI*" $t
+    th::match "*10.1021/acs.jcim.5c02741*" $t
+}
+th::test "the HELM tab carries the supplied HELM reference" {
+    set t [.mdance.nb.helm.cite.t get 1.0 end]
+    th::match "*Hierarchical Extended Linkage Method*" $t
+    th::match "*10.1021/acs.jcim.5c00539*" $t
+}
+th::test "tabs with no reference on file say so, and cite nothing" {
+    # The backend repo's docs contradict themselves on the primary reference
+    # (two different titles and DOIs for the same authors/volume/pages), so no
+    # citation is invented for these.
+    foreach tab {divine equal prime} {
+        set t [.mdance.nb.$tab.cite.t get 1.0 end]
+        th::match "*No * reference is recorded*" $t
+        th::false [string match "*10.1021*" $t] "$tab must not show a DOI"
+    }
+}
+th::test "the footer text is read-only but selectable (so a DOI can be copied)" {
+    th::eq "disabled" [.mdance.nb.kmeans.cite.t cget -state]
+    # A disabled text widget ignores an insert SILENTLY rather than raising, so
+    # assert the content is untouched rather than expecting an error.
+    set before [.mdance.nb.kmeans.cite.t get 1.0 end]
+    catch {.mdance.nb.kmeans.cite.t insert end "tampered"}
+    th::eq $before [.mdance.nb.kmeans.cite.t get 1.0 end]
+    th::eq "TkDefaultFont" [.mdance.nb.kmeans.cite.t cget -font] \
+        "must follow the app font-size setting"
+}
+
+# ------------------------------------------------------------------
+th::section "DIVINE configurations that crash the backend are refused"
+# ------------------------------------------------------------------
+# CPP-MDANCE divine.cpp indexes a local matrix with global indices in its
+# refine block, so OutlierPair/SplinterPair + refine reads out of bounds and
+# takes VMD down. This guard is the plugin's side of that.
+th::test "the crashing anchors are refused while Refine is on" {
+    foreach a {OutlierPair SplinterPair} {
+        th::false [::mdance::gui::_divine_combo_ok $a 1] "$a + refine must be refused"
+    }
+}
+th::test "the same anchors are allowed with Refine off" {
+    foreach a {OutlierPair SplinterPair} {
+        th::true [::mdance::gui::_divine_combo_ok $a 0]
+    }
+}
+th::test "the NANI anchor is unaffected either way" {
+    th::true [::mdance::gui::_divine_combo_ok NANI 1]
+    th::true [::mdance::gui::_divine_combo_ok NANI 0]
+}
+th::test "run_divine stops before reaching the backend" {
+    set ::CAPTURED ""
+    set ::mdance::gui::div_anchors "OutlierPair"
+    set ::mdance::gui::div_refine 1
+    ::mdance::gui::run_divine
+    th::eq "" $::CAPTURED "no run may be launched"
+    set ::mdance::gui::div_refine 0
+    ::mdance::gui::run_divine
+    th::ne "" $::CAPTURED "with refine off the run proceeds"
+    set ::mdance::gui::div_anchors "NANI"
+    set ::mdance::gui::div_refine 1
+}
+th::test "the GUI default combination is a safe one" {
+    th::eq "NANI" $::mdance::gui::div_anchors
+    th::true [::mdance::gui::_divine_combo_ok \
+        $::mdance::gui::div_anchors $::mdance::gui::div_refine]
+}
+
 exit [th::done "runtime:gui_controls"]
