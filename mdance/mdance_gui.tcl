@@ -110,9 +110,15 @@ namespace eval ::mdance::gui {
     # tab needs checking.
     variable divine_crash_anchors {OutlierPair SplinterPair}
 
-    # Multi-frame overlay. overlay_rep is the index of the dedicated
-    # representation the overlay owns, so it can be removed without touching any
-    # representation the user made themselves.
+    # Multi-frame overlay. overlay_rep holds the dedicated representation's
+    # REPNAME, not its index.
+    #
+    # VMD renumbers representations when one is deleted, so a remembered index
+    # goes stale silently. Proven: with the overlay at index 2 and a user
+    # representation at 3, deleting the user's rep 0 shifts the overlay to 1 and
+    # the user's to 2 -- so "Clear Overlay" deleted the USER's representation and
+    # left the overlay stranded on screen with no way to remove it. A repname is
+    # stable, and mol repindex resolves it to the current index on demand.
     variable overlay_m 10
     variable overlay_rep ""
     variable overlay_molid ""
@@ -1578,11 +1584,13 @@ proc ::mdance::gui::_overlay_show {molid frames what} {
     clear_overlay 1
     if {[catch {
         mol addrep $molid
-        set overlay_rep [expr {[molinfo $molid get numreps] - 1}]
+        set idx [expr {[molinfo $molid get numreps] - 1}]
+        # Remember it by NAME, not by index (see the overlay_rep comment).
+        set overlay_rep [mol repname $molid $idx]
         set overlay_molid $molid
-        mol modstyle $overlay_rep $molid NewCartoon
-        mol modcolor $overlay_rep $molid ColorID 6
-        mol drawframes $molid $overlay_rep [join $frames ","]
+        mol modstyle $idx $molid NewCartoon
+        mol modcolor $idx $molid ColorID 6
+        mol drawframes $molid $idx [join $frames ","]
     } err]} {
         # Never leave a half-built overlay behind that Clear cannot find.
         clear_overlay 1
@@ -1591,6 +1599,21 @@ proc ::mdance::gui::_overlay_show {molid frames what} {
         return
     }
     set ::mdance::status "Overlay: $what ([llength $frames] frames)"
+}
+
+# overlay_index - The overlay representation's CURRENT index, or "" when it no
+# longer exists. Always resolved from the repname; never remembered, because
+# VMD renumbers representations on every deletion.
+proc ::mdance::gui::overlay_index {} {
+    variable overlay_rep
+    variable overlay_molid
+    if {$overlay_rep eq "" || $overlay_molid eq ""} { return "" }
+    if {[lsearch -exact [molinfo list] $overlay_molid] < 0} { return "" }
+    set idx ""
+    # mol repindex returns -1 for a name that is gone; older VMD builds raise.
+    if {[catch {mol repindex $overlay_molid $overlay_rep} idx]} { return "" }
+    if {![string is integer -strict $idx] || $idx < 0} { return "" }
+    return $idx
 }
 
 # clear_overlay - Remove the overlay's own representation, if it still exists.
@@ -1603,9 +1626,13 @@ proc ::mdance::gui::clear_overlay {{quiet 0}} {
         }
         return
     }
-    # Guarded: the molecule may have been unloaded, or the user may have deleted
-    # representations themselves, in which case this index no longer exists.
-    catch {mol delrep $overlay_rep $overlay_molid}
+    # Resolve the name to an index HERE. Deleting a remembered index would remove
+    # whichever representation had since been renumbered into that slot -- one of
+    # the user's own.
+    set idx [overlay_index]
+    if {$idx ne ""} {
+        catch {mol delrep $idx $overlay_molid}
+    }
     set overlay_rep ""
     set overlay_molid ""
     if {!$quiet} { set ::mdance::status "Overlay cleared." }

@@ -167,12 +167,50 @@ th::test "showing an overlay adds one rep and draws the ranked frames" {
     th::eq [expr {$before + 1}] [molinfo $mol get numreps]
     th::ne "" $::mdance::gui::overlay_rep
     set want [join [::mdance::top_frames $::mdance::results 0 4] ","]
-    th::eq $want [mol drawframes $mol $::mdance::gui::overlay_rep]
+    th::eq $want [mol drawframes $mol [::mdance::gui::overlay_index]]
+}
+th::test "the overlay is tracked by repname, so renumbering cannot misdirect it" {
+    # VMD renumbers representations when one is deleted. With the overlay at
+    # index 2 and a user rep at 3, deleting the user's rep 0 shifts the overlay
+    # to 1 and the user's to 2 -- so a remembered index made "Clear Overlay"
+    # delete the USER's representation and strand the overlay on screen.
+    ::mdance::gui::clear_overlay 1
+    while {[molinfo $mol get numreps] > 1} { mol delrep 1 $mol }
+    mol addrep $mol                                   ;# user rep 1
+    $TV selection set 0
+    set ::mdance::gui::overlay_m 3
+    ::mdance::gui::show_cluster_overlay                ;# overlay lands at 2
+    th::eq 2 [::mdance::gui::overlay_index] "fixture check: overlay at index 2"
+    mol addrep $mol                                   ;# user rep 3, after it
+    set user_after [mol repname $mol 3]
+    mol delrep 0 $mol                                 ;# user deletes their rep 0
+    th::eq 1 [::mdance::gui::overlay_index] "the overlay is now at 1, not 2"
+    set before [molinfo $mol get numreps]
+    ::mdance::gui::clear_overlay 1
+    th::eq [expr {$before - 1}] [molinfo $mol get numreps] "exactly one rep removed"
+    # The user's later representation must have survived.
+    set survivors {}
+    for {set r 0} {$r < [molinfo $mol get numreps]} {incr r} {
+        lappend survivors [mol repname $mol $r]
+    }
+    th::true [expr {[lsearch -exact $survivors $user_after] >= 0}] \
+        "the user's own representation must NOT be the one deleted"
+}
+th::test "overlay_index reports empty once the molecule is gone" {
+    set saved $::mdance::gui::overlay_molid
+    set ::mdance::gui::overlay_rep "rep0"
+    set ::mdance::gui::overlay_molid 987
+    th::eq "" [::mdance::gui::overlay_index]
+    th::ok { ::mdance::gui::clear_overlay 1 }
+    set ::mdance::gui::overlay_molid $saved
 }
 th::test "showing a second overlay replaces the first rather than stacking" {
+    ::mdance::gui::clear_overlay 1
+    $TV selection set 0
+    ::mdance::gui::show_cluster_overlay          ;# first overlay
     set before [molinfo $mol get numreps]
     $TV selection set 1
-    ::mdance::gui::show_cluster_overlay
+    ::mdance::gui::show_cluster_overlay          ;# second replaces it
     th::eq $before [molinfo $mol get numreps] "no rep leak per click"
 }
 th::test "clearing removes the overlay's rep and leaves the user's alone" {
@@ -189,13 +227,14 @@ th::test "clearing twice is harmless" {
 th::test "a range overlay draws exactly the requested frames" {
     set ::mdance::gui::overlay_ranges "0-3,10"
     ::mdance::gui::show_range_overlay
-    th::eq "0,1,2,3,10" [mol drawframes $mol $::mdance::gui::overlay_rep]
+    th::eq "0,1,2,3,10" [mol drawframes $mol [::mdance::gui::overlay_index]]
     ::mdance::gui::clear_overlay 1
 }
 th::test "a malformed range is reported and draws nothing" {
+    ::mdance::gui::clear_overlay 1
     set ::mdance::gui::overlay_ranges "nonsense"
     ::mdance::gui::show_range_overlay
-    th::eq "" $::mdance::gui::overlay_rep
+    th::eq "" $::mdance::gui::overlay_rep "no overlay may be created"
 }
 
 # ------------------------------------------------------------------
