@@ -56,6 +56,20 @@ run_unit() {
 # A display is therefore still required to run the runtime scenarios: they drive
 # real Tk widgets. Any X display will do -- a desktop session, or a nested one
 # such as `Xephyr :9 -screen 1600x1200x24 -ac` with DISPLAY=:9.
+# An empty startup script, passed as `vmd -startup`, so ~/.vmdrc is NOT read.
+#
+# This matters more than it looks. install.sh appends a block to ~/.vmdrc that
+# puts an INSTALLED copy of this plugin on auto_path; VMD then loads that copy,
+# and _setup.tcl sources the repo copy on top of it. Redefined procs come from
+# the repo, but a proc DELETED in the repo still resolves to the installed one --
+# so the suite quietly tests a mixture of the working tree and whatever was last
+# installed, and a test asserting that something is gone passes or fails
+# depending on a directory outside the repo. Caught when a test for a removed
+# proc found it still defined.
+EMPTY_RC="$(mktemp)"
+: > "$EMPTY_RC"
+trap 'rm -f "$EMPTY_RC"' EXIT
+
 run_vmd() {
     local script="$1" name vmdlog resfile rc
     name="$(basename "$script")"
@@ -64,11 +78,11 @@ run_vmd() {
     echo ">>> $name"
     if command -v timeout >/dev/null 2>&1; then
         MDANCE_TEST_OUT="$resfile" VMDDISPLAYDEVICE=text timeout "$VMD_TIMEOUT" \
-            "$VMD" -eofexit -e "$script" >"$vmdlog" 2>&1
+            "$VMD" -startup "$EMPTY_RC" -eofexit -e "$script" >"$vmdlog" 2>&1
         rc=$?
     else
         MDANCE_TEST_OUT="$resfile" VMDDISPLAYDEVICE=text \
-            "$VMD" -eofexit -e "$script" >"$vmdlog" 2>&1
+            "$VMD" -startup "$EMPTY_RC" -eofexit -e "$script" >"$vmdlog" 2>&1
         rc=$?
     fi
     cat "$resfile"
