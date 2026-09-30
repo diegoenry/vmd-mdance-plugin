@@ -483,4 +483,89 @@ th::test "re-detecting with the dialog open updates it in place" {
     destroy .mdance_settings
 }
 
+# ------------------------------------------------------------------
+th::section "The chooser offers only algorithms the backend was built with"
+# ------------------------------------------------------------------
+# CPP-MDANCE main ships without DIVINE (it is compiled in only when
+# src/cluster/divine.cpp is present), so offering it and letting the run fail is
+# worse than not offering it.
+proc _algo_values {} { return [.mdance.nb.setup.algo.cb cget -values] }
+
+th::test "the probe reads the backend's own usage line" {
+    ::mdance::reset_backend_algorithms
+    th::true [expr {"divine" in [::mdance::backend_algorithms]}] \
+        "the fake backend advertises divine by default"
+    set ::env(MDANCE_FAKE_NO_DIVINE) 1
+    ::mdance::reset_backend_algorithms
+    th::false [expr {"divine" in [::mdance::backend_algorithms]}] \
+        "and reports its absence when built without it"
+    unset ::env(MDANCE_FAKE_NO_DIVINE)
+    ::mdance::reset_backend_algorithms
+}
+th::test "the answer is cached until a re-detect" {
+    ::mdance::reset_backend_algorithms
+    set first [::mdance::backend_algorithms]
+    set ::env(MDANCE_FAKE_NO_DIVINE) 1
+    th::eq $first [::mdance::backend_algorithms] "no re-probe without a reset"
+    unset ::env(MDANCE_FAKE_NO_DIVINE)
+    ::mdance::reset_backend_algorithms
+}
+th::test "with divine available the chooser lists all four" {
+    ::mdance::gui::apply_backend_capabilities
+    th::eq 4 [llength [_algo_values]]
+    th::true [expr {"DIVINE" in [_algo_values]}]
+    th::false [winfo exists .mdance.nb.setup.algo.unavail] "and says nothing"
+}
+th::test "without it DIVINE is dropped, and the reason is shown" {
+    set ::env(MDANCE_FAKE_NO_DIVINE) 1
+    ::mdance::reset_backend_algorithms
+    ::mdance::gui::apply_backend_capabilities
+    th::eq 3 [llength [_algo_values]]
+    th::false [expr {"DIVINE" in [_algo_values]}] "DIVINE must not be offered"
+    th::true [winfo exists .mdance.nb.setup.algo.unavail] "a reason must be shown"
+    th::match "*DIVINE*not available*" [.mdance.nb.setup.algo.unavail cget -text]
+    th::match "*BUILD_DIVINE*" [.mdance.nb.setup.algo.unavail cget -text] \
+        "and it must say how to get it back"
+}
+th::test "a selected DIVINE falls back rather than stranding the user" {
+    # Reachable by re-detecting onto a different binary, or loading a session
+    # from a machine that had DIVINE.
+    ::mdance::gui::select_algorithm divine
+    th::eq "divine" $::mdance::gui::algo_current "fixture check"
+    ::mdance::gui::apply_backend_capabilities
+    th::ne "divine" $::mdance::gui::algo_current "must not stay on a dead panel"
+    th::true [expr {$::mdance::gui::algo_current in [::mdance::backend_algorithms]}]
+}
+th::test "restoring the backend restores the chooser and clears the note" {
+    unset ::env(MDANCE_FAKE_NO_DIVINE)
+    ::mdance::reset_backend_algorithms
+    ::mdance::gui::apply_backend_capabilities
+    th::eq 4 [llength [_algo_values]]
+    th::false [winfo exists .mdance.nb.setup.algo.unavail] "the note must go away"
+}
+th::test "the chooser maps by label, not by position" {
+    # A filtered list breaks an index-into-algo_labels lookup: with DIVINE hidden,
+    # position 1 is HELM but the full key order says divine.
+    set ::env(MDANCE_FAKE_NO_DIVINE) 1
+    ::mdance::reset_backend_algorithms
+    ::mdance::gui::apply_backend_capabilities
+    .mdance.nb.setup.algo.cb set "HELM"
+    ::mdance::gui::on_algo_selected
+    th::eq "helm" $::mdance::gui::algo_current "selecting HELM must give helm"
+    unset ::env(MDANCE_FAKE_NO_DIVINE)
+    ::mdance::reset_backend_algorithms
+    ::mdance::gui::apply_backend_capabilities
+}
+th::test "an unrecognised probe answer leaves everything offered" {
+    # Failing optimistically: hiding a working feature because a probe misbehaved
+    # is worse than offering one the backend then refuses.
+    set saved $::mdance::cli_path
+    set ::mdance::cli_path /nonexistent/mdance-cli
+    ::mdance::reset_backend_algorithms
+    th::true [expr {"divine" in [::mdance::backend_algorithms]}]
+    set ::mdance::cli_path $saved
+    ::mdance::reset_backend_algorithms
+    ::mdance::gui::apply_backend_capabilities
+}
+
 exit [th::done "runtime:gui_controls"]

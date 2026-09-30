@@ -187,6 +187,17 @@ def write(path, obj):
 def main():
     args, flags = parse_args(sys.argv[1:])
 
+    # Run with no arguments the real CLI prints its usage to stderr and exits 1,
+    # and that usage line names exactly the algorithms it was compiled with.
+    # ::mdance::backend_algorithms reads it to decide what the GUI may offer, so
+    # the fake has to answer the same question. MDANCE_FAKE_NO_DIVINE simulates a
+    # backend built without BUILD_DIVINE, which is what CPP-MDANCE main ships.
+    if not sys.argv[1:]:
+        divine = "" if os.environ.get("MDANCE_FAKE_NO_DIVINE") else "divine|"
+        print("Usage: fake_mdance_cli --algorithm {kmeans|%shelm|equal}" % divine,
+              file=sys.stderr)
+        return 1
+
     if os.environ.get("MDANCE_FAKE_IGNORE_TERM"):
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
