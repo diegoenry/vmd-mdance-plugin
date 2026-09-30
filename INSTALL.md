@@ -100,7 +100,7 @@ Verify the plugin itself, which needs no backend:
 ./tests/run_tests.sh
 ```
 
-Expect **363 checks, all passing**, across 20 suites. The runtime suites drive a real
+Expect **371 checks, all passing**, across 20 suites. The runtime suites drive a real
 headless VMD, so this also confirms VMD is usable from your shell.
 
 ## 4. Launch it
@@ -148,7 +148,7 @@ extension into the signed VMD app bundle. CLI mode is the tested path.
 | `validate_equal_prime` missing from ctest | numpy was not importable when you configured. Activate the venv and re-configure. |
 | `validate_equal_prime` **fails** rather than being absent | The `mdance-cli` under test is stale. Rebuild. |
 | `TestHelm.ZMatrix` fails | An older checkout — the gtests used to resolve their data relative to the build directory. `git pull` and re-configure. |
-| `Algorithm 'divine' is not available in this build` | Expected. DIVINE is not on CPP-MDANCE `main`; it lives on a separate branch and is compiled in only when present. |
+| DIVINE missing from the algorithm chooser | Expected against CPP-MDANCE `main`, which is built without it. The plugin probes the backend and offers only what it can run; the note under the chooser says so. To get it, build a tree that has `src/cluster/divine.cpp` with `-DBUILD_DIVINE=ON`. |
 | DIVINE refuses to run with `OutlierPair`/`SplinterPair` + Refine | Deliberate. That combination triggers an out-of-bounds read in the backend that takes VMD down with it; the plugin blocks it. Use the `NANI` anchor, or turn Refine off. |
 | VMD starts but the menu entry is missing | `~/.vmdrc` was not re-read, or `auto_path` points at the wrong level. It must contain the directory *containing* `mdance1.0`, not `mdance1.0` itself. |
 

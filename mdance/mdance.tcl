@@ -16,6 +16,8 @@ namespace eval ::mdance {
     variable status "Ready"
     variable running 0
     variable use_library 0
+    # Cached result of backend_algorithms; "" means not probed yet.
+    variable backend_algos ""
 
     # Async CLI run state (for cancellable, progress-streaming runs)
     variable cancel_requested 0
@@ -615,6 +617,59 @@ proc ::mdance::parse_frame_ranges {spec molid} {
         error "No frames selected. Enter something like 0-100,500,900-1000."
     }
     return [lsort -integer [array names seen]]
+}
+
+# backend_algorithms - Which clustering algorithms this backend was actually
+# built with. Cached for the session; call reset_backend_algorithms after a
+# re-detect.
+#
+# DIVINE is the one that varies. It is absent from CPP-MDANCE main, where
+# src/cluster/divine.cpp lives on a separate branch and BUILD_DIVINE compiles it
+# in only when present -- so a stock upstream build has no DIVINE, and offering
+# it in the GUI only to have the backend refuse the run is a worse experience
+# than not offering it.
+#
+# No new backend flag is needed to ask. The CLI's usage line is conditional on
+# how it was compiled:
+#     --algorithm {kmeans|divine|helm|equal}      built with DIVINE
+#     --algorithm {kmeans|helm|equal}             built without
+# and running it with no arguments prints exactly that and exits non-zero. In
+# library mode the question is even more direct: each algorithm is a Tcl command
+# the extension registered, so its presence is observable.
+#
+# Fails OPTIMISTICALLY. If the probe errors, or prints something this does not
+# recognise, the answer is "everything is available" -- hiding a working feature
+# because a probe misbehaved is worse than showing one the backend then refuses.
+proc ::mdance::backend_algorithms {} {
+    variable backend_algos
+    variable use_library
+    if {[info exists backend_algos] && $backend_algos ne ""} {
+        return $backend_algos
+    }
+
+    set has_divine 1
+    if {$use_library} {
+        set has_divine [expr {[llength [info commands ::mdance::divine]] > 0}]
+    } elseif {![catch {_need_cli} cli]} {
+        # Merge stderr: printUsage writes there. A non-zero exit is expected.
+        catch {exec $cli 2>@1} out
+        # The "--" is load-bearing: without it regexp reads the pattern's
+        # leading "--algorithm" as an option and errors out.
+        if {[regexp -- {--algorithm \{([^\}]*)\}} $out -> spec]} {
+            set has_divine [expr {"divine" in [split $spec "|"]}]
+        }
+    }
+
+    set backend_algos {kmeans helm equal}
+    if {$has_divine} { lappend backend_algos divine }
+    return $backend_algos
+}
+
+# reset_backend_algorithms - Forget the cached probe, so a re-detect or a
+# backend path change asks again.
+proc ::mdance::reset_backend_algorithms {} {
+    variable backend_algos
+    set backend_algos ""
 }
 
 # _need_cli - Guarantee a usable CLI path, or fail with a message that says what

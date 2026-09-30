@@ -107,7 +107,7 @@ export MDANCE_CLI="$PWD/build/cli/mdance-cli"
 # 2. install the plugin
 cd .. && git clone https://github.com/diegoenry/vmd-mdance-plugin.git
 cd vmd-mdance-plugin
-./tests/run_tests.sh                                 # expect 363 checks passing
+./tests/run_tests.sh                                 # expect 371 checks passing
 ./install.sh
 ```
 

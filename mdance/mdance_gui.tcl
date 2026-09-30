@@ -483,6 +483,10 @@ proc ::mdance::gui::create_window {} {
 
     set algo_current "kmeans"
     select_algorithm kmeans
+    # Now that the chooser exists, hide anything this backend cannot run. The
+    # detect_backend call during build ran before this point, so its own call was
+    # a no-op.
+    apply_backend_capabilities
 
     # Every explanatory note in the plugin carries a hard -wraplength sized for
     # the old full-window tab (460, 450, 430...). In a 390 px column those run
@@ -562,9 +566,59 @@ proc ::mdance::gui::on_algo_selected {} {
     variable algo_labels
     variable algo_host
     set cb $algo_host.algo.cb
-    set idx [$cb current]
-    if {$idx < 0} return
-    select_algorithm [lindex [dict keys $algo_labels] $idx]
+    # Map by LABEL, not by index. The chooser no longer always lists every
+    # algorithm -- apply_backend_capabilities drops the ones this backend was not
+    # built with -- so an index into algo_labels' full key order would select the
+    # wrong algorithm the moment anything is hidden.
+    set label [$cb get]
+    dict for {key text} $algo_labels {
+        if {$text eq $label} { select_algorithm $key; return }
+    }
+}
+
+# apply_backend_capabilities - Offer only the algorithms this backend actually
+# has, and say so when something is missing.
+#
+# A stock CPP-MDANCE main build has no DIVINE (see ::mdance::backend_algorithms).
+# Listing it anyway means the user configures a run, presses Run, and gets a
+# backend error -- so it is dropped from the chooser instead, with a line saying
+# why so its absence does not look like a bug in the plugin.
+proc ::mdance::gui::apply_backend_capabilities {} {
+    variable algo_labels
+    variable algo_host
+    variable algo_current
+    if {$algo_host eq "" || ![winfo exists $algo_host.algo.cb]} return
+
+    set available [::mdance::backend_algorithms]
+    set labels {}
+    set missing {}
+    dict for {key text} $algo_labels {
+        if {$key in $available} { lappend labels $text } else { lappend missing $text }
+    }
+    # Never empty the chooser: if the probe somehow excluded everything, leave the
+    # full list rather than presenting a control that cannot be used.
+    if {[llength $labels] == 0} return
+    $algo_host.algo.cb configure -values $labels
+
+    # If the selected algorithm just became unavailable -- a re-detect pointing at
+    # a different binary, or a session loaded from a machine that had it -- fall
+    # back rather than leaving a panel whose Run button cannot work.
+    if {$algo_current ni $available} {
+        select_algorithm [lindex $available 0]
+    }
+
+    set note $algo_host.algo.unavail
+    if {[llength $missing] == 0} {
+        catch {destroy $note}
+    } else {
+        if {![winfo exists $note]} {
+            ttk::label $note -justify left -foreground "#a05000"
+            pack $note -fill x -pady {4 0}
+        }
+        $note configure -text "[join $missing {, }] not available: this MDANCE\
+backend was built without it. Rebuild CPP-MDANCE with BUILD_DIVINE=ON on a tree\
+that has src/cluster/divine.cpp." -wraplength 280
+    }
 }
 
 # _fit_wraplengths - clamp any -wraplength wider than the column it now lives
@@ -1534,7 +1588,19 @@ proc ::mdance::gui::on_frame_range_var {args} {
 # refreshes that dialog if it happens to be open. It is called once at window
 # creation -- before any dialog exists -- because it is also what decides
 # use_library and cli_path for every run in the session.
+# detect_backend - locate the backend, then re-offer only the algorithms it was
+# built with. Wrapping the detection proper is what makes this reliable: the
+# probe below has several early returns (library found, CLI found, nothing
+# found), and hooking any one of them would miss the others.
 proc ::mdance::gui::detect_backend {} {
+    _detect_backend_probe
+    # The backend may have changed identity, so the cached capability answer is
+    # no longer trustworthy.
+    ::mdance::reset_backend_algorithms
+    apply_backend_capabilities
+}
+
+proc ::mdance::gui::_detect_backend_probe {} {
     variable cli_display_path
     variable backend_mode
     variable backend_mode_color
