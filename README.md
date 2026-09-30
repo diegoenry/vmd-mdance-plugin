@@ -98,16 +98,16 @@ native-library mode.
 
 ```bash
 # 1. build the backend (separate repository -- the plugin will not run without it)
-git clone -b feat-vmd-backend https://github.com/diegoenry/CPP-MDANCE.git
+git clone https://github.com/mqcomplab/CPP-MDANCE.git
 cd CPP-MDANCE
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ctest --test-dir build --output-on-failure          # expect 2/2 (or 1/1 without numpy)
 export MDANCE_CLI="$PWD/build/cli/mdance-cli"
 
 # 2. install the plugin
-cd .. && git clone -b feat-reviewer-feedback https://github.com/diegoenry/vmd-mdance-plugin.git
+cd .. && git clone https://github.com/diegoenry/vmd-mdance-plugin.git
 cd vmd-mdance-plugin
-./tests/run_tests.sh                                 # expect 334 checks passing
+./tests/run_tests.sh                                 # expect 363 checks passing
 ./install.sh
 ```
 

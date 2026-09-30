@@ -5,8 +5,8 @@ working install means two repositories:
 
 | | what it is | you need |
 |---|---|---|
-| [`CPP-MDANCE`](https://github.com/diegoenry/CPP-MDANCE) branch `feat-vmd-backend` | the C++ library and the `mdance-cli` binary | to build it |
-| [`vmd-mdance-plugin`](https://github.com/diegoenry/vmd-mdance-plugin) branch `feat-reviewer-feedback` | the Tcl/Tk plugin | to install it |
+| [`CPP-MDANCE`](https://github.com/mqcomplab/CPP-MDANCE) `main` | the C++ library and the `mdance-cli` binary | to build it |
+| [`vmd-mdance-plugin`](https://github.com/diegoenry/vmd-mdance-plugin) `main` | the Tcl/Tk plugin | to install it |
 
 The plugin will not run without a built backend. That is the single most common
 installation failure.
@@ -45,7 +45,7 @@ effect. If you skip this step everything still builds — you get one test inste
 ## 2. Build the backend
 
 ```bash
-git clone -b feat-vmd-backend https://github.com/diegoenry/CPP-MDANCE.git
+git clone https://github.com/mqcomplab/CPP-MDANCE.git
 cd CPP-MDANCE
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
@@ -81,7 +81,7 @@ Put that line in your shell profile to make it permanent. The Setup tab also has
 
 ```bash
 cd ..
-git clone -b feat-reviewer-feedback https://github.com/diegoenry/vmd-mdance-plugin.git
+git clone https://github.com/diegoenry/vmd-mdance-plugin.git
 cd vmd-mdance-plugin
 ./install.sh
 ```
@@ -100,7 +100,7 @@ Verify the plugin itself, which needs no backend:
 ./tests/run_tests.sh
 ```
 
-Expect **334 checks, all passing**, across 19 suites. The runtime suites drive a real
+Expect **363 checks, all passing**, across 20 suites. The runtime suites drive a real
 headless VMD, so this also confirms VMD is usable from your shell.
 
 ## 4. Launch it
@@ -112,7 +112,7 @@ package require mdance
 mdance::gui
 ```
 
-Check **Setup → MDANCE Backend**: it should report the mode and the resolved path. If it
+Check **Settings → MDANCE Backend**: it should report the mode and the resolved path. If it
 says the backend was not found, `MDANCE_CLI` is not set in the environment VMD inherited —
 a common surprise when VMD is launched from a desktop icon rather than the shell you
 exported it in.
@@ -142,13 +142,13 @@ extension into the signed VMD app bundle. CLI mode is the tested path.
 
 | Symptom | Cause |
 |---|---|
-| `No rule to make target 'mdance-cli'` | You are on a branch without the backend. Use `feat-vmd-backend`. |
+| `No rule to make target 'mdance-cli'` | An old checkout from before the backend merged upstream. `git pull` on `main`. |
 | `Could NOT find GTest` / `Could not find ... Eigen3` | An older checkout. `git pull`, delete `build/`, and re-configure — both are fetched automatically now. |
 | `Could not find mdance-cli binary` in the GUI | `MDANCE_CLI` is unset in VMD's environment, or points at a path that no longer exists. |
 | `validate_equal_prime` missing from ctest | numpy was not importable when you configured. Activate the venv and re-configure. |
 | `validate_equal_prime` **fails** rather than being absent | The `mdance-cli` under test is stale. Rebuild. |
 | `TestHelm.ZMatrix` fails | An older checkout — the gtests used to resolve their data relative to the build directory. `git pull` and re-configure. |
-| `Algorithm 'divine' is not available in this build` | Expected on `feat-vmd-backend`. DIVINE lives on a separate branch upstream and is compiled in only when present. |
+| `Algorithm 'divine' is not available in this build` | Expected. DIVINE is not on CPP-MDANCE `main`; it lives on a separate branch and is compiled in only when present. |
 | DIVINE refuses to run with `OutlierPair`/`SplinterPair` + Refine | Deliberate. That combination triggers an out-of-bounds read in the backend that takes VMD down with it; the plugin blocks it. Use the `NANI` anchor, or turn Refine off. |
 | VMD starts but the menu entry is missing | `~/.vmdrc` was not re-read, or `auto_path` points at the wrong level. It must contain the directory *containing* `mdance1.0`, not `mdance1.0` itself. |
 

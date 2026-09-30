@@ -23,11 +23,11 @@ plugin at a built backend in one of these ways:
    (or set them in `~/.vmdrc`). The Setup tab also has a **Browse...** button for the CLI.
 2. **Copy the built binaries into `mdance/`** — the plugin searches its own directory.
 
-Build the backend from the `feat-vmd-backend` branch of CPP-MDANCE, which is the branch
-that carries `cli/`, `capi/` and `tcl/`:
+Build the backend from CPP-MDANCE `main`, which carries `cli/`, `capi/` and `tcl/` since
+PRs #49-#51 merged upstream:
 
 ```sh
-git clone -b feat-vmd-backend https://github.com/diegoenry/CPP-MDANCE.git
+git clone https://github.com/mqcomplab/CPP-MDANCE.git
 cd CPP-MDANCE
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release      # BUILD_CLI is ON by default
 cmake --build build -j
