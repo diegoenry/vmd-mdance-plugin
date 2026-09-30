@@ -351,35 +351,46 @@ th::test "opening a plot no longer shrinks anything to make room" {
 # ------------------------------------------------------------------
 th::section "Closing a plot from the X on its tab"
 # ------------------------------------------------------------------
-# _close_x finds a point inside a tab's close element the way a user's pointer
-# would: ask the notebook what is under each x along the tab strip.
-proc _close_x {nb want_tab} {
+# _close_xy finds a point inside a tab's close element the way a user's pointer
+# would: ask the notebook what is under each point along the tab strip.
+#
+# BOTH coordinates are searched. Where the X sits inside a tab depends on the
+# theme's tab padding and font metrics, so a hardcoded y passes on the machine
+# it was written on and silently misses elsewhere. This was pinned at y=12,
+# which on macOS with Tk 8.6.16 lands on the label row -- mdanceclose first
+# appears at y=14 there, so the scan returned "no X" for a close button that
+# works perfectly.
+#
+# Returns {x y}, or {} when that tab has no close element.
+proc _close_xy {nb want_tab} {
     # Nothing on an unselected view is mapped, and `identify` on an unmapped
     # notebook reports nothing at all -- so bring Figures to the front and let
     # it lay out before asking where anything is.
     ::mdance::gui::show_view figures
     update idletasks
-    for {set x 2} {$x < 900} {incr x 2} {
-        if {[catch {$nb identify element $x 12} el]} continue
-        if {$el ne "mdanceclose"} continue
-        if {[catch {$nb identify tab $x 12} idx] || $idx ne $want_tab} continue
-        return $x
+    for {set y 4} {$y < 40} {incr y 2} {
+        for {set x 2} {$x < 900} {incr x 2} {
+            if {[catch {$nb identify element $x $y} el]} continue
+            if {$el ne "mdanceclose"} continue
+            if {[catch {$nb identify tab $x $y} idx] || $idx ne $want_tab} continue
+            return [list $x $y]
+        }
     }
-    return -1
+    return {}
 }
 th::test "every tab carries a close element" {
     ::mdance::plots::timeline_chart $::mdance::results
     update idletasks
     set nb .mdance.nb.figures.nb
     th::eq 2 [llength [$nb tabs]]
-    foreach i {0 1} { th::gt [_close_x $nb $i] 0 "tab $i has no X" }
+    foreach i {0 1} { th::ne "" [_close_xy $nb $i] "tab $i has no X" }
 }
 th::test "pressing and releasing on the X closes that tab, and only that one" {
     set nb .mdance.nb.figures.nb
     set keep [lindex [$nb tabs] 1]
-    set x [_close_x $nb 0]
-    ::mdance::plots::on_tab_press $nb $x 12
-    ::mdance::plots::on_tab_release $nb $x 12
+    lassign [_close_xy $nb 0] x y
+    ::mdance::plots::on_tab_press $nb $x $y
+    ::mdance::plots::on_tab_release $nb $x $y
     update idletasks
     th::eq 1 [llength [$nb tabs]]
     th::eq $keep [lindex [$nb tabs] 0] "the other tab must survive"
@@ -390,10 +401,10 @@ th::test "a press that drifts off the X before release closes nothing" {
     update idletasks
     set nb .mdance.nb.figures.nb
     set n [llength [$nb tabs]]
-    set x [_close_x $nb 0]
-    ::mdance::plots::on_tab_press $nb $x 12
+    lassign [_close_xy $nb 0] x y
+    ::mdance::plots::on_tab_press $nb $x $y
     # Release over the label instead: the same tab, not the same element.
-    ::mdance::plots::on_tab_release $nb 6 12
+    ::mdance::plots::on_tab_release $nb 6 $y
     th::eq $n [llength [$nb tabs]] "nothing may close"
     th::eq "" $::mdance::plots::close_armed "and the arm must be released"
 }
