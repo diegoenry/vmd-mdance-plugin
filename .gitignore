@@ -1,11 +1,10 @@
-.DS_Store
-*.log
-*.tmp
-*.swp
-*.swo
+tests/out/
+docs/_build/
+__pycache__/
+*.pyc
 
-# Manuscript drafts and their build artefacts. The paper is written against
-# this repo but is not part of it: the LaTeX goes to Overleaf and the figures
-# are regenerated from the plugin, so keeping ~3 MB of PNGs and a .docx in the
-# source history buys nothing.
+# Kept beside the repository, not in it: the papers and the decks (each its
+# own git repository), and an older manuscript draft
+manuscripts/
+presentation/
 paper/

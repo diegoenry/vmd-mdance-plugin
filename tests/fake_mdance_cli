@@ -23,6 +23,10 @@ Test hooks via environment variables:
   MDANCE_FAKE_TRUNCATE=1 -> exit 0 having written HALF a JSON document, the way a
                             backend killed mid-write leaves it
   MDANCE_FAKE_EXTRA_LABELS=N -> exit 0 with N more labels than there are frames
+  MDANCE_FAKE_FLOOD=N    -> print N lines as fast as they can be written (a program
+                            that prints without pause), then run as usual
+  MDANCE_FAKE_NOLINE=B   -> print B bytes without a newline, then exit 1 (a line
+                            without its end)
 """
 import sys, os, json, time, math
 
@@ -213,6 +217,22 @@ def main():
         print(f"fake_mdance_cli: simulated failure for k={fail_k}", file=sys.stderr)
         sys.exit(3)
 
+    flood = int(os.environ.get("MDANCE_FAKE_FLOOD", "0"))
+    while flood > 0:
+        n = min(flood, 10000)
+        sys.stderr.write("Running KMeans NANI (k=2)...\n" * n)
+        flood -= n
+    sys.stderr.flush()
+
+    noline = int(os.environ.get("MDANCE_FAKE_NOLINE", "0"))
+    if noline:
+        while noline > 0:
+            n = min(noline, 1 << 20)
+            sys.stderr.write("x" * n)
+            noline -= n
+        sys.stderr.flush()
+        sys.exit(1)
+
     sleep = float(os.environ.get("MDANCE_FAKE_SLEEP", "0"))
     if sleep > 0:
         steps = 20
@@ -275,7 +295,14 @@ def main():
         if method in ("medoid", "outlier"):
             idxs = [nframes // 2]
         else:
-            cnt = max(1, round(param / 100.0 * nframes) if param <= 100 and param > 1 else int(param))
+            # as the real CLI reads --param: diversity a percentage;
+            # outliers and repsample a count (>= 1) or a fraction (0, 1)
+            if method == "diversity":
+                pct = int(param * 100) if 0 < param < 1 else int(param)
+                cnt = max(1, round(min(100, max(1, pct)) / 100.0 * nframes))
+            else:
+                cnt = int(param * nframes) if 0 < param < 1 else int(param)
+                cnt = max(1, cnt)
             cnt = min(cnt, nframes)
             step = max(1, nframes // cnt)
             idxs = list(range(0, nframes, step))[:cnt]
@@ -299,16 +326,46 @@ def main():
     else:
         k = int(args.get("nclusters", "0")) or 3
         k = max(1, min(k, nframes))
+        zmatrix = None
         if "initial-labels" in args:
-            # HELM merge step: fold the pre-cluster labels into k buckets
-            init = read_labels(args["initial-labels"])
-            labels = [l % k for l in init][:nframes]
-            while len(labels) < nframes:
-                labels.append(0)
+            # HELM: merge the starting clusters, closest mean structures
+            # first, until k remain; the merges as HELM's Z matrix
+            init = read_labels(args["initial-labels"])[:nframes]
+            while len(init) < nframes:
+                init.append(0)
+            n0 = max(init) + 1
+            groups = {c: [i for i, l in enumerate(init) if l == c] for c in range(n0)}
+            groups = {c: g for c, g in groups.items() if g}
+            zid = {c: c for c in groups}
+            zmatrix = []
+            while len(groups) > k:
+                keys = sorted(groups)
+                cents = {c: centroid(frames, groups[c]) for c in keys}
+                best = None
+                for a in range(len(keys)):
+                    for b in range(a + 1, len(keys)):
+                        d = msd(cents[keys[a]], cents[keys[b]])
+                        if best is None or d < best[0]:
+                            best = (d, keys[a], keys[b])
+                _, ca, cb = best
+                zmatrix.append([zid[ca], zid[cb], len(zmatrix) + 1,
+                                (zmatrix[zid[ca] - n0][3] if zid[ca] >= n0 else 1) +
+                                (zmatrix[zid[cb] - n0][3] if zid[cb] >= n0 else 1)])
+                groups[ca] = groups[ca] + groups[cb]
+                del groups[cb]
+                zid[ca] = n0 + len(zmatrix) - 1
+            order = sorted(groups)
+            k = len(order)
+            labels = [0] * nframes
+            for newc, c in enumerate(order):
+                for i in groups[c]:
+                    labels[i] = newc
         else:
             labels = cluster(frames, k)
         sizes, reps, cmsd, ch, db = summarize(frames, labels, k)
 
+    if algo == "equal":
+        zmatrix = None
     out = {
         "algorithm": algo,
         "nClusters": k,
@@ -319,6 +376,8 @@ def main():
         "clusterMSD": cmsd,
         "scores": {"calinskiHarabasz": ch, "daviesBouldin": db},
     }
+    if algo == "helm" and zmatrix:
+        out["zMatrix"] = zmatrix
     # A label list that does not match the frame count is the silent-corruption
     # case: every sample's cluster shifts, but nothing errors.
     extra = int(os.environ.get("MDANCE_FAKE_EXTRA_LABELS", "0"))
