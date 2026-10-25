@@ -30,6 +30,9 @@ namespace eval ::VMDance::Algo {
         SM "Sokal–Michener" SS1 "Sokal–Sneath 1" SS2 "Sokal–Sneath 2"
     }
     variable kinits {StratAll StratReduced CompSim DivSelect KmeansPP Random VanillaKmeansPP}
+    # NANI's seedings that draw no random number: the same frames give the
+    # same seeds (an elbow scan's stability compares them)
+    variable deterministic_kinits {StratAll StratReduced CompSim DivSelect}
     variable kinit_names {
         StratAll "Stratified, all frames" StratReduced "Stratified, reduced" CompSim "Complementary similarity"
         DivSelect "Diversity selection" KmeansPP "k-means++" Random "Random" VanillaKmeansPP "k-means++ (vanilla)"
@@ -105,6 +108,12 @@ namespace eval ::VMDance::Algo {
     }
     variable similarity_params {
         {metric choice MSD {MSD BUB Fai Gle Ja JT RT RR SM SS1 SS2} "Metric" "The extended similarity index (MSD: the mean square deviation)"}
+    }
+    variable map_params {
+        {sample int 500 {2 5000} "Axes from" "The number of frames the two axes are found from, evenly spaced (all of them when there are fewer); every frame is then placed on them"}
+    }
+    variable profiles_params {
+        {reference int -1 {-1 ""} "Against" "The cluster whose mean structure the others are measured against (-1: the most populated)"}
     }
     variable pick_names {diversity "Most diverse" outliers "Outliers" repsample "Representative sample" medoid "The medoid" outlier "The outlier"}
     variable pick_params {

@@ -28,8 +28,9 @@ namespace eval ::VMDance::GUI {
         picks "The picked frames"
     }
     # the table each plot's data is
-    variable plot_tables {populations clusters timeline timeline transitions transitions residence residence
-                          compactness clusters distances distances tree tree silhouette silhouette elbow elbow sweep sweep}
+    variable plot_tables {populations clusters makeup makeup timeline timeline transitions transitions residence residence
+                          compactness clusters distances distances tree tree silhouette silhouette map map profiles profiles
+                          elbow elbow sweep sweep}
 }
 
 proc ::VMDance::GUI::open_session_dialog {} {

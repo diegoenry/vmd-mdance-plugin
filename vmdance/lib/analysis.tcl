@@ -18,6 +18,9 @@
 #   adopt        a scan's record made a result (its measures computed)
 #   prime        PRIME's seven frames for a result
 #   similarity   the extended similarity (iSIM) of a result's clusters
+#   map          a result's frames on their first two principal components
+#   profiles     atom by atom: each cluster's and each group's fluctuations,
+#                and each cluster's mean structure against one cluster's
 #   pick         frames picked without clustering
 # A scan's record keeps the clustering (its labels, sizes, representatives,
 # scores), not the plugin's measures: they are computed when a record is
@@ -136,6 +139,7 @@ proc ::VMDance::Job::check_cluster {req} {
 # in invalid, with the reason, and is not run.
 proc ::VMDance::Job::check_elbow {req} {
     set a [::VMDance::_get $req algorithm kmeans]
+    if {$a eq "equal"} { return [_check_radii $req] }
     if {[::VMDance::Algo::exists $a] && ![::VMDance::Algo::takes_k $a]} {
         error "-algorithm: [::VMDance::Algo::label $a] finds its own number of clusters; an elbow scan needs an algorithm that is given k"
     }
@@ -147,6 +151,7 @@ proc ::VMDance::Job::check_elbow {req} {
     }
     set out [lsort -integer -unique $ks]
     if {[llength $out] < 2} { error "-ks: an elbow scan needs at least two values of k" }
+    set stab [check_stability [::VMDance::_get $req stability {}] $a]
     if {[llength $out] > 200} { error "-ks: at most 200 values of k" }
     if {[catch {check_cluster [dict merge [dict remove $req ks] [dict create k [lindex $out 0]]]} q]} { error [_scan_says $q] }
     ::VMDance::Algo::check_scan [dict get $q algorithm] [dict get $q params]
@@ -162,7 +167,52 @@ proc ::VMDance::Job::check_elbow {req} {
     dict set q ks $out
     dict set q invalid $invalid
     dict set q k ""
+    dict set q stability $stab
     return $q
+}
+# An elbow scan of eQUAL: its radius at every value of radii (eQUAL is
+# given no k: the number of clusters follows from the radius). Each a
+# radius eQUAL takes (above 0), at least two, at most 200; the request is
+# checked with the smallest.
+proc ::VMDance::Job::_check_radii {req} {
+    set rs [::VMDance::_get $req radii {}]
+    if {[dict exists $req ks] && [llength [dict get $req ks]]} { error "-ks: eQUAL is given no k; scan its radius (-radii {0.5 1 2})" }
+    if {![string is list $rs] || ![llength $rs]} { error "-radii: an elbow scan of eQUAL is made at several radii (-radii {0.5 1 2})" }
+    if {[llength $rs] > 200} { error "-radii: at most 200 values (got [llength $rs])" }
+    set spec [::VMDance::Algo::param equal threshold]
+    set out {}
+    foreach r $rs {
+        if {[catch {::VMDance::Algo::check_value $spec $r} v]} { error "-radii: \"$r\" is not a radius ([string map {-threshold "a radius"} $v])" }
+        if {$v <= 0} { error "-radii: each radius must be above 0 (got $r)" }
+        lappend out $v
+    }
+    set out [lsort -real -unique $out]
+    if {[llength $out] < 2} { error "-radii: an elbow scan needs at least two radii" }
+    check_stability [::VMDance::_get $req stability {}] equal
+    set q [dict remove $req radii ks stability]
+    dict set q params threshold [lindex $out 0]
+    if {[catch {check_cluster [dict merge $q [dict create k ""]]} q]} { error [_scan_says $q] }
+    dict set q radii $out
+    dict set q ks {}
+    dict set q invalid {}
+    dict set q k ""
+    dict set q stability {}
+    return $q
+}
+
+# The seedings an elbow scan's stability compares: {} (none), or two or
+# more of NANI's, each once, for k-means NANI.
+proc ::VMDance::Job::check_stability {stab a} {
+    if {![llength $stab]} { return {} }
+    if {$a ne "kmeans"} { error "-stability: the agreement between seedings is that of k-means NANI's (the scan's algorithm is [::VMDance::Algo::label $a])" }
+    if {![string is list $stab]} { error "-stability: a list of seedings" }
+    foreach k $stab {
+        if {$k ni $::VMDance::Algo::kinits} { error "-stability: \"$k\" is not a seeding ([join $::VMDance::Algo::kinits {, }])" }
+    }
+    set out [lsort -unique $stab]
+    if {[llength $out] != [llength $stab]} { error "-stability: a seeding is given twice" }
+    if {[llength $out] < 2} { error "-stability: two seedings at least, to compare" }
+    return $stab
 }
 # A check's message as a scan's refusal says it: the option -k is the
 # scan's -ks (-trim-k stays itself; a record names its own k: -k).
@@ -817,6 +867,11 @@ proc ::VMDance::Job::_result {c req cl t0} {
     dict set r measures [::VMDance::Measure::compute $c [dict get $cl labels] \
         [dict get $cl nclusters] [dict get $cl representatives] [dict get $c natoms] ::VMDance::Job::cancelled \
         [list apply {{f m} { ::VMDance::Job::_progress [expr {0.97 + 0.03 * $f}] $m }}]]
+    # (HELM's merges: how loose each makes its cluster, their heights)
+    if {[llength [dict get $cl zmatrix]] && [llength [dict get $cl initial]]} {
+        set tree [::VMDance::Measure::helm_tree [dict get $cl zmatrix] [dict get $cl initial] [dict get $cl labels] [dict get $cl nclusters]]
+        dict set r measures merge_msd [::VMDance::Measure::merge_msd $c [dict get $cl labels] [dict get $cl initial] $tree ::VMDance::Job::cancelled]
+    }
     dict set r extras {}
     dict set r digest [dict get $c digest]
     dict set r shape [_shape $c]
@@ -868,12 +923,51 @@ proc ::VMDance::Job::_same_coords {c r what} {
 # which).
 proc ::VMDance::Job::_scan {kind req recs t0 {digest ""}} {
     variable backend
-    set keys [expr {$kind eq "elbow" ? {mol sel fit first last step atoms fitatoms algorithm metric params ks} : {mol sel fit first last step atoms fitatoms}}]
+    set keys [expr {$kind eq "elbow" ? {mol sel fit first last step atoms fitatoms algorithm metric params ks radii stability} : {mol sel fit first last step atoms fitatoms}}]
     dict create format 1 kind $kind request [dict filter $req key {*}$keys] \
         molecule [_molecule $req] frames [dict get $req frames] \
         natoms [dict get $req natoms] records $recs digest $digest backend $backend \
         seconds [format %.2f [expr {([clock milliseconds] - $t0) / 1000.0}]] \
         created [clock format [clock seconds] -format "%Y-%m-%dT%H:%M:%S"]
+}
+
+# How much a clustering at k (cl, of req's seeding) depends on its seeding:
+# the mean adjusted Rand index of every two clusterings of the seedings of
+# req's stability (cl for its own; a seeding that cannot run at k left
+# out); "" when fewer than two ran.
+proc ::VMDance::Job::_stability {c req cl lo hi} {
+    variable cancelled
+    set own [dict get $req params kinit]
+    set labs {}
+    set seeds [dict get $req stability]
+    set n [llength $seeds]
+    set j 0
+    foreach s $seeds {
+        if {$s eq $own} {
+            lappend labs [dict get $cl labels]
+        } else {
+            set q $req
+            dict set q params kinit $s
+            set a [expr {$lo + ($hi - $lo) * $j / $n}]
+            if {[catch {_cluster $c $q $a $hi} o]} {
+                if {$cancelled} { error "cancelled" }
+            } else {
+                lappend labs [dict get $o labels]
+            }
+        }
+        incr j
+    }
+    if {[llength $labs] < 2} { return "" }
+    set sum 0.0; set m 0
+    for {set x 0} {$x < [llength $labs]} {incr x} {
+        for {set y [expr {$x + 1}]} {$y < [llength $labs]} {incr y} {
+            set v [::VMDance::Measure::ari [lindex $labs $x] [lindex $labs $y]]
+            # (two clusterings that both put every frame in one cluster agree)
+            set sum [expr {$sum + ($v eq "" ? 1.0 : $v)}]
+            incr m
+        }
+    }
+    format %.4f [expr {$sum / $m}]
 }
 
 # An elbow scan: the same clustering at every k of ks (HELM starts from
@@ -887,6 +981,9 @@ proc ::VMDance::Job::_do_elbow {req} {
     # (what the library cannot take refuses the scan, not each k)
     if {[lindex $backend 0] eq "library"} { _library_takes $c }
     set ks [dict get $req ks]
+    # (eQUAL: its radius at each value, no k)
+    set radii [::VMDance::_get $req radii {}]
+    if {[llength $radii]} { set ks $radii }
     set initial ""
     set lo 0.2
     if {[dict get $req algorithm] eq "helm"} {
@@ -908,22 +1005,32 @@ proc ::VMDance::Job::_do_elbow {req} {
             incr i
             continue
         }
-        dict set req k $k
+        if {[llength $radii]} {
+            dict set req params threshold $k
+            dict set req k ""
+            set at [dict create k "" radius $k]
+        } else {
+            dict set req k $k
+            set at [dict create k $k]
+        }
         set a [expr {$lo + ($hi - $lo) * $i / $n}]; set b [expr {$lo + ($hi - $lo) * ($i + 1) / $n}]
         if {[catch {_cluster $c $req $a $b $initial} cl opts]} {
             if {$cancelled} { error "cancelled" }
             # (a k that HELM's starting clusters cannot take: not run)
             if {[dict get $opts -errorcode] eq {VMDANCE NOTRUN}} { set why $cl; set cl "not run: $cl" } else { incr ran }
-            lappend recs [dict merge [dict create k $k] [_failed $cl]]
+            lappend recs [dict merge $at [_failed $cl]]
         } else {
             incr ran
-            lappend recs [dict merge [dict create k $k] [_record $cl]]
+            set rec [dict merge $at [_record $cl]]
+            if {[llength [::VMDance::_get $req stability {}]]} { dict set rec stability [_stability $c $req $cl $a $b] }
+            lappend recs $rec
         }
         incr i
     }
     if {!$ran && [info exists why]} { error "no value of k can be run: [_scan_says $why]" }
     set recs [_scan_scores $c $recs [dict get $req algorithm] $hi]
     dict set req k ""
+    if {[llength $radii]} { dict set req params threshold "" }
     _scan elbow $req $recs $t0 [dict get $c digest]
 }
 
@@ -984,6 +1091,7 @@ proc ::VMDance::Job::_do_adopt {req} {
     _same_coords $c $s "the scan"
     set q [dict merge $in [dict filter [dict get $s request] key algorithm metric params]]
     foreach key {algorithm k metric params} { if {[dict exists $rec $key]} { dict set q $key [dict get $rec $key] } }
+    if {[dict exists $rec radius]} { dict set q params threshold [dict get $rec radius]; dict set q k "" }
     _result $c $q [dict get $rec clustering] $t0
 }
 
@@ -1145,6 +1253,58 @@ proc ::VMDance::Job::_do_similarity {req} {
     set co [lmap v $co s [dict get $res sizes] {if {$s} { set v } else { list -1 }}]
     dict create params [dict get $req params] isim [_num [dict get $r isim]] \
         cluster [lmap v $ci {_num $v}] outliers [_ints "similarity outliers" $co $k -1 [expr {$nf - 1}]]
+}
+
+# The frames of a result on their first two principal components: req
+# {result params}.
+proc ::VMDance::Job::_do_map {req} {
+    set res [dict get $req result]
+    set c [_coords [_input_of [dict get $res request] [dict get $res frames] [dict get $res natoms]] 0.0 0.3]
+    _same_coords $c $res "the clustering"
+    set p [dict get $req params]
+    set m [::VMDance::Measure::pca $c [dict get $p sample] ::VMDance::Job::cancelled \
+        [list apply {{f m} { ::VMDance::Job::_progress [expr {0.3 + 0.7 * $f}] $m }}]]
+    dict merge [dict create params $p] $m
+}
+
+# A result's profiles, atom by atom: req {result params groups}, groups
+# the result's ({names of}, or {}). The atoms' residues are kept with
+# them, as the molecule has them, so that they are drawn without it.
+proc ::VMDance::Job::_do_profiles {req} {
+    set res [dict get $req result]
+    set k [dict get $res nclusters]
+    set natoms [dict get $res natoms]
+    set g [dict get $req groups]
+    set names [::VMDance::_get $g names {}]
+    set of [::VMDance::_get $g of {}]
+    set most $::VMDance::Measure::profiles_most
+    if {(2 * $k + [llength $names]) * $natoms > $most} {
+        error "the profiles of $k clusters[expr {[llength $names] ? " and [llength $names] groups" : ""}] over $natoms atoms take more than $most numbers: cluster into fewer, or select fewer atoms"
+    }
+    set ref [dict get $req params reference]
+    if {$ref < 0} { set ref [largest [dict get $res sizes]] }
+    if {$ref >= $k || [lindex [dict get $res sizes] $ref] == 0} { error "cluster $ref has no frames: it cannot be the reference" }
+    set in [_input_of [dict get $res request] [dict get $res frames] $natoms]
+    set c [_coords $in 0.0 0.3]
+    _same_coords $c $res "the clustering"
+    # (the atoms that were read, in their order: the rows')
+    set s [::VMDance::Mol::sel [dict get $in mol] [::VMDance::_get $in atoms [dict get $in sel]]]
+    try {
+        set info [$s get {resid chain}]
+    } finally {
+        ::VMDance::Mol::free $s
+    }
+    set p [::VMDance::Measure::profiles $c [dict get $res labels] $k $of [llength $names] $ref ::VMDance::Job::cancelled \
+        [list apply {{f m} { ::VMDance::Job::_progress [expr {0.3 + 0.7 * $f}] $m }}]]
+    dict merge [dict create params [dict create reference $ref] reference $ref \
+        residues [lmap a $info {lindex $a 0}] chains [lmap a $info {lindex $a 1}] group_names $names] $p
+}
+# The most populated cluster (of equal sizes, the first).
+proc ::VMDance::Job::largest {sizes} {
+    set best 0
+    set i 0
+    foreach n $sizes { if {$n > [lindex $sizes $best]} { set best $i }; incr i }
+    return $best
 }
 
 # Frames picked without clustering: req {input... params}.

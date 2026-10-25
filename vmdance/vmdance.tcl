@@ -8,11 +8,18 @@
 #               vmdance backend ?-mode auto|cli|library? ?-cli path? ?-library path? | backend try ?options?
 #               vmdance clusters | get c | labels | frame f
 #               vmdance transitions ?-lag n? ?-counts 1? | residence | silhouette | distances | tree
-#               vmdance elbow ?-ks {k ...} | -from a -to b -by s? ?clustering options? | elbow show | elbow load k | elbow clear
+#               vmdance elbow ?-ks {k ...} | -from a -to b -by s? ?-stability 0|1|{seedings}? ?clustering options?
+#               vmdance elbow -algorithm equal -radii {r ...} ?clustering options?
+#               vmdance elbow show | elbow load k | elbow clear
 #               vmdance sweep -algorithms {...} -ks|-from/-to/-by -metrics {...} -seedings {...} ?-params {a {...}}?
 #               vmdance sweep show | sweep best ?ch|db? | sweep load n | sweep clear
 #               vmdance prime ?-metric RR|SM? ?-trim-frac f? ?-weighted 0|1?
 #               vmdance similarity ?-metric m?
+#               vmdance groups | groups -ranges {name frames ...} | groups -file f.csv | groups -names {...}
+#                 (and -colours {name #rrggbb ...}, or alone) | groups clear
+#               vmdance makeup ?-by cluster|group?
+#               vmdance map ?-sample n? | map show
+#               vmdance profiles ?-reference c? | profiles show
 #               vmdance pick ?-method m? ?-param p? ?-nbins n? ?-metric m? ?input options? | pick show
 #               vmdance pick goto f | pick save file ?-format pdb|dcd? ?-sel text? | pick clear
 #               vmdance select ?c ...? | select add|toggle c ... | select clear|all
@@ -22,7 +29,7 @@
 #               vmdance runs | run id | run delete id | run label id text | run clear
 #               vmdance export dir ?-prefix p? ?-items {...}? ?-top n? ?-lag n? ?-format pdb|dcd? ?-sel text?
 #               vmdance session save file | session load file ?-mol auto|load|none|molid?
-#               vmdance figures dir ?-plots {...}? ?-formats {pdf png}? ...
+#               vmdance figures dir ?-plots {...}? ?-formats {pdf png}? ?-text points? ...
 #
 # A cluster is its number (0 ...); a frame is VMD's frame number.
 #
@@ -76,7 +83,7 @@ proc ::VMDance::_load_tk {{who "the window"} {advice "in text-mode VMD, use the 
     if {[catch {package require Tk 8.5} err]} {
         error "$who needs Tk and a display ($err): $advice"
     }
-    foreach f {fonts.tcl theme.tcl tooltip.tcl colormaps.tcl icons.tcl plotlib.tcl plots.tcl
+    foreach f {fonts.tcl theme.tcl tooltip.tcl colormaps.tcl icons.tcl plotlib.tcl plots.tcl plots_groups.tcl
                figures.tcl gui.tcl gui_opts.tcl gui_io.tcl} {
         if {[file exists [file join $::VMDance::libdir $f]]} {
             uplevel #0 [list source -encoding utf-8 [file join $::VMDance::libdir $f]]
@@ -95,8 +102,8 @@ proc vmdance {args} {
     set sub [lindex $args 0]
     if {[string match -* $sub]} { return [::VMDance::_api_cluster {*}$args] }
     set cmds {info algorithms parameters backend cancel clusters get labels frame transitions residence
-              silhouette distances tree elbow sweep prime similarity pick select draw goto userfield
-              runs run export session figures}
+              silhouette distances tree elbow sweep prime similarity groups makeup map profiles pick select draw
+              goto userfield runs run export session figures}
     if {$sub ni $cmds} {
         error "vmdance: unknown subcommand \"$sub\" (valid: [join $cmds {, }], or -option value pairs to cluster)"
     }
@@ -523,9 +530,10 @@ proc ::VMDance::_scan_rows {s} {
     lmap r [dict get $s records] {
         set row [dict create index $i]
         incr i
-        foreach key {algorithm k metric} { if {[dict exists $r $key]} { dict set row $key [dict get $r $key] } }
+        foreach key {algorithm k radius metric} { if {[dict exists $r $key]} { dict set row $key [dict get $r $key] } }
         if {[dict get $s kind] eq "sweep"} { dict set row seeding [::VMDance::Export::sweep_seeding $r] }
         foreach key {nclusters ch db sizes status message} { dict set row $key [dict get $r $key] }
+        if {[dict exists $r stability]} { dict set row stability [dict get $r stability] }
         set row
     }
 }
@@ -567,14 +575,14 @@ proc ::VMDance::_api_elbow {args} {
             return [_scan_rows $::VMDance::Results::elbow]
         }
         load {
-            if {[llength $args] != 2} { error "usage: $what load k" }
+            if {[llength $args] != 2} { error "usage: $what load k (or radius)" }
             _check_idle $what
             set e $::VMDance::Results::elbow
             if {![dict size $e]} { error "$what: no elbow scan" }
             set k [lindex $args 1]
-            set i [lsearch -exact [lmap r [dict get $e records] {dict get $r k}] $k]
-            if {$i < 0} { error "$what: the scan has no k = $k" }
-            return [_adopt $what $e [lindex [dict get $e records] $i]]
+            set rec [::VMDance::Results::elbow_record $e $k]
+            if {![dict size $rec]} { error "$what: the scan has no [expr {[::VMDance::Results::by_radius $e] ? "radius" : "k ="} ] $k" }
+            return [_adopt $what $e $rec]
         }
         clear {
             if {[llength $args] != 1} { error "usage: $what clear" }
@@ -583,15 +591,29 @@ proc ::VMDance::_api_elbow {args} {
             return
         }
     }
-    lassign [_request $what $args {-quiet 0 -ks "" -from 2 -to 15 -by 1}] req o
+    lassign [_request $what $args {-quiet 0 -ks "" -from 2 -to 15 -by 1 -stability 0 -radii ""}] req o
     # (a -k of the clustering options would be dropped for the scan's)
     if {[dict exists $req k]} { error "$what: -k: a scan runs the values of k of -ks, or of -from -to -by" }
     set quiet [_bool "$what: -quiet" [dict get $o -quiet]]
     _check_idle $what
-    if {[catch {_ks $what $o $args 200} ks]} { error $ks }
+    if {[_get $req algorithm kmeans] eq "equal"} {
+        # (eQUAL: its radius; -ks, -from, -to and -by are k's)
+        if {[dict get $o -ks] ne "" || [llength [lmap {k v} $args {expr {$k in {-from -to -by} ? 1 : [continue]}}]]} {
+            error "$what: eQUAL is given no k: scan its radius with -radii {0.5 1 2}"
+        }
+        dict set req radii [dict get $o -radii]
+        set ks {}
+    } elseif {[dict get $o -radii] ne ""} {
+        error "$what: -radii is eQUAL's (-algorithm equal); [::VMDance::Algo::label [_get $req algorithm kmeans]] is scanned at values of k"
+    } elseif {[catch {_ks $what $o $args 200} ks]} { error $ks }
     dict set req ks $ks
+    # (-stability 1: NANI's seedings that draw no random number; 0 none; or a list)
+    set st [dict get $o -stability]
+    if {$st eq "1"} { set st $::VMDance::Algo::deterministic_kinits } elseif {$st eq "0"} { set st {} }
+    dict set req stability $st
     if {[catch {::VMDance::Job::check_elbow $req} req]} { error "$what: $req" }
-    _say $quiet "scanning [_algo_said [dict get $req algorithm] [dict get $req params] [dict get $req metric]] at k = [join [dict get $req ks] {, }]: [_input_said $req]"
+    set at [expr {[llength [_get $req radii {}]] ? "radius = [join [dict get $req radii] {, }]" : "k = [join [dict get $req ks] {, }]"}]
+    _say $quiet "scanning [_algo_said [dict get $req algorithm] [dict remove [dict get $req params] threshold] [dict get $req metric]] at $at: [_input_said $req]"
     _scan_note $quiet $req {mol atoms fitatoms algorithm metric params}
     variable last_pct
     unset -nocomplain last_pct
@@ -809,6 +831,126 @@ proc ::VMDance::similarity_info {} {
         incr c
     }
     dict create metric [dict get $s params metric] isim [dict get $s isim] clusters $cl least_similar $out
+}
+
+# groups: the groups of the current run's frames (the method, replica or
+# condition each came from): {names {...} sizes {...} none n colours
+# {...}}, {} without. groups -ranges {name frames ...} (VMD frames:
+# 0-63,70), -file f.csv (frame,group lines), -names {...} (one per frame
+# clustered): set them; -colours {name #rrggbb ...}, with them or alone:
+# their colours in the plots (a name they do not have is passed over: one
+# list for several molecules; "": the palette's); groups clear.
+proc ::VMDance::_api_groups {args} {
+    set what "vmdance groups"
+    _need_data $what
+    if {[llength $args] == 1 && [lindex $args 0] eq "clear"} {
+        ::VMDance::Results::set_groups {}
+        return {}
+    }
+    if {[llength $args]} {
+        set o [_opts $what {-ranges "" -file "" -names "" -colours ""} $args]
+        set how [lmap k {-ranges -file -names} {expr {[dict get $o $k] ne "" ? $k : [continue]}}]
+        set colours [dict get $o -colours]
+        if {[llength $how] > 1 || (![llength $how] && $colours eq "")} { error "$what: give one of -ranges, -file or -names, or -colours (or clear)" }
+        if {[llength $how]} {
+            if {[catch {::VMDance::Results::groups_from [string range $how 1 end] [dict get $o $how] [::VMDance::Results::frames]} g]} {
+                error "$what: $g"
+            }
+            set g [::VMDance::Results::keep_colours $g]
+        } else {
+            set g [::VMDance::Results::groups]
+            if {![dict size $g]} { error "$what: the frames have no groups to colour (vmdance groups -ranges …)" }
+        }
+        if {$colours ne "" && [catch {::VMDance::Results::colour_groups $g $colours} g]} { error "$what: $g" }
+        if {[catch {::VMDance::Results::set_groups $g} err]} { error "$what: $err" }
+    }
+    groups_info
+}
+proc ::VMDance::groups_info {} {
+    set names [::VMDance::Results::group_names]
+    if {![llength $names]} { return {} }
+    set sizes [lrepeat [llength $names] 0]
+    set none 0
+    foreach g [::VMDance::Results::group_of] {
+        if {$g < 0} { incr none; continue }
+        lset sizes $g [expr {[lindex $sizes $g] + 1}]
+    }
+    set colours {}
+    for {set g 0} {$g < [llength $names]} {incr g} { lappend colours [::VMDance::Results::group_colour $g] }
+    dict create names $names sizes $sizes none $none colours $colours
+}
+
+# makeup: the frames of each cluster by group, {cluster {n ...} ...} (in the
+# groups' order), or with -by group each group's by cluster, {group {n ...}
+# ...}. Noise and frames of no group are left out.
+proc ::VMDance::_api_makeup {args} {
+    set what "vmdance makeup"
+    _need_data $what
+    set o [_opts $what {-by cluster} $args]
+    set names [::VMDance::Results::group_names]
+    if {![llength $names]} { error "$what: the frames have no groups (vmdance groups -ranges …)" }
+    set M [::VMDance::Measure::makeup [::VMDance::Results::labels] [::VMDance::Results::group_of] \
+        [::VMDance::Results::nclusters] [llength $names]]
+    set out {}
+    switch -- [dict get $o -by] {
+        cluster {
+            set c 0
+            foreach row $M { dict set out $c $row; incr c }
+        }
+        group {
+            set j 0
+            foreach nm $names { dict set out $nm [lmap row $M {lindex $row $j}]; incr j }
+        }
+        default { error "$what: -by must be cluster or group (got \"[dict get $o -by]\")" }
+    }
+    return $out
+}
+
+# map: the frames on their first two principal components (computed; kept
+# with the run): {sample m variance {v1 v2} total t}; map show: {frame
+# {pc1 pc2} ...}.
+proc ::VMDance::_api_map {args} {
+    set what "vmdance map"
+    _need_data $what
+    if {$args eq "show"} {
+        set m [::VMDance::Results::extra map]
+        if {![dict size $m]} { error "$what show: no map for this clustering (vmdance map)" }
+        set out {}
+        foreach f [::VMDance::Results::frames] x [dict get $m pc1] y [dict get $m pc2] { dict set out $f [list $x $y] }
+        return $out
+    }
+    if {[catch {_specs_given $what $args} given]} { error $given }
+    if {[catch {::VMDance::Job::check_specs $::VMDance::Algo::map_params $given} p]} { error "$what: $p" }
+    set run $::VMDance::Results::current
+    if {[catch {::VMDance::Job::run map [dict create result $::VMDance::Results::A params $p]} r]} { error "$what: $r" }
+    ::VMDance::Results::attach map $r $run
+    if {$run ne $::VMDance::Results::current} { error "$what: run $run was left while it ran; its map is kept with it" }
+    dict filter $r key sample variance total
+}
+
+# profiles: atom by atom, each cluster's and each group's RMSF and each
+# cluster's mean structure against one cluster's (computed; kept with the
+# run): {reference c atoms n clusters k groups {...}}; profiles show: the
+# whole profiles (residues chains clusters groups differences …).
+proc ::VMDance::_api_profiles {args} {
+    set what "vmdance profiles"
+    _need_data $what
+    if {$args eq "show"} {
+        set p [::VMDance::Results::extra profiles]
+        if {![dict size $p]} { error "$what show: no profiles for this clustering (vmdance profiles)" }
+        return $p
+    }
+    if {[catch {_specs_given $what $args} given]} { error $given }
+    if {[catch {::VMDance::Job::check_specs $::VMDance::Algo::profiles_params $given} p]} { error "$what: $p" }
+    set ref [dict get $p reference]
+    if {$ref >= 0} { _cluster "$what: -reference" $ref }
+    set run $::VMDance::Results::current
+    set req [dict create result $::VMDance::Results::A params $p groups [::VMDance::Results::groups]]
+    if {[catch {::VMDance::Job::run profiles $req} r]} { error "$what: $r" }
+    ::VMDance::Results::attach profiles $r $run
+    if {$run ne $::VMDance::Results::current} { error "$what: run $run was left while they were made; they are kept with it" }
+    dict create reference [dict get $r reference] atoms [llength [dict get $r residues]] \
+        clusters [llength [dict get $r clusters]] groups [dict get $r group_names]
 }
 
 # pick: frames picked without clustering (the input options as a

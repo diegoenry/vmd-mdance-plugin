@@ -21,7 +21,7 @@ namespace eval ::VMDance::GUI {
         busy 0 status "Ready." readout "" readout_shown "" progress 0 tab populations
         summary "" run_label "" detail ""
         sortcol cluster sortdir 1
-        eb_from 2 eb_to 15 eb_by 1 eb_info ""
+        eb_from 2 eb_to 15 eb_by 1 eb_info "" eb_rfrom 0.5 eb_rto 5 eb_rby 0.5
         gr_from 2 gr_to 12 gr_by 1 gr_count ""
         pr_metric RR pr_trim 0.1 pr_weighted 1 pr_info ""
         si_metric MSD si_info ""
@@ -34,9 +34,11 @@ namespace eval ::VMDance::GUI {
         rs_show mean rs_unit clustered
         cp_show msd
         ds_show centroids ds_cmap blues
-        td_labels 1
+        td_labels 1 td_view tree
         sl_sort 1 sl_mean 1
-        eb_show both eb_partition 1
+        eb_show both eb_partition 1 eb_stability 1 eb_stab 0
+        mu_view clusters mu_show count mp_colour group pf_show groups
+        gp_ranges "" gp_info "" mp_sample 500 mp_info "" pf_reference -1 pf_info ""
         sw_score ch sw_cmap blues
         mx_values 1
         plot_grid 1 plot_legend 1 plot_cursor 1 plot_lw 1.4 plot_ccol muted
@@ -57,9 +59,9 @@ namespace eval ::VMDance::GUI {
         foreach m $::VMDance::Algo::metrics { set S(gr_met_$m) [expr {$m eq "MSD"}] }
         foreach k $::VMDance::Algo::kinits { set S(gr_seed_$k) [expr {$k eq "StratAll"}] }
     } ::VMDance::GUI}
-    variable tabs {populations "Populations" timeline "Timeline" transitions "Transitions" residence "Residence"
+    variable tabs {populations "Populations" makeup "Make-up" timeline "Timeline" transitions "Transitions" residence "Residence"
                    compactness "Compactness" distances "Distances" tree "Tree" silhouette "Silhouette"
-                   elbow "Elbow" sweep "Sweep"}
+                   map "Map" profiles "Profiles" elbow "Elbow" sweep "Sweep"}
     variable redraw_after ""
     variable refresh_after ""
     variable last_refresh 0
@@ -101,6 +103,9 @@ namespace eval ::VMDance::GUI {
     variable styles {NewCartoon Licorice Lines Tube Trace CPK VDW}
     variable hints {
         populations "the frames in each cluster · click = select · shift-click = add or remove · double-click = go to its representative"
+        makeup      "each cluster's frames by group (Results ▸ Groups), or each group's by cluster · click = select · double-click = go to its representative"
+        map         "the frames on their first two principal components (Results ▸ Map) · click = go to that frame and select its cluster"
+        profiles    "residue by residue: each group's or cluster's fluctuations, or each cluster against the reference (Results ▸ Profiles)"
         timeline    "the cluster of every frame · click = go to that frame · shift-click = also select its cluster"
         transitions "where the trajectory goes from each cluster · click a cell = select its clusters"
         residence   "how long the trajectory stays in each cluster · click = select · double-click = go to its representative"
@@ -424,6 +429,11 @@ proc ::VMDance::GUI::act {name} {
         sweep          sweep
         prime          prime
         similarity     similarity
+        groups         groups_set
+        groups_file    groups_file_dialog
+        groups_clear   groups_clear
+        map            map
+        profiles       profiles
         pick           pick
         cancel         cancel
         close          close_window
@@ -1231,6 +1241,42 @@ proc ::VMDance::GUI::_build_results {P} {
     ttk::button $b.goto -text "Go to representative" -command {::VMDance::GUI::act goto}
     ttk::button $b.ov -text "Overlay in 3D" -command ::VMDance::GUI::overlay_selected
     pack $b.goto $b.ov -side left -padx {0 6}
+
+    # this run's groups of frames, its map and its profiles
+    set G [_section $P.gp "Groups, map and profiles" -padding {6 4}]
+    pack ${G}_sec -side top -fill x -pady {8 0}
+    ttk::entry $G.r -textvariable ${V}(gp_ranges) -width 18
+    ttk::button $G.set -text "Set" -command {::VMDance::GUI::act groups}
+    grid [ttk::label $G.lr -text "Groups"] $G.r $G.set -row 0 -sticky w -padx {0 4} -pady 1
+    grid configure $G.r -sticky ew
+    ::VMDance::Tip::add $G.r "Each frame's group (the method, replica or condition it came from): names and VMD frames, as original 0-63 moderate 64-127 (a name with spaces in braces); Return sets them"
+    bind $G.r <Return> {::VMDance::GUI::act groups}
+    set gb [ttk::frame $G.bt]
+    ttk::button $gb.file -text "From a file…" -command {::VMDance::GUI::act groups_file}
+    ttk::button $gb.clear -text "Clear" -command {::VMDance::GUI::act groups_clear}
+    pack $gb.file $gb.clear -side left -padx {0 6}
+    grid $gb -row 1 -column 1 -columnspan 2 -sticky w -pady 1
+    ::VMDance::Tip::add $gb.file "A file of frame,group lines (VMD frames; # comments)"
+    ttk::label $G.info -textvariable ${V}(gp_info) -style Read.TLabel -wraplength 270 -justify left
+    grid $G.info -row 2 -column 0 -columnspan 3 -sticky w
+    set mf [ttk::frame $G.mf]
+    ttk::button $mf.go -text "Map" -command {::VMDance::GUI::act map}
+    ttk::label $mf.l -text "axes from"
+    ttk::spinbox $mf.n -from 2 -to 5000 -increment 100 -width 5 -textvariable ${V}(mp_sample)
+    ttk::label $mf.f -text "frames"
+    pack $mf.go $mf.l $mf.n $mf.f -side left -padx {0 4}
+    grid $mf -row 3 -column 0 -columnspan 3 -sticky w -pady {4 1}
+    ::VMDance::Tip::add $mf.n [lindex [lindex $::VMDance::Algo::map_params 0] 5]
+    set pf [ttk::frame $G.pf]
+    ttk::button $pf.go -text "Profiles" -command {::VMDance::GUI::act profiles}
+    ttk::label $pf.l -text "against cluster"
+    ttk::spinbox $pf.n -from -1 -to 9999 -increment 1 -width 5 -textvariable ${V}(pf_reference)
+    pack $pf.go $pf.l $pf.n -side left -padx {0 4}
+    grid $pf -row 4 -column 0 -columnspan 3 -sticky w -pady 1
+    ::VMDance::Tip::add $pf.n [lindex [lindex $::VMDance::Algo::profiles_params 0] 5]
+    ttk::label $G.mi -textvariable ${V}(mp_info) -style Read.TLabel -wraplength 270 -justify left
+    grid $G.mi -row 5 -column 0 -columnspan 3 -sticky w
+    grid columnconfigure $G 1 -weight 1
     _tree_columns
 }
 
@@ -1270,13 +1316,26 @@ proc ::VMDance::GUI::_build_scans {P} {
     ttk::spinbox $r.c -from 1 -to 100 -increment 1 -width 3 -textvariable ${V}(eb_by)
     pack $r.l $r.a $r.t $r.b $r.e $r.c -side left -padx {0 4}
     grid $r -row 0 -column 0 -sticky w
-    ttk::label $E.note -text "The algorithm and parameters of Setup, at every k. Elbow plot: hover a k for the clusters' shares; double-click to make it the clustering." \
+    set q [ttk::frame $E.q]
+    ttk::label $q.l -text "eQUAL: radius from"
+    ttk::entry $q.a -width 5 -textvariable ${V}(eb_rfrom)
+    ttk::label $q.t -text "to"
+    ttk::entry $q.b -width 5 -textvariable ${V}(eb_rto)
+    ttk::label $q.e -text "every"
+    ttk::entry $q.c -width 5 -textvariable ${V}(eb_rby)
+    pack $q.l $q.a $q.t $q.b $q.e $q.c -side left -padx {0 4}
+    grid $q -row 1 -column 0 -sticky w -pady {4 0}
+    ::VMDance::Tip::add $q.l "eQUAL is given no k: with eQUAL in Setup, the scan runs it at these radii (MDANCE's MSD, Å²)"
+    ttk::label $E.note -text "The algorithm and parameters of Setup, at every k (eQUAL: at every radius). Elbow plot: hover a value for the clusters' shares; double-click to make it the clustering." \
         -style Muted.TLabel -wraplength 280 -justify left
-    grid $E.note -row 1 -column 0 -sticky w -pady {2 0}
+    grid $E.note -row 2 -column 0 -sticky w -pady {2 0}
+    ttk::checkbutton $E.st -text "Stability: compare NANI's four seedings at each k" -variable ${V}(eb_stab)
+    grid $E.st -row 3 -column 0 -sticky w -pady {2 0}
+    ::VMDance::Tip::add $E.st "K-means NANI only: each k is clustered again from StratAll, StratReduced, CompSim and DivSelect, and the Elbow plot shows how alike they are (the mean adjusted Rand index: 1, the same clusters). A k whose clusters change with the seeding cuts a continuum."
     ttk::label $E.info -textvariable ${V}(eb_info) -style Read.TLabel -wraplength 280 -justify left
-    grid $E.info -row 2 -column 0 -sticky w
+    grid $E.info -row 4 -column 0 -sticky w
     ttk::button $E.go -text "Scan" -command {::VMDance::GUI::act elbow}
-    grid $E.go -row 3 -column 0 -sticky w -pady {4 2}
+    grid $E.go -row 5 -column 0 -sticky w -pady {4 2}
 
     set G [_section $P.gr "Sweep" -padding {6 4}]
     pack ${G}_sec -side top -fill x -pady {6 0}
@@ -1654,9 +1713,26 @@ proc ::VMDance::GUI::_build_tab_opts {key o} {
             _combo $o.o ${V}(po_sort) {cluster "Cluster" size "Size"}
             pack $o.l1 $o.s $o.l2 $o.o -side left -padx {0 6}
         }
+        makeup {
+            ttk::label $o.l1 -text "Bars"
+            _combo $o.v ${V}(mu_view) {clusters "Clusters by group" groups "Groups by cluster"}
+            ttk::label $o.l2 -text "Show"
+            _combo $o.s ${V}(mu_show) {count "Frames" share "Shares"}
+            pack $o.l1 $o.v $o.l2 $o.s -side left -padx {0 6}
+        }
         timeline {
             ttk::label $o.l1 -text "Show"
             _combo $o.s ${V}(tl_view) {lanes "The cluster of every frame" msd "Distance to its representative"}
+            pack $o.l1 $o.s -side left -padx {0 6}
+        }
+        map {
+            ttk::label $o.l1 -text "Colour by"
+            _combo $o.s ${V}(mp_colour) {group "Group" cluster "Cluster"}
+            pack $o.l1 $o.s -side left -padx {0 6}
+        }
+        profiles {
+            ttk::label $o.l1 -text "Show"
+            _combo $o.s ${V}(pf_show) {groups "Each group's fluctuations" clusters "Each cluster's fluctuations" differences "Each cluster against the reference"}
             pack $o.l1 $o.s -side left -padx {0 6}
         }
         transitions {
@@ -1681,8 +1757,10 @@ proc ::VMDance::GUI::_build_tab_opts {key o} {
             pack $o.l1 $o.s -side left -padx {0 6}
         }
         tree {
+            ttk::label $o.l1 -text "Show"
+            _combo $o.v ${V}(td_view) {tree "The tree" heights "The merges' heights"}
             ttk::checkbutton $o.l -text "Labels" -variable ${V}(td_labels) -command ::VMDance::GUI::redraw
-            pack $o.l -side left -padx {0 6}
+            pack $o.l1 $o.v $o.l -side left -padx {0 6}
         }
         silhouette {
             ttk::checkbutton $o.s -text "Sorted" -variable ${V}(sl_sort) -command ::VMDance::GUI::redraw
@@ -1823,16 +1901,40 @@ proc ::VMDance::GUI::elbow {} {
         # (the command's values of k: counted before they are made)
         dict set req ks [::VMDance::_ks "vmdance elbow" [dict create -ks "" -from [string trim $S(eb_from)] \
             -to [string trim $S(eb_to)] -by [string trim $S(eb_by)]] {} 200]
+        if {$S(eb_stab) && [dict get $req algorithm] eq "kmeans"} { dict set req stability $::VMDance::Algo::deterministic_kinits }
+        if {[dict get $req algorithm] eq "equal"} {
+            dict set req ks {}
+            dict set req radii [_radii]
+        }
         set req [::VMDance::Job::check_elbow [dict remove $req k]]
         ::VMDance::Job::check_available [dict get $req algorithm]
     } err]} { _error "No elbow scan:\n$err"; return }
-    _start elbow $req "Elbow scan of [::VMDance::Algo::label [dict get $req algorithm]] at k = [lindex [dict get $req ks] 0] to [lindex [dict get $req ks] end]" \
+    set rr [::VMDance::_get $req radii {}]
+    set at [expr {[llength $rr] ? "radius [lindex $rr 0] to [lindex $rr end]" : "k = [lindex [dict get $req ks] 0] to [lindex [dict get $req ks] end]"}]
+    _start elbow $req "Elbow scan of [::VMDance::Algo::label [dict get $req algorithm]] at $at" \
         [list apply {{s} {
             ::VMDance::Results::set_elbow $s
             set bad [llength [lmap r [dict get $s records] {expr {[dict get $r status] eq "ok" ? [continue] : 1}}]]
             ::VMDance::GUI::status "Elbow scan done in [dict get $s seconds] s[expr {$bad ? "; $bad value[expr {$bad == 1 ? "" : "s"}] of k failed" : ""}]."
             ::VMDance::GUI::show_tab elbow
         }}]
+}
+
+# eQUAL's radii of Scans ▸ Elbow: from, to, every (numbers above 0; 200
+# values at most).
+proc ::VMDance::GUI::_radii {} {
+    variable S
+    foreach k {eb_rfrom eb_rto eb_rby} {
+        set v [string trim $S($k)]
+        if {![string is double -strict $v] || [regexp -nocase {nan|inf} $v] || $v <= 0} { error "eQUAL's radii: from, to and every are numbers above 0 (got \"$v\")" }
+        set $k $v
+    }
+    if {$eb_rto < $eb_rfrom} { error "eQUAL's radii: \"to\" is below \"from\"" }
+    set n [expr {int(floor(($eb_rto - $eb_rfrom) / $eb_rby + 1e-9)) + 1}]
+    if {$n > 200} { error "eQUAL's radii: $n values; at most 200" }
+    set out {}
+    for {set i 0} {$i < $n} {incr i} { lappend out [format %.6g [expr {$eb_rfrom + $i * $eb_rby}]] }
+    return $out
 }
 
 proc ::VMDance::GUI::sweep {} {
@@ -1865,8 +1967,7 @@ proc ::VMDance::GUI::adopt {kind which} {
     set s [expr {$kind eq "elbow" ? $::VMDance::Results::elbow : $::VMDance::Results::sweep}]
     if {![dict size $s]} return
     if {$kind eq "elbow"} {
-        set rec {}
-        foreach r [dict get $s records] { if {[dict get $r k] == $which} { set rec $r } }
+        set rec [::VMDance::Results::elbow_record $s $which]
     } else {
         set rec [lindex [dict get $s records] $which]
     }
@@ -1919,6 +2020,79 @@ proc ::VMDance::GUI::similarity {} {
             set ::VMDance::GUI::S(cp_show) isim
             ::VMDance::GUI::show_tab compactness
             ::VMDance::GUI::status "Extended similarity of all frames: [format %.4g [dict get $r isim]]."
+        }} $::VMDance::Results::current]
+}
+
+proc ::VMDance::GUI::groups_set {} {
+    variable S
+    if {[busy]} return
+    if {![::VMDance::Results::has_data]} { _error "Cluster first: the groups are given to the clustered frames."; return }
+    if {[string trim $S(gp_ranges)] eq ""} { _error "Give each group a name and its frames: original 0-63 moderate 64-127"; return }
+    if {[catch {::VMDance::Results::groups_from ranges [string trim $S(gp_ranges)] [::VMDance::Results::frames]} g] ||
+        [catch {::VMDance::Results::set_groups [::VMDance::Results::keep_colours $g]} g]} { _error "No groups:\n$g"; return }
+    status "Groups: [join [::VMDance::Results::group_names] {, }]."
+    show_tab makeup
+}
+proc ::VMDance::GUI::groups_file_dialog {} {
+    variable w
+    if {[busy]} return
+    if {![::VMDance::Results::has_data]} { _error "Cluster first: the groups are given to the clustered frames."; return }
+    set f [tk_getOpenFile -parent $w -title "The frames' groups" -filetypes {{"Tables" {.csv .txt}} {"All files" *}}]
+    if {$f eq ""} return
+    if {[catch {::VMDance::Results::groups_from file $f [::VMDance::Results::frames]} g] ||
+        [catch {::VMDance::Results::set_groups [::VMDance::Results::keep_colours $g]} g]} { _error "No groups:\n$g"; return }
+    status "Groups from [file tail $f]: [join [::VMDance::Results::group_names] {, }]."
+    show_tab makeup
+}
+proc ::VMDance::GUI::groups_clear {} {
+    if {[busy] || ![::VMDance::Results::has_data]} return
+    ::VMDance::Results::set_groups {}
+    status "The frames have no groups."
+}
+proc ::VMDance::GUI::_groups_info {} {
+    variable S
+    set gi [expr {[::VMDance::Results::has_data] ? [::VMDance::groups_info] : {}}]
+    if {![dict size $gi]} {
+        set S(gp_info) [expr {[::VMDance::Results::has_data] ? "No groups for this clustering." : ""}]
+    } else {
+        set S(gp_info) [join [lmap nm [dict get $gi names] n [dict get $gi sizes] {string cat "$nm: $n"}] ", "]
+        if {[dict get $gi none]} { append S(gp_info) ", [dict get $gi none] in none" }
+    }
+    set parts {}
+    set m [expr {[::VMDance::Results::has_data] ? [::VMDance::Results::extra map] : {}}]
+    if {[dict size $m]} {
+        lassign [dict get $m variance] v1 v2
+        lappend parts [format "Map: %.0f%% and %.0f%% of the variance (axes from %d frames)" [expr {100 * $v1}] [expr {100 * $v2}] [dict get $m sample]]
+    }
+    set p [expr {[::VMDance::Results::has_data] ? [::VMDance::Results::extra profiles] : {}}]
+    if {[dict size $p]} { lappend parts "Profiles: against cluster [dict get $p reference]" }
+    set S(mp_info) [join $parts ". "]
+}
+proc ::VMDance::GUI::map {} {
+    variable S
+    if {[busy]} return
+    if {![::VMDance::Results::has_data]} { _error "Cluster first: the map is of the clustered frames."; return }
+    if {[catch {::VMDance::Job::check_specs $::VMDance::Algo::map_params [dict create sample [string trim $S(mp_sample)]]} p]} { _error "No map:\n$p"; return }
+    _start map [dict create result $::VMDance::Results::A params $p] "The map: principal components" \
+        [list apply {{run r} {
+            ::VMDance::Results::attach map $r $run
+            ::VMDance::GUI::show_tab map
+            ::VMDance::GUI::status [format "Map: %.0f%% and %.0f%% of the variance." [expr {100 * [lindex [dict get $r variance] 0]}] [expr {100 * [lindex [dict get $r variance] 1]}]]
+        }} $::VMDance::Results::current]
+}
+proc ::VMDance::GUI::profiles {} {
+    variable S
+    if {[busy]} return
+    if {![::VMDance::Results::has_data]} { _error "Cluster first: the profiles are of the clusters."; return }
+    if {[catch {
+        set p [::VMDance::Job::check_specs $::VMDance::Algo::profiles_params [dict create reference [string trim $S(pf_reference)]]]
+        if {[dict get $p reference] >= 0} { ::VMDance::_cluster "Against cluster" [dict get $p reference] }
+    } err]} { _error "No profiles:\n$err"; return }
+    _start profiles [dict create result $::VMDance::Results::A params $p groups [::VMDance::Results::groups]] "The profiles, atom by atom" \
+        [list apply {{run r} {
+            ::VMDance::Results::attach profiles $r $run
+            ::VMDance::GUI::show_tab profiles
+            ::VMDance::GUI::status "Profiles: [llength [dict get $r residues]] atoms, against cluster [dict get $r reference]."
         }} $::VMDance::Results::current]
 }
 
@@ -2109,6 +2283,7 @@ proc ::VMDance::GUI::_results_changed {what} {
             populate_tree
             _prime_table
             _similarity_info
+            _groups_info
             _colour_key
             redraw_soon
         }
@@ -2121,6 +2296,7 @@ proc ::VMDance::GUI::_results_changed {what} {
         extras {
             _prime_table
             _similarity_info
+            _groups_info
             redraw_soon
         }
         elbow {
@@ -2430,7 +2606,9 @@ proc ::VMDance::GUI::_elbow_info {} {
     if {![dict size $e]} { set S(eb_info) ""; return }
     set q [dict get $e request]
     set ks [dict get $q ks]
-    set S(eb_info) "Last scan: [::VMDance::Algo::label [dict get $q algorithm]] at k = [lindex $ks 0] to [lindex $ks end] ([llength $ks] values), in [dict get $e seconds] s."
+    set at "k = [lindex $ks 0] to [lindex $ks end]"
+    if {[::VMDance::Results::by_radius $e]} { set ks [dict get $q radii]; set at "radius [lindex $ks 0] to [lindex $ks end]" }
+    set S(eb_info) "Last scan: [::VMDance::Algo::label [dict get $q algorithm]] at $at ([llength $ks] values), in [dict get $e seconds] s."
 }
 
 # What a sweep found, for the status line.
@@ -2998,7 +3176,7 @@ proc ::VMDance::GUI::session_state {} {
     variable S
     set out [dict create]
     foreach k [array names S] {
-        if {[regexp {^(po|tl|tn|rs|cp|ds|td|sl|eb|sw|mx|plot|v3d)_} $k] || $k eq "tab"} { dict set out $k $S($k) }
+        if {[regexp {^(po|mu|tl|tn|rs|cp|ds|td|sl|mp|pf|eb|sw|mx|plot|v3d)_} $k] || $k eq "tab"} { dict set out $k $S($k) }
     }
     return $out
 }
@@ -3015,6 +3193,7 @@ proc ::VMDance::GUI::_state_ok {k v} {
         v3d_sel - v3d_frames { return [expr {[string length $v] < 1000 && [string first \n $v] < 0}] }
         v3d_material { return [expr {$v in [material list]}] }
         eb_from - eb_to - eb_by { return [regexp {^[1-9][0-9]{0,3}$} $v] }
+        eb_rfrom - eb_rto - eb_rby { return [expr {[string is double -strict $v] && ![regexp -nocase {nan|inf} $v] && $v > 0 && $v < 1e6}] }
         eb_info { return 0 }
     }
     foreach spec [concat {*}[dict values $optspec] $optall] {
@@ -3035,7 +3214,7 @@ proc ::VMDance::GUI::apply_session_state {g} {
     if {[catch {dict size $g}]} return
     set d {}
     dict for {k v} $g {
-        if {![info exists S($k)] || !([regexp {^(po|tl|tn|rs|cp|ds|td|sl|eb|sw|mx|plot|v3d)_} $k] || $k eq "tab")} continue
+        if {![info exists S($k)] || !([regexp {^(po|mu|tl|tn|rs|cp|ds|td|sl|mp|pf|eb|sw|mx|plot|v3d)_} $k] || $k eq "tab")} continue
         # (the lag box kept " 5" as typed until it kept it as checked: a
         # session saved then has it so)
         if {![_state_ok $k $v] && ![_state_ok $k [set v [string trim $v]]]} continue

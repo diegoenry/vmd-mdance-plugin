@@ -7,7 +7,10 @@
 # cancelled or refused job leaves it as it was. Every clustering
 # published is kept as a run (the last 25, compressed); switching runs
 # publishes a kept one. What is asked of a clustering afterwards (PRIME,
-# the similarity) is kept with its run (attach).
+# the similarity, the map, the profiles) is kept with its run (attach),
+# and so are the groups of its frames (set_groups: the method, replica or
+# condition each frame came from), which a new clustering of the same
+# frames takes over.
 #
 # Beside the runs: the last elbow scan, the last sweep and the last frames
 # picked without clustering, and the selection (the clusters picked in the
@@ -293,6 +296,8 @@ proc ::VMDance::Results::check {a} {
         if {![dict exists $m $key]} { error "the measures have no \"$key\"" }
         _numlist "the measure $key" [dict get $m $key] $n
     }
+    # (HELM's merges' heights, a value per merge: runs made before have none)
+    if {[dict exists $m merge_msd]} { _numlist "the merges' heights" [dict get $m merge_msd] [llength [dict get $a zmatrix]] }
     foreach key {rep_msd centroid_msd} {
         if {![dict exists $m $key]} { error "the measures have no \"$key\"" }
         set M [dict get $m $key]
@@ -308,6 +313,9 @@ proc ::VMDance::Results::check {a} {
         switch -- $key {
             prime { _check_prime $v $n }
             similarity { _check_similarity $v $n $k }
+            groups { _check_groups $v $n }
+            map { _check_map $v $n }
+            profiles { _check_profiles $v $k $na }
             default { error "unknown extra \"$key\"" }
         }
     }
@@ -403,6 +411,74 @@ proc ::VMDance::Results::_check_prime {p n} {
         _intlist "PRIME's $key" [list [dict get $p $key]] 1 -1 [expr {$n - 1}]
     }
 }
+# The groups of the frames: {names of ?colours?}, the names (at most 256,
+# each 1 to 64 characters, no two alike), each frame's group (its index in
+# names; -1: none) and, when any was given, each group's colour (#rrggbb;
+# "": the palette's).
+variable ::VMDance::Results::max_groups 256
+proc ::VMDance::Results::_check_groups {g n} {
+    variable max_groups
+    _isdict "the groups" $g
+    foreach key {names of} { if {![dict exists $g $key]} { error "the groups have no \"$key\"" } }
+    set names [dict get $g names]
+    if {[string length $names] > 70 * $max_groups || ![string is list $names]} { error "the groups' names are corrupt" }
+    if {[llength $names] > $max_groups} { error "the groups are more than $max_groups" }
+    foreach nm $names { check_group_name $nm }
+    if {[llength [lsort -unique $names]] != [llength $names]} { error "two groups have the same name" }
+    _intlist "the frames' groups" [dict get $g of] $n -1 [expr {[llength $names] - 1}]
+    if {[dict exists $g colours]} {
+        set cols [dict get $g colours]
+        if {[string length $cols] > 8 * [llength $names] + 8 || ![string is list $cols] || [llength $cols] != [llength $names]} {
+            error "the groups' colours are corrupt"
+        }
+        foreach c $cols { if {$c ne "" && ![regexp {^#[0-9a-f]{6}$} $c]} { error "\"$c\" is not a group's colour (#rrggbb)" } }
+    }
+}
+# A group's name: 1 to 64 characters, printable, not only spaces.
+proc ::VMDance::Results::check_group_name {nm} {
+    if {[string length $nm] < 1 || [string length $nm] > 64 || [string trim $nm] eq "" || [regexp {[\x00-\x1f\x7f]} $nm]} {
+        error "\"$nm\" is not a group's name (1 to 64 characters, printable)"
+    }
+}
+# The map: {params sample variance total pc1 pc2}, a score per frame.
+proc ::VMDance::Results::_check_map {m n} {
+    _isdict "the map" $m
+    foreach key {params sample variance total pc1 pc2} { if {![dict exists $m $key]} { error "the map has no \"$key\"" } }
+    _check_params "the map's parameters" [dict get $m params] $::VMDance::Algo::map_params
+    _intlist "the map's sample" [list [dict get $m sample]] 1 1 $n
+    _numlist "the map's variance" [dict get $m variance] 2
+    _numlist "the map's total" [list [dict get $m total]] 1
+    foreach key {pc1 pc2} {
+        _numlist "the map's $key" [dict get $m $key] $n
+        if {"" in [dict get $m $key]} { error "the map's $key is corrupt" }
+    }
+}
+# The profiles: {params reference residues chains group_names clusters
+# groups differences}, every list one value per atom ("" for a cluster or a
+# group without frames).
+proc ::VMDance::Results::_check_profiles {p k natoms} {
+    variable max_groups
+    _isdict "the profiles" $p
+    foreach key {params reference residues chains group_names clusters groups differences} {
+        if {![dict exists $p $key]} { error "the profiles have no \"$key\"" }
+    }
+    _check_params "the profiles' parameters" [dict get $p params] $::VMDance::Algo::profiles_params
+    _intlist "the profiles' reference" [list [dict get $p reference]] 1 0 [expr {$k - 1}]
+    _intlist "the profiles' residues" [dict get $p residues] $natoms -999999999 999999999
+    set ch [dict get $p chains]
+    _fits "the profiles' chains" $ch $natoms 8
+    if {![string is list $ch] || [llength $ch] != $natoms} { error "the profiles' chains are not $natoms" }
+    set names [dict get $p group_names]
+    if {[string length $names] > 70 * $max_groups || ![string is list $names] || [llength $names] > $max_groups} {
+        error "the profiles' groups are corrupt"
+    }
+    foreach {key count} [list clusters $k groups [llength $names] differences $k] {
+        set L [dict get $p $key]
+        _fits "the profiles' $key" $L $count [expr {68 * $natoms + 2}]
+        if {![string is list $L] || [llength $L] != $count} { error "the profiles' $key are not $count" }
+        foreach row $L { if {$row ne ""} { _numlist "the profiles' $key" $row $natoms } }
+    }
+}
 proc ::VMDance::Results::_check_similarity {s n k} {
     _isdict "the similarity" $s
     foreach key {isim cluster outliers params} { if {![dict exists $s $key]} { error "the similarity has no \"$key\"" } }
@@ -436,6 +512,7 @@ proc ::VMDance::Results::describe {a} {
 # read its frames on its molecule as its record has it.
 proc ::VMDance::Results::publish {a {label ""}} {
     variable runs; variable current; variable next_id; variable limit; variable trusted
+    set a [_inherit_groups $a]
     check $a
     # (everything that can fail before anything is replaced)
     if {$label eq ""} { set label [describe $a] }
@@ -643,6 +720,171 @@ proc ::VMDance::Results::attach {key value {run ""}} {
 proc ::VMDance::Results::extra {key} {
     variable A
     if {[has_data] && [dict exists $A extras $key]} { return [dict get $A extras $key] }
+    return {}
+}
+
+# The groups of the current clustering's frames: {names of ?colours?} ({}:
+# none).
+proc ::VMDance::Results::groups {} { extra groups }
+proc ::VMDance::Results::group_names {} { ::VMDance::_get [extra groups] names {} }
+# Each row's group (-1: none); {} without groups.
+proc ::VMDance::Results::group_of {} { ::VMDance::_get [extra groups] of {} }
+# The groups' colours, muted, in the groups' order (then again): a group
+# given none has its index's.
+variable ::VMDance::Results::group_palette {#3d5a80 #4f7a5a #c09a45 #a3483b #7a6a9a #4f8a8a #8a7a52 #a36a8f #6f7f3f #707070}
+# The colour of the group of index g ("" for -1: none).
+proc ::VMDance::Results::group_colour {g} {
+    variable group_palette
+    if {$g eq "" || $g < 0} { return "" }
+    set c [lindex [::VMDance::_get [extra groups] colours {}] $g]
+    if {$c ne ""} { return $c }
+    lindex $group_palette [expr {$g % [llength $group_palette]}]
+}
+# The groups g with the colours given by name ({name colour ...}; "": the
+# palette's): a name g does not have is passed over, so that one list
+# colours the groups of several molecules alike.
+proc ::VMDance::Results::colour_groups {g given} {
+    if {![string is list $given] || [llength $given] % 2} { error "-colours: a list of group and colour pairs (original #3d5a80 moderate #c09a45)" }
+    set names [dict get $g names]
+    set cols [::VMDance::_get $g colours [lrepeat [llength $names] ""]]
+    foreach {nm c} $given {
+        set c [string tolower $c]
+        if {$c ne "" && ![regexp {^#[0-9a-f]{6}$} $c]} { error "-colours: \"$c\" is not a colour (#rrggbb)" }
+        set i [lsearch -exact $names $nm]
+        if {$i >= 0} { lset cols $i $c }
+    }
+    if {[lsearch -exact -not $cols ""] < 0} { dict unset g colours } else { dict set g colours $cols }
+    return $g
+}
+# New groups g with the colours the current groups gave their names (the
+# command and the window set new groups so).
+proc ::VMDance::Results::keep_colours {g} {
+    set old [groups]
+    if {![dict exists $old colours]} { return $g }
+    colour_groups $g [concat {*}[lmap nm [dict get $old names] c [dict get $old colours] {list $nm $c}]]
+}
+# Set the groups of the current run's frames ({}: none). The profiles made
+# with other groups go: they are made again with these.
+proc ::VMDance::Results::set_groups {g} {
+    variable A; variable runs; variable current
+    if {![has_data]} { error "no clustering" }
+    set a $A
+    if {[dict size $g]} { dict set a extras groups $g } elseif {[dict exists $a extras groups]} { dict unset a extras groups }
+    if {[dict exists $a extras profiles] && [dict get $a extras profiles group_names] ne [::VMDance::_get $g names {}]} {
+        dict unset a extras profiles
+    }
+    check $a
+    lset runs [_run_index $current] 2 [pack $a]
+    set A $a
+    _notify extras
+}
+# The groups a list of VMD frames has (frames) by how: ranges {name
+# frames ...} (frames as "0-63,70"; a frame in two groups is refused),
+# file (a file of frame,group lines; # comments, a header line), names (a
+# name for each of the frames). {names of}: the names in the order they
+# come first; a frame given none has -1.
+variable ::VMDance::Results::groups_file_most 50000000
+proc ::VMDance::Results::groups_from {how value frames} {
+    variable groups_file_most
+    set names {}
+    set of [dict create]
+    switch -- $how {
+        ranges {
+            if {![string is list $value] || [llength $value] % 2} { error "-ranges: a list of name and frames pairs (original 0-63 moderate 64-127)" }
+            foreach {nm spec} $value {
+                check_group_name $nm
+                if {$nm ni $names} { lappend names $nm }
+                foreach f [::VMDance::Viz::parse_frames $spec] {
+                    if {[dict exists $of $f] && [dict get $of $f] ne $nm} { error "-ranges: frame $f is in two groups ([dict get $of $f] and $nm)" }
+                    dict set of $f $nm
+                }
+            }
+        }
+        file {
+            set f [file normalize $value]
+            if {![file isfile $f] || ![file readable $f]} { error "-file: cannot read \"$value\"" }
+            if {[file size $f] > $groups_file_most} { error "-file: \"$value\" is larger than [expr {$groups_file_most / 1000000}] MB" }
+            set ch [open $f r]
+            try {
+                fconfigure $ch -encoding utf-8
+                set text [read $ch]
+            } finally {
+                close $ch
+            }
+            set ln 0
+            foreach line [split $text \n] {
+                incr ln
+                set line [string trim $line]
+                if {$line eq "" || [string index $line 0] eq "#"} continue
+                if {![regexp {^([0-9]{1,9})\s*[,;\t ]\s*(.+)$} $line -> fr nm]} {
+                    # (a header line: words, no frame number)
+                    if {$ln == 1 || ![llength $names]} continue
+                    error "-file: line $ln is not \"frame,group\": $line"
+                }
+                set fr [scan $fr %d]
+                set nm [string trim $nm " \""]
+                if {[string first , $nm] >= 0} { error "-file: line $ln has more than two columns (frame,group): $line" }
+                check_group_name $nm
+                if {[dict exists $of $fr] && [dict get $of $fr] ne $nm} { error "-file: frame $fr is in two groups ([dict get $of $fr] and $nm)" }
+                if {$nm ni $names} { lappend names $nm }
+                dict set of $fr $nm
+            }
+        }
+        names {
+            if {![string is list $value] || [llength $value] != [llength $frames]} {
+                error "-names: a name for each of the [llength $frames] frames clustered"
+            }
+            foreach f $frames nm $value {
+                check_group_name $nm
+                if {$nm ni $names} { lappend names $nm }
+                dict set of $f $nm
+            }
+        }
+        default { error "groups by \"$how\": ranges, file or names" }
+    }
+    if {![llength $names]} { error "no group is given" }
+    variable max_groups
+    if {[llength $names] > $max_groups} { error "more than $max_groups groups" }
+    set index [dict create]
+    set i 0
+    foreach nm $names { dict set index $nm $i; incr i }
+    set rows [lmap f $frames {expr {[dict exists $of $f] ? [dict get $index [dict get $of $f]] : -1}}]
+    if {[lsearch -exact -not $rows -1] < 0} { error "none of the [llength $frames] frames clustered is in a group" }
+    dict create names $names of $rows
+}
+# A new clustering of frames the current one grouped (on the same molecule,
+# whose frames it still has) takes their groups, frame by frame; when one
+# of its frames was not grouped, none.
+proc ::VMDance::Results::_inherit_groups {a} {
+    variable A
+    if {[dict exists $a extras groups] || ![has_data] || ![dict exists $A extras groups]} { return $a }
+    if {[dict get $A request mol] ne [dict get $a request mol]} { return $a }
+    if {[catch {frames_ok} ok] || !$ok} { return $a }
+    set g [dict get $A extras groups]
+    foreach f [dict get $A frames] x [dict get $g of] { set of($f) $x }
+    set new {}
+    foreach f [dict get $a frames] {
+        if {![info exists of($f)]} { return $a }
+        lappend new $of($f)
+    }
+    dict set g of $new
+    dict set a extras groups $g
+    return $a
+}
+
+# A scan record's value: its k, or (an elbow scan of eQUAL) its radius.
+proc ::VMDance::Results::scan_x {r} {
+    if {[dict exists $r radius]} { return [dict get $r radius] }
+    dict get $r k
+}
+# Whether an elbow scan is of eQUAL's radius.
+proc ::VMDance::Results::by_radius {e} { expr {[llength [::VMDance::_get [dict get $e request] radii {}]] > 0} }
+# The record of an elbow scan e at value x (k or radius), {} when none.
+proc ::VMDance::Results::elbow_record {e x} {
+    foreach r [dict get $e records] {
+        set v [scan_x $r]
+        if {[string is double -strict $x] && [string is double -strict $v] && $v == $x} { return $r }
+    }
     return {}
 }
 

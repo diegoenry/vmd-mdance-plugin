@@ -118,6 +118,11 @@ proc ::VMDance::Plots::has_data {key} {
         sweep { return [expr {[dict size $::VMDance::Results::sweep] > 0}] }
     }
     if {![::VMDance::Results::has_data]} { return 0 }
+    switch -- $key {
+        makeup { return [expr {[K] > 0 && [llength [::VMDance::Results::group_names]] > 0}] }
+        map { return [expr {[dict size [::VMDance::Results::extra map]] > 0}] }
+        profiles { return [expr {[dict size [::VMDance::Results::extra profiles]] > 0}] }
+    }
     expr {[K] > 0 || $key in {timeline populations}}
 }
 
@@ -806,6 +811,7 @@ proc ::VMDance::Plots::_helm_final {} {
 
 proc ::VMDance::Plots::draw_tree {c} {
     variable H
+    if {[S td_view] eq "heights"} { _tree_heights $c; return }
     set why [::VMDance::Results::too_many tree]
     if {$why ne ""} {
         ::VMDance::Plot::empty $c "[K] clusters" "[string toupper $why 0 0]."
@@ -890,7 +896,86 @@ proc ::VMDance::Plots::_leaf_at {c x y} {
     if {$bd > 12 || $y < $y0} { return {} }
     list $how {*}$best
 }
+# The merges' heights against the clusters before each: HELM's, the MSD
+# of the cluster each merge makes (measured when it was clustered); the
+# average linkage's, the RMSD² between the mean structures it joins. A
+# merge much higher than the one before joins clusters far apart: the k
+# before it is a natural place to stop. The largest such jump is marked,
+# relative (the height over the one before, which counts as 5% of the
+# highest at least: merges of near-identical clusters are not jumps).
+proc ::VMDance::Plots::_tree_heights {c} {
+    variable H
+    set why [::VMDance::Results::too_many tree]
+    if {$why ne ""} { ::VMDance::Plot::empty $c "[K] clusters" "[string toupper $why 0 0]."; return }
+    if {[catch {::VMDance::Results::tree} tree]} { ::VMDance::Plot::empty $c "No tree" $tree; return }
+    lassign $tree how rows leaves base
+    if {$how eq "helm"} {
+        set m [::VMDance::Results::get measures]
+        if {![dict exists $m merge_msd]} {
+            ::VMDance::Plot::empty $c "No heights" "This run of HELM was made before the heights of its merges were measured: cluster again."
+            return
+        }
+        set hs [dict get $m merge_msd]
+        set ylab "MSD of the cluster each merge makes (Å²)"
+    } else {
+        set hs [lmap r $rows {lindex $r 2}]
+        set ylab "RMSD² between the mean structures joined (Å²)"
+    }
+    set L [llength $leaves]
+    set pts {}
+    set j 0
+    foreach h $hs {
+        if {$h ne ""} { lappend pts [list [expr {$L - $j}] $h] }
+        incr j
+    }
+    if {[llength $pts] < 1} { ::VMDance::Plot::empty $c "No merges" "The tree has no merge to draw."; return }
+    set xs [lmap p $pts {lindex $p 0}]; set ys [lmap p $pts {lindex $p 1}]
+    set kmin [::tcl::mathfunc::min {*}$xs]; set kmax [::tcl::mathfunc::max {*}$xs]
+    set hi [::tcl::mathfunc::max {*}$ys]
+    if {$hi <= 0} { set hi 1 }
+    # the largest jump: a merge's height over the one before it (at k + 1)
+    set jump ""; set best 1.0
+    set floor [expr {0.05 * $hi}]
+    foreach p $pts {
+        lassign $p k h
+        set i [lsearch -exact -index 0 $pts [expr {$k + 1}]]
+        if {$i < 0} continue
+        set d [expr {$h / max([lindex $pts $i 1], $floor)}]
+        if {$d > $best} { set best $d; set jump $k }
+    }
+    set ml [::VMDance::Plot::ml]
+    ::VMDance::Plot::setup $c [expr {$kmin - 0.5}] [expr {$kmax + 0.5}] 0 [expr {$hi * 1.1}] [list $ml 18 18 [::VMDance::Plot::mb]]
+    ::VMDance::Plot::axes $c "Clusters before the merge (k)" $ylab auto auto [gridopt]
+    lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    set line {}
+    foreach p [lsort -integer -index 0 $pts] {
+        lassign $p k h
+        lappend line [::VMDance::Plot::X $c $k] [::VMDance::Plot::Y $c $h]
+    }
+    if {[llength $line] >= 4} { $c create line {*}$line -fill $::VMDance::Plots::accent -width [expr {[lw] + 0.4}] -tags series }
+    foreach {px py} $line { $c create oval [expr {$px - 3.5}] [expr {$py - 3.5}] [expr {$px + 3.5}] [expr {$py + 3.5}] -fill $::VMDance::Plots::accent -outline white -tags series }
+    if {$jump ne ""} {
+        set px [::VMDance::Plot::X $c $jump]; set py [::VMDance::Plot::Y $c [lindex $pts [lsearch -exact -index 0 $pts $jump] 1]]
+        $c create oval [expr {$px - 7}] [expr {$py - 7}] [expr {$px + 7}] [expr {$py + 7}] -outline [theme cursor] -width 1.5 -tags mark
+        $c create text [expr {$x1 - 4}] [expr {$y0 + 4}] -anchor ne -font MdvSmall -fill [theme muted] \
+            -text [format "circled: the largest jump (× %.1f), from k = %d to %d" $best $jump [expr {$jump - 1}]] -tags label
+    }
+    # the clustering's k (merges stop there)
+    if {[K] >= $kmin - 1 && [K] <= $kmax} {
+        set px [::VMDance::Plot::X $c [K]]
+        $c create line $px $y0 $px $y1 -fill $::VMDance::Plots::accent -dash {2 3} -tags mark
+    }
+    set H($c,heights) $pts
+}
 proc ::VMDance::Plots::hover_tree {c x y} {
+    variable H
+    if {[S td_view] eq "heights"} {
+        if {![info exists H($c,heights)] || ![::VMDance::Plot::inside $c $x $y]} { return "" }
+        set k [expr {int(round([::VMDance::Plot::invX $c $x]))}]
+        set i [lsearch -exact -index 0 $H($c,heights) $k]
+        if {$i < 0} { return "" }
+        return [format "from %d to %d clusters: a merge of height %.4g Å²" $k [expr {$k - 1}] [lindex $H($c,heights) $i 1]]
+    }
     lassign [_leaf_at $c $x $y] how px l cl
     if {$how eq ""} { return "" }
     if {$how eq "helm"} {
@@ -900,6 +985,7 @@ proc ::VMDance::Plots::hover_tree {c x y} {
     return [_cluster_words $cl]
 }
 proc ::VMDance::Plots::click_tree {c x y add} {
+    if {[S td_view] eq "heights"} return
     lassign [_leaf_at $c $x $y] how px l cl
     if {$how ne "" && $cl ne ""} { _click_cluster $cl $add }
 }
@@ -1011,20 +1097,47 @@ proc ::VMDance::Plots::draw_elbow {c} {
     variable H; variable ch_col; variable db_col
     set e $::VMDance::Results::elbow
     set recs [dict get $e records]
-    set ks [lmap r $recs {dict get $r k}]
+    # (an elbow scan of eQUAL is of its radius: the values are radii)
+    set radius [::VMDance::Results::by_radius $e]
+    set ks [lmap r $recs {::VMDance::Results::scan_x $r}]
     set show [S eb_show]
     set series {}
     if {$show in {both ch}} { lappend series ch $ch_col "Calinski–Harabasz (higher: better)" }
     if {$show in {both db}} { lappend series db $db_col "Davies–Bouldin (lower: better)" }
     set items {}
     foreach {key col lab} $series { lappend items $lab $col }
-    set failed [lmap r $recs {expr {[dict get $r status] eq "ok" ? [continue] : [dict get $r k]}}]
-    if {[llength $failed]} { lappend items "failed at k = [join $failed {, }]" @none }
+    set failed [lmap r $recs {expr {[dict get $r status] eq "ok" ? [continue] : [::VMDance::Results::scan_x $r]}}]
+    if {[llength $failed]} { lappend items "failed at [expr {$radius ? "radius" : "k ="}] [join $failed {, }]" @none }
+    # bars behind, 0 to 1: the agreement between seedings, when the scan has
+    # it; of eQUAL's radius, the clusters found (the most: the full height)
+    set bars {}
+    set stab [expr {[S eb_stability] && [llength [::VMDance::_get [dict get $e request] stability {}]]}]
+    if {$stab} {
+        lappend items "Stability: agreement between seedings (bars, 0 to 1)" #c9d3df
+        foreach r $recs {
+            set v [::VMDance::_get $r stability ""]
+            if {$v ne "" && $v > 0} { lappend bars [list [::VMDance::Results::scan_x $r] [expr {min(1.0, $v)}] [format %.2f $v]] }
+        }
+    } elseif {$radius} {
+        lappend items "Clusters found (bars)" #c9d3df
+        set most [::tcl::mathfunc::max 1 {*}[lmap r $recs {expr {[dict get $r nclusters] eq "" ? 0 : [dict get $r nclusters]}}]]
+        foreach r $recs {
+            if {[dict get $r status] ne "ok"} continue
+            lappend bars [list [dict get $r radius] [expr {double([dict get $r nclusters]) / $most}] [dict get $r nclusters]]
+        }
+    }
     set ml [::VMDance::Plot::ml]
     set mr [expr {$show eq "both" ? $ml : 18}]
     set mt [_legend_margin $c $items $ml $mr]
-    set kmin [lindex $ks 0]; set kmax [lindex $ks end]
+    set kmin [::tcl::mathfunc::min {*}$ks]; set kmax [::tcl::mathfunc::max {*}$ks]
     if {$kmax == $kmin} { set kmax [expr {$kmin + 1}] }
+    # (the half gap around the values: k's 0.5; radii's, half the smallest gap)
+    set half 0.5
+    if {$radius} {
+        set sorted [lsort -real $ks]
+        set half [expr {($kmax - $kmin) / 2.0}]
+        foreach a [lrange $sorted 0 end-1] b [lrange $sorted 1 end] { if {$b > $a} { set half [expr {min($half, ($b - $a) / 2.0)}] } }
+    }
     # each score on its own scale: the first on the left axis
     set first 1
     foreach {key col lab} $series {
@@ -1036,16 +1149,31 @@ proc ::VMDance::Plots::draw_elbow {c} {
     }
     set k0 [lindex $series 0]
     lassign $rng($k0) lo hi
-    ::VMDance::Plot::setup $c [expr {$kmin - 0.5}] [expr {$kmax + 0.5}] $lo $hi [list $ml $mt $mr [::VMDance::Plot::mb]]
-    ::VMDance::Plot::axes $c "Number of clusters (k)" [lindex $series 2] $ks auto [gridopt]
+    ::VMDance::Plot::setup $c [expr {$kmin - $half}] [expr {$kmax + $half}] $lo $hi [list $ml $mt $mr [::VMDance::Plot::mb]]
+    ::VMDance::Plot::axes $c [expr {$radius ? "Radius (MDANCE's MSD, Å²)" : "Number of clusters (k)"}] [lindex $series 2] $ks auto [gridopt]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    if {[llength $bars]} {
+        set bw [expr {max(3.0, ([::VMDance::Plot::X $c [expr {$kmin + $half}]] - [::VMDance::Plot::X $c $kmin]))}]
+        foreach b $bars {
+            lassign $b bx v txt
+            set px [::VMDance::Plot::X $c $bx]
+            set py [expr {$y1 - $v * ($y1 - $y0)}]
+            $c create rectangle [expr {$px - $bw / 2}] $py [expr {$px + $bw / 2}] $y1 -fill #dfe5ec -outline #c9d3df -tags stability
+            if {$bw >= [font measure MdvSmall $txt] + 2} {
+                $c create text $px [expr {$py + 2}] -text $txt -anchor n -font MdvSmall -fill [theme muted] -tags stability
+            }
+        }
+        # (above the grid, behind the scores' lines)
+        $c raise stability plotbg
+        if {[llength [$c find withtag grid]]} { $c raise stability grid }
+    }
     set w [expr {[lw] + 0.6}]
     foreach {key col lab} $series {
         lassign $rng($key) lo hi
         set pts {}
         foreach r $recs {
             if {[dict get $r status] ne "ok" || [dict get $r $key] eq ""} continue
-            set px [::VMDance::Plot::X $c [dict get $r k]]
+            set px [::VMDance::Plot::X $c [::VMDance::Results::scan_x $r]]
             set py [expr {$y1 - ([dict get $r $key] - $lo) / ($hi - $lo) * ($y1 - $y0)}]
             lappend pts $px $py
         }
@@ -1070,35 +1198,51 @@ proc ::VMDance::Plots::draw_elbow {c} {
         $c create line [expr {$px - 4}] [expr {$y1 - 4}] [expr {$px + 4}] [expr {$y1 + 4}] -fill [theme cursor] -width 2 -tags series
         $c create line [expr {$px - 4}] [expr {$y1 + 4}] [expr {$px + 4}] [expr {$y1 - 4}] -fill [theme cursor] -width 2 -tags series
     }
-    # the current clustering's k, when it is of the scan's algorithm
-    if {[::VMDance::Results::has_data] && [dict get [::VMDance::Results::request] k] in $ks &&
-        [dict get [::VMDance::Results::request] algorithm] eq [dict get $e request algorithm]} {
-        set px [::VMDance::Plot::X $c [dict get [::VMDance::Results::request] k]]
-        $c create line $px $y0 $px $y1 -fill $::VMDance::Plots::accent -dash {2 3} -tags mark
+    # the current clustering's k (eQUAL's radius), when it is of the scan's algorithm
+    if {[::VMDance::Results::has_data] && [dict get [::VMDance::Results::request] algorithm] eq [dict get $e request algorithm]} {
+        set q [::VMDance::Results::request]
+        set cur [expr {$radius ? [::VMDance::_get [dict get $q params] threshold ""] : [dict get $q k]}]
+        if {[string is double -strict $cur] && [llength [lmap v $ks {expr {$v == $cur ? 1 : [continue]}}]]} {
+            set px [::VMDance::Plot::X $c $cur]
+            $c create line $px $y0 $px $y1 -fill $::VMDance::Plots::accent -dash {2 3} -tags mark
+        }
     }
     _legend $c $items [list $x0 $x1]
     set H($c,elbow) $ks
 }
+# The scan's value (k, or radius) nearest the pointer, within half the gap
+# to the next ("" none).
 proc ::VMDance::Plots::_k_at {c x y} {
     variable H
     if {![info exists H($c,elbow)] || ![::VMDance::Plot::inside $c $x $y]} { return "" }
-    set k [expr {int(round([::VMDance::Plot::invX $c $x]))}]
-    expr {$k in $H($c,elbow) ? $k : ""}
+    set best ""; set bd Inf
+    set pxs [lsort -real [lmap k $H($c,elbow) {::VMDance::Plot::X $c $k}]]
+    set gap Inf
+    foreach a [lrange $pxs 0 end-1] b [lrange $pxs 1 end] { if {$b > $a} { set gap [expr {min($gap, $b - $a)}] } }
+    foreach k $H($c,elbow) {
+        set d [expr {abs([::VMDance::Plot::X $c $k] - $x)}]
+        if {$d < $bd} { set bd $d; set best $k }
+    }
+    expr {$bd <= max(6.0, $gap / 2.0) ? $best : ""}
 }
-proc ::VMDance::Plots::_elbow_record {k} {
-    foreach r [dict get $::VMDance::Results::elbow records] { if {[dict get $r k] == $k} { return $r } }
-    return {}
+proc ::VMDance::Plots::_elbow_record {k} { ::VMDance::Results::elbow_record $::VMDance::Results::elbow $k }
+# A scan value as said: "k = 6", "radius 1.5".
+proc ::VMDance::Plots::_at_words {k} {
+    expr {[::VMDance::Results::by_radius $::VMDance::Results::elbow] ? "radius $k" : "k = $k"}
 }
 proc ::VMDance::Plots::hover_elbow {c x y} {
     set k [_k_at $c $x $y]
     $c delete partition
     if {$k eq ""} { return "" }
     set r [_elbow_record $k]
-    if {[dict get $r status] ne "ok"} { return "k = $k failed: [dict get $r message]" }
+    if {[dict get $r status] ne "ok"} { return "[_at_words $k] failed: [dict get $r message]" }
     if {[S eb_partition]} { _partition $c $x $y $k $r }
-    set s "k = $k"
-    if {[dict get $r nclusters] != $k} { append s " (found [dict get $r nclusters])" }
+    set s [_at_words $k]
+    if {[dict exists $r radius]} {
+        append s " ([dict get $r nclusters] clusters)"
+    } elseif {[dict get $r nclusters] != $k} { append s " (found [dict get $r nclusters])" }
     append s ": Calinski–Harabasz [_sc [dict get $r ch]], Davies–Bouldin [_sc [dict get $r db]]"
+    if {[::VMDance::_get $r stability ""] ne ""} { append s ", stability [format %.2f [dict get $r stability]]" }
     append s " · double-click: make it the clustering"
     return $s
 }
@@ -1123,7 +1267,7 @@ proc ::VMDance::Plots::_partition {c x y k r} {
     set by [expr {max(4, min($Hh - $bh - 4, $y - $bh / 2.0))}]
     $c create rectangle $bx $by [expr {$bx + $boxw}] [expr {$by + $bh}] -fill white -outline [theme muted] -tags partition
     $c create text [expr {$bx + 6}] [expr {$by + 4}] -anchor nw -font MdvBold -fill [theme text] \
-        -text "k = $k[expr {$found != $k ? " (found $found)" : ""}]" -tags partition
+        -text [expr {[dict exists $r radius] ? "radius $k: $found clusters" : "k = $k[expr {$found != $k ? " (found $found)" : ""}]"}] -tags partition
     # (the bars scaled to the largest share: the widths compare the clusters)
     set fmax [expr {double([::tcl::mathfunc::max {*}$sizes]) / $tot}]
     for {set i 0} {$i < $shown} {incr i} {

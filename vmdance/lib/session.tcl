@@ -204,8 +204,15 @@ proc ::VMDance::Session::check_scan {s kind} {
     ::VMDance::Results::check_meta "the $kind's" $s
     if {$kind eq "elbow"} {
         foreach k {algorithm metric params ks} { if {![dict exists $s request $k]} { error "the elbow's request has no \"$k\"" } }
+        if {[dict exists $s request radii]} {
+            set rr [dict get $s request radii]
+            if {[catch {::VMDance::Results::_numlist "the elbow's radii" $rr ""}] || [llength $rr] > 200 ||
+                ([llength $rr] && [dict get $s request algorithm] ne "equal")} { error "the elbow's radii are corrupt" }
+        }
         if {![::VMDance::Algo::exists [dict get $s request algorithm]]} { error "the elbow's request names no algorithm" }
         if {[catch {::VMDance::Algo::check_metric [dict get $s request metric]} err]} { error "the elbow's request: $err" }
+        if {[dict exists $s request stability] &&
+            [catch {::VMDance::Job::check_stability [dict get $s request stability] [dict get $s request algorithm]} err]} { error "the elbow's request: $err" }
     }
     # (a record a k or a configuration, as many as a scan runs at most, each
     # of a dozen keys: counted before they are made)
@@ -237,6 +244,10 @@ proc ::VMDance::Session::check_scan {s kind} {
         }
         if {[catch {::VMDance::Results::_intlist "sizes" [dict get $r sizes] $ns 0 $n}]} { error "the $kind's record $i is corrupt" }
         if {[catch {::VMDance::Results::_numlist "the scores" [list [dict get $r ch] [dict get $r db]] 2}]} { error "the $kind's record $i is corrupt" }
+        if {[dict exists $r stability] && ([catch {::VMDance::Results::_numlist "the stability" [list [dict get $r stability]] 1}] ||
+                ([dict get $r stability] ne "" && ([dict get $r stability] < -1 || [dict get $r stability] > 1)))} {
+            error "the $kind's record $i is corrupt"
+        }
         if {$kind eq "sweep" || [dict exists $r algorithm]} {
             foreach k {algorithm k metric params} { if {![dict exists $r $k]} { error "the $kind's record $i has no \"$k\"" } }
             # (a configuration refused is kept with what was asked, as it was:
@@ -246,7 +257,11 @@ proc ::VMDance::Session::check_scan {s kind} {
                 if {[catch {::VMDance::Algo::check_params [dict get $r algorithm] [dict get $r params] 1} err]} { error "the $kind's record $i: $err" }
             }
         }
-        if {($kind eq "elbow" || [dict get $r status] eq "ok") && ![regexp {^[1-9][0-9]{0,5}$} [dict get $r k]]} { error "the $kind's record $i has no k" }
+        if {$kind eq "elbow" && [llength [::VMDance::_get [dict get $s request] radii {}]]} {
+            # (an elbow scan of eQUAL: a radius, no k)
+            if {![dict exists $r radius] || [catch {::VMDance::Results::_numlist "the radius" [list [dict get $r radius]] 1}] ||
+                [dict get $r radius] eq "" || [dict get $r k] ne ""} { error "the $kind's record $i has no radius" }
+        } elseif {($kind eq "elbow" || [dict get $r status] eq "ok") && ![regexp {^[1-9][0-9]{0,5}$} [dict get $r k]]} { error "the $kind's record $i has no k" }
     }
 }
 proc ::VMDance::Session::check_picks {p} {

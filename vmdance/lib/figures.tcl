@@ -217,12 +217,16 @@ proc ::VMDance::Figures::render_3d {file {renderer snapshot} {white 1}} {
 
 # The command: figures dir ?-plots {...}? ?-formats {pdf png}? ?-width w?
 # ?-height h? ?-dpi d? ?-prefix p? ?-cursor 0|1? ?-3d 0|1? ?-renderer r?
+# ?-text points? (the plots' text size: 12, the figures' own, by default;
+# larger for a slide or a small figure)
 proc ::VMDance::Figures::api {dir args} {
     set what "vmdance figures"
     # (by default the plots that have something to draw)
     set have [lmap p [dict keys $::VMDance::GUI::tabs] {expr {[::VMDance::Plots::has_data $p] ? $p : [continue]}}]
     set o [::VMDance::_opts $what [dict create -plots $have -formats {pdf png} \
-        -width 900 -height 560 -dpi 300 -prefix vmdance -cursor 1 -3d 0 -renderer auto -options {}] $args]
+        -width 900 -height 560 -dpi 300 -prefix vmdance -cursor 1 -3d 0 -renderer auto -options {} -text 12] $args]
+    set ts [dict get $o -text]
+    if {![regexp {^[1-9][0-9]?$} $ts] || $ts < 8 || $ts > 24} { error "$what: -text must be a whole number of points from 8 to 24 (got \"$ts\")" }
     # (the plots, the 3D view or both: -plots {} -3d 1 is the 3D view alone,
     # as the window renders it)
     set d3 [::VMDance::_bool "$what: -3d" [dict get $o -3d]]
@@ -241,7 +245,7 @@ proc ::VMDance::Figures::api {dir args} {
         # (a setting given twice: dict for kept the last, the first never checked)
         if {$k in $seen} { error "$what: -options: $k is given twice" }
         lappend seen $k
-        if {![regexp {^(po|tl|tn|rs|cp|ds|td|sl|eb|sw|mx|plot)_} $k] || ![info exists ::VMDance::GUI::S($k)]} {
+        if {![regexp {^(po|mu|tl|tn|rs|cp|ds|td|sl|mp|pf|eb|sw|mx|plot)_} $k] || ![info exists ::VMDance::GUI::S($k)]} {
             error "$what: unknown plot setting \"$k\" (the plot options' names: po_show, tl_view, tn_show, cp_show, ds_show …)"
         }
         if {![::VMDance::GUI::_state_ok $k $v]} { error "$what: $k cannot be \"$v\"" }
@@ -263,6 +267,8 @@ proc ::VMDance::Figures::api {dir args} {
     set out {}
     set saved [dict create]
     dict for {k v} $po { dict set saved $k $::VMDance::GUI::S($k); set ::VMDance::GUI::S($k) $v }
+    set ref $::VMDance::Fonts::reference
+    set ::VMDance::Fonts::reference $ts
     try {
         foreach p [dict get $o -plots] {
             if {[catch {export_plot $p [file join $dir ${prefix}_$p] [dict get $o -formats] [dict get $o -width] [dict get $o -height] \
@@ -274,6 +280,7 @@ proc ::VMDance::Figures::api {dir args} {
         return -options $opts $msg
     } finally {
         dict for {k v} $saved { set ::VMDance::GUI::S($k) $v }
+        set ::VMDance::Fonts::reference $ref
     }
     if {$d3} {
         if {[catch {render_3d [file join $dir ${prefix}_3d.png] $r} f]} {

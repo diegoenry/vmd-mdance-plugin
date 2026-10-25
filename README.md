@@ -151,7 +151,7 @@ alone in its cluster).
 ## The window
 
 A toolbar sits on top (sessions, export and figures, Cluster, Elbow and
-Cancel with a progress ring, the ten plots, the 3D drawing, settings and
+Cancel with a progress ring, the thirteen plots, the 3D drawing, settings and
 help). The left panel has five tabs:
 
 - **Setup**: the molecule; the atoms, with a menu of common selections and
@@ -199,14 +199,17 @@ the selection.
 | Tab | Shows |
 |---|---|
 | **Populations** | the frames of each cluster, or their share; in order or largest first; eQUAL's noise; click to select, double-click to go to the representative |
+| **Make-up** | each cluster's frames by group (the method, replica or condition each came from), or each group's by cluster; counts or shares |
 | **Timeline** | the cluster of every frame, a lane per cluster (noise at the bottom); or every frame's RMSD² from its representative, coloured by cluster; click to go to a frame |
 | **Transitions** | from each cluster to the one lag frames later: probabilities (the share into noise left out of the columns) or counts; the diagonal (staying) on or off |
 | **Residence** | how long the trajectory stays in a cluster once it enters it: the mean of its runs of frames, a whisker to the longest; or the number of visits |
 | **Compactness** | the MSD within each cluster (MDANCE's), the RMSD² from its representative, the MSD against its size (the medians dashed), or its extended similarity (iSIM) |
 | **Distances** | between every two clusters: their mean structures (RMSD²) or their representatives (RMSD) |
-| **Tree** | how the clusters join: HELM's merges of its starting clusters (a forest when it stops at k, coloured by the cluster each ends in), or the average linkage of the clusters' mean structures (DIVINE's too, not its splits: the axis says which) |
+| **Tree** | how the clusters join: HELM's merges of its starting clusters (a forest when it stops at k, coloured by the cluster each ends in), or the average linkage of the clusters' mean structures (DIVINE's too, not its splits: the axis says which); or the merges' heights, the largest jump circled |
 | **Silhouette** | every frame's silhouette, cluster by cluster, sorted, with the mean |
-| **Elbow** | Calinski–Harabasz and Davies–Bouldin at every k of the scan, each on its own axis; hover a k for its clusters' shares, double-click to make it the clustering |
+| **Map** | every frame on the first two principal components of the clustered coordinates, by group or by cluster |
+| **Profiles** | atom by atom: each group's or cluster's fluctuations (RMSF), or each cluster's mean structure against the most populated one's |
+| **Elbow** | Calinski–Harabasz and Davies–Bouldin at every k of the scan, each on its own axis, and the stability as bars (how alike NANI's seedings cluster); eQUAL by radius; hover a k for its clusters' shares, double-click to make it the clustering |
 | **Sweep** | the chosen score of every configuration, a row per algorithm, metric and seeding and a column per k, the best outlined; double-click to make one the clustering |
 
 ## Scripting (works in text mode)
@@ -226,11 +229,16 @@ vmdance transitions -lag 10         ;# probabilities, k × k
 vmdance -sel backbone -algorithm helm -k 6 -initial-labels labels_60.csv
 vmdance -sel backbone -algorithm equal -threshold 10
 vmdance elbow -sel backbone -kinit CompSim -from 2 -to 15   ;# {index k nclusters ch db sizes status message} ...
+vmdance elbow -sel backbone -from 2 -to 15 -stability 1      ;# and each k's stability across NANI's seedings
 vmdance elbow load 6                ;# that k made the clustering
 vmdance sweep -sel backbone -algorithms {kmeans helm} -from 2 -to 10 -seedings {StratAll CompSim}
 vmdance sweep best db
 vmdance prime                       ;# {pairwise frame union frame ... medoidAll frame ...}
 vmdance similarity                  ;# {isim x clusters {...} least_similar {...}}
+vmdance groups -ranges {first 0-2999 second 3000-6000}   ;# where each frame came from (or -file, -names; -colours)
+vmdance makeup                      ;# each cluster's frames by group
+vmdance map                         ;# the frames on their first two principal components
+vmdance profiles                    ;# atom by atom: each group's and cluster's RMSF, each cluster against the largest
 vmdance pick -sel backbone -method diversity -param 10
 vmdance select 0 3
 vmdance draw -colour 1 -overlay 1 -top 10
@@ -248,8 +256,8 @@ The clustering options: `-mol -sel -fit -first -last -step -algorithm -k
 `vmdance parameters helm` lists an algorithm's with their defaults and
 limits. Subcommands: `info algorithms parameters backend cancel clusters get
 labels frame transitions residence silhouette distances tree elbow sweep
-prime similarity pick select draw goto userfield runs run export session
-figures`. Every option is checked before anything changes, and an error
+prime similarity groups makeup map profiles pick select draw goto userfield
+runs run export session figures`. Every option is checked before anything changes, and an error
 names the option; a failed, cancelled or refused job keeps what was there.
 If the window is open, it shows what the command did. A scan or a pick
 takes its own options, the command's defaults where none is given, not the
@@ -429,7 +437,7 @@ Choices of this plugin:
 - **Settings are kept** between sessions of VMD (the backend, the metrics'
   lock, the text size, the theme); the text size applies to the whole
   window (the old one could not reach VMD's ttk widgets).
-- **Plots** are ten tabs of one window with their options in one panel;
+- **Plots** are thirteen tabs of one window with their options in one panel;
   the Cluster MSD, MSD/Pop and similarity plots are the views of
   Compactness, and the centroid distances and representatives' RMSD the
   views of Distances.
@@ -458,7 +466,8 @@ vmdance/
   lib/fonts.tcl        one font family and size
   lib/theme.tcl        the window's looks: native, flat, VMD's own
   lib/tooltip.tcl, lib/icons.tcl, lib/colormaps.tcl, lib/plotlib.tcl   (InteractionView's)
-  lib/plots.tcl        the ten plots
+  lib/plots.tcl        the plots of the clusters and the scans
+  lib/plots_groups.tcl the plots of the groups and the coordinates: make-up, map, profiles
   lib/figures.tcl      figures (PostScript, Ghostscript) and the 3D view as a picture
   lib/gui.tcl          main window: menus, toolbar, the Setup, Results, Scans, Tools and 3D tabs, running jobs
   lib/gui_opts.tcl     the Plot options panel; showing and hiding the side panels
@@ -482,6 +491,8 @@ tests/
                        or deleted under a clustering, the drawing and the picks, a selection's atoms, imports
   test_hardening2_*.tcl  what the reviews of the second round's fixes found, a suite each (fx_g1 to fx_g5, g6 to g9, h1, oi, h3,
                        h4: docs/tests.rst says what each keeps); g9's, what the window's fixes ask of the core
+  test_groups.tcl      the groups and their colours, the make-up, the map (numpy's PCA), the profiles, the scans' stability,
+                       eQUAL's radius scan, HELM's merges' heights, each against a direct computation (the real backend)
   test_gui.tcl         windowed: the window, clustering, cancelling, every plot, scans, tools, 3D, files, figures, themes
   run_all.sh           every suite
 docs/                  Sphinx documentation
@@ -503,6 +514,7 @@ vmd -dispdev text -e tests/test_session.tcl   < /dev/null | grep -E "FAIL|RESULT
 vmd -dispdev text -e tests/test_reference.tcl < /dev/null | grep -E "FAIL|SKIP|RESULT"
 vmd -dispdev text -e tests/test_hardening.tcl < /dev/null | grep -E "FAIL|RESULT"
 vmd -dispdev text -e tests/test_hardening2.tcl < /dev/null | grep -E "FAIL|RESULT"
+vmd -dispdev text -e tests/test_groups.tcl    < /dev/null | grep -E "FAIL|SKIP|RESULT"
 for g in fx_g1 fx_g2 fx_g3 fx_g4 fx_g5 g6 g7 g8 g9 h1 oi h3 h4; do vmd -dispdev text -e tests/test_hardening2_$g.tcl < /dev/null | grep -E "FAIL|RESULT"; done
 VMDANCE_OUT=/tmp/mdv vmd -dispdev win -e tests/test_gui.tcl < /dev/null; grep -E "FAIL|RESULT" /tmp/mdv/gui.log
 sh tests/run_all.sh                           # all of them
@@ -521,7 +533,8 @@ few checks of g7, g8 and h4 that read files kept outside the repository.
 The windowed suite needs a display (`Xephyr :9 -screen 1600x1200x24 -ac &`
 then `DISPLAY=:9`). Current results: 140, 110, 67, 42, 33, 31, 194 and 219
 checks (core, jobs, results, session, reference, hardening, hardening2,
-gui), and 384 in the second round's thirteen group suites, all passing in
+gui), 384 in the second round's thirteen group suites, and 99 in the
+groups suite (the real backend), all passing in
 VMD 2.1 (Linux); the core suite also in `tclsh` 8.6. End to end
 (`DISPLAY=:9 sh tests/e2e/run_e2e.sh`: four phases, each in a new VMD, with
 the real backend): 29, 14, 15 and 10 checks, passing. The reference suite skips

@@ -367,8 +367,324 @@ proc ::VMDance::Measure::_scores {c cls cancelled} {
 }
 
 #---------------------------------------------------------------------------
+# The map: the frames on their first two principal components
+#---------------------------------------------------------------------------
+
+# The axes come from at most map_sample frames, evenly spaced (all of them
+# when there are fewer), and every frame is projected on them.
+variable ::VMDance::Measure::map_sample 500
+
+# The principal components of the rows c (the coordinates as clustered:
+# fitted when the clustering was), from `sample` of them: classical scaling
+# of their squared distances, which is PCA (VMD's vecsub and veclength, C,
+# make a squared distance in half the time of a dot product), the two
+# largest eigenvalues by subspace iteration (_eigen), then every frame
+# projected on the two axes. Returns {sample m variance {v1 v2} total t
+# pc1 {...} pc2 {...}}: the scores in Å, each axis's share of the sample's
+# variance, and its total (Å², the sum of the squared deviations from the
+# sample's mean structure, over the sample's frames). An axis's sign is the
+# one that makes its largest score positive. In a coroutine it yields every
+# 40 ms, and stops when `cancelled` names a true variable.
+proc ::VMDance::Measure::pca {c sample {cancelled ""} {progress ""}} {
+    set nf [llength [dict get $c frames]]
+    set m [expr {min($nf, $sample)}]
+    # (evenly spaced rows: the first and the last among them)
+    set pick [dict create]
+    for {set j 0} {$j < $m} {incr j} {
+        dict set pick [expr {$m == 1 ? 0 : int(round(double($j) * ($nf - 1) / ($m - 1)))}] 1
+    }
+    set rows {}
+    set told [clock milliseconds]
+    ::VMDance::Coords::each $c i r {
+        if {[dict exists $pick $i]} { lappend rows $r }
+    } $cancelled
+    set m [llength $rows]
+    set sum [lindex $rows 0]
+    foreach r [lrange $rows 1 end] { set sum [vecadd $sum $r] }
+    set mean [vecscale [expr {1.0 / $m}] $sum]
+    # B = -1/2 J D² J: the Gram matrix of the rows about their mean
+    set D [lrepeat $m [lrepeat $m 0.0]]
+    set slice [clock milliseconds]
+    set pairs [expr {$m * ($m - 1) / 2}]
+    set done 0
+    for {set a 0} {$a < $m} {incr a} {
+        set ra [lindex $rows $a]
+        for {set b [expr {$a + 1}]} {$b < $m} {incr b} {
+            set d [veclength [vecsub $ra [lindex $rows $b]]]
+            set d [expr {$d * $d}]
+            lset D $a $b $d
+            lset D $b $a $d
+            if {[incr done] % 32 == 0} {
+                ::VMDance::Coords::_breathe slice $cancelled
+                if {$progress ne "" && [clock milliseconds] - $told >= 250} {
+                    set told [clock milliseconds]
+                    {*}$progress [expr {0.8 * $done / $pairs}] "the distances between $m frames ($done of $pairs)"
+                }
+            }
+        }
+    }
+    set rmean [lmap row $D {expr {[::tcl::mathop::+ 0.0 {*}$row] / $m}}]
+    set g [expr {[::tcl::mathop::+ 0.0 {*}$rmean] / $m}]
+    set B {}
+    foreach row $D ri $rmean {
+        lappend B [lmap d $row rj $rmean {expr {-0.5 * ($d - $ri - $rj + $g)}}]
+    }
+    unset D
+    set total 0.0
+    for {set a 0} {$a < $m} {incr a} { set total [expr {$total + [lindex $B $a $a]}] }
+    if {$progress ne ""} { {*}$progress 0.85 "the principal components" }
+    lassign [_eigen $B 2 $cancelled] vals vecs
+    # each axis in the coordinates' space: the rows' deviations weighted by
+    # the eigenvector, scaled so that a row's projection is its score
+    set axes {}
+    foreach v $vals u $vecs {
+        if {$v <= 1e-12 * max($total, 1e-300)} { lappend axes ""; continue }
+        set ax [vecscale 0.0 $mean]
+        foreach r $rows w $u {
+            if {$w != 0} { set ax [vecadd $ax [vecscale $w [vecsub $r $mean]]] }
+        }
+        lappend axes [vecscale [expr {1.0 / sqrt($v)}] $ax]
+    }
+    unset rows
+    set pc1 {}; set pc2 {}
+    lassign $axes a1 a2
+    ::VMDance::Coords::each $c i r {
+        set x [vecsub $r $mean]
+        lappend pc1 [expr {$a1 eq "" ? 0.0 : [vecdot $x $a1]}]
+        lappend pc2 [expr {$a2 eq "" ? 0.0 : [vecdot $x $a2]}]
+        if {$progress ne "" && [clock milliseconds] - $told >= 250} {
+            set told [clock milliseconds]
+            {*}$progress [expr {0.9 + 0.1 * $i / $nf}] "projecting the frames ($i of $nf)"
+        }
+    } $cancelled
+    # (the sign that makes the largest score positive)
+    set out {}
+    foreach l [list $pc1 $pc2] {
+        set big 0.0
+        foreach x $l { if {abs($x) > abs($big)} { set big $x } }
+        if {$big < 0} { set l [lmap x $l {expr {-$x}}] }
+        lappend out [_round $l]
+    }
+    set var [lmap v $vals {expr {$total > 0 ? max(0.0, $v) / $total : 0.0}}]
+    dict create sample $m variance [_round $var] total [format %.6g $total] pc1 [lindex $out 0] pc2 [lindex $out 1]
+}
+
+# The p largest eigenvalues of the symmetric matrix B (m × m, its rows a
+# list) and their eigenvectors: {values vectors}, largest first. Subspace
+# iteration on p + 4 vectors (orthonormalized by Gram-Schmidt) until the p
+# first turn no more (|cos| of each with its last within 1e-12) or 500 steps,
+# then the Rayleigh-Ritz step (_jacobi of the small matrix). Its start is
+# fixed: the same matrix gives the same answer.
+proc ::VMDance::Measure::_eigen {B p {cancelled ""}} {
+    set m [llength $B]
+    set b [expr {min($m, $p + 4)}]
+    set V {}
+    for {set j 0} {$j < $b} {incr j} {
+        set v {}
+        for {set i 0} {$i < $m} {incr i} { lappend v [expr {sin(0.7 * ($i + 1) * ($j + 1) + 0.3 * $j) + ($i == $j ? 1.0 : 0.0)}] }
+        lappend V $v
+    }
+    set V [_orth $V]
+    set slice [clock milliseconds]
+    for {set it 0} {$it < 500} {incr it} {
+        set W [_orth [lmap v $V {_matvec $B $v}]]
+        set turned 0
+        for {set j 0} {$j < min($p, [llength $W])} {incr j} {
+            if {abs([vecdot [lindex $W $j] [lindex $V $j]]) < 1.0 - 1e-12} { set turned 1 }
+        }
+        set V $W
+        ::VMDance::Coords::_breathe slice $cancelled
+        if {!$turned && $it >= 5} break
+    }
+    # the best vectors within the subspace: the small matrix's eigenvectors
+    set Z [lmap v $V {_matvec $B $v}]
+    set H [lmap vi $V {lmap zj $Z {vecdot $vi $zj}}]
+    lassign [_jacobi $H] vals S
+    set order [lsort -real -decreasing -indices $vals]
+    set outv {}; set outs {}
+    foreach o [lrange $order 0 [expr {$p - 1}]] {
+        lappend outv [lindex $vals $o]
+        set u [vecscale 0.0 [lindex $V 0]]
+        foreach v $V s [lindex $S $o] { set u [vecadd $u [vecscale $s $v]] }
+        lappend outs $u
+    }
+    while {[llength $outv] < $p} { lappend outv 0.0; lappend outs [lrepeat $m 0.0] }
+    list $outv $outs
+}
+proc ::VMDance::Measure::_matvec {B v} { lmap row $B {vecdot $row $v} }
+# Vectors made orthonormal (modified Gram-Schmidt); one that is none of its
+# own (a combination of those before) is left out.
+proc ::VMDance::Measure::_orth {vs} {
+    set out {}
+    foreach v $vs {
+        foreach u $out { set v [vecsub $v [vecscale [vecdot $u $v] $u]] }
+        set n [veclength $v]
+        if {$n > 1e-12} { lappend out [vecscale [expr {1.0 / $n}] $v] }
+    }
+    return $out
+}
+# The eigenvalues of a small symmetric matrix (rows) and its eigenvectors:
+# {values vectors}, the vector of value i the i-th (cyclic Jacobi).
+proc ::VMDance::Measure::_jacobi {A} {
+    set n [llength $A]
+    set V {}
+    for {set i 0} {$i < $n} {incr i} {
+        set row {}
+        for {set j 0} {$j < $n} {incr j} { lappend row [expr {$i == $j ? 1.0 : 0.0}] }
+        lappend V $row
+    }
+    for {set sweep 0} {$sweep < 100} {incr sweep} {
+        set off 0.0
+        for {set i 0} {$i < $n} {incr i} { for {set j [expr {$i + 1}]} {$j < $n} {incr j} { set off [expr {$off + [lindex $A $i $j] ** 2}] } }
+        if {$off < 1e-30} break
+        for {set p 0} {$p < $n} {incr p} {
+            for {set q [expr {$p + 1}]} {$q < $n} {incr q} {
+                set apq [lindex $A $p $q]
+                if {abs($apq) < 1e-300} continue
+                set theta [expr {([lindex $A $q $q] - [lindex $A $p $p]) / (2.0 * $apq)}]
+                set t [expr {($theta >= 0 ? 1.0 : -1.0) / (abs($theta) + sqrt($theta * $theta + 1.0))}]
+                set c [expr {1.0 / sqrt($t * $t + 1.0)}]
+                set s [expr {$t * $c}]
+                for {set k 0} {$k < $n} {incr k} {
+                    set akp [lindex $A $k $p]; set akq [lindex $A $k $q]
+                    lset A $k $p [expr {$c * $akp - $s * $akq}]
+                    lset A $k $q [expr {$s * $akp + $c * $akq}]
+                }
+                for {set k 0} {$k < $n} {incr k} {
+                    set apk [lindex $A $p $k]; set aqk [lindex $A $q $k]
+                    lset A $p $k [expr {$c * $apk - $s * $aqk}]
+                    lset A $q $k [expr {$s * $apk + $c * $aqk}]
+                }
+                for {set k 0} {$k < $n} {incr k} {
+                    set vkp [lindex $V $k $p]; set vkq [lindex $V $k $q]
+                    lset V $k $p [expr {$c * $vkp - $s * $vkq}]
+                    lset V $k $q [expr {$s * $vkp + $c * $vkq}]
+                }
+            }
+        }
+    }
+    set vals {}
+    for {set i 0} {$i < $n} {incr i} { lappend vals [lindex $A $i $i] }
+    # (the vectors as rows: column i of V)
+    set vecs {}
+    for {set i 0} {$i < $n} {incr i} { lappend vecs [lmap row $V {lindex $row $i}] }
+    list $vals $vecs
+}
+
+#---------------------------------------------------------------------------
+# The profiles: atom by atom, each set of frames' fluctuations, and each
+# cluster's mean structure against one cluster's
+#---------------------------------------------------------------------------
+
+# Profiles are made for at most profiles_most numbers (2k + groups, times
+# the atoms; about 235 bytes each in Tcl).
+variable ::VMDance::Measure::profiles_most 600000
+
+# Of the rows c, atom by atom: the RMSF of each cluster's frames and of
+# each group's (groups: a group index per row, -1 for none; ng groups),
+# about its own mean structure; and the distance of each cluster's mean
+# structure from cluster ref's. Frames are compared as they were
+# clustered (fitted when the clustering was). Returns {clusters {...}
+# groups {...} differences {...}}: a list per cluster (per group), "" for
+# one without frames (a cluster without frames has no difference either).
+# Two passes; in a coroutine it yields every 40 ms, and stops when
+# `cancelled` names a true variable.
+proc ::VMDance::Measure::profiles {c labels k groups ng ref {cancelled ""} {progress ""}} {
+    set natoms [dict get $c natoms]
+    set nf [llength $labels]
+    if {![llength $groups]} { set groups [lrepeat $nf -1] }
+    # first pass: each set's sums (clusters, then groups)
+    set sets [expr {$k + $ng}]
+    set sums [lrepeat $sets ""]
+    set cnt [lrepeat $sets 0]
+    ::VMDance::Coords::each $c i r {
+        foreach s [_sets_of $labels $groups $k $i] {
+            set x [lindex $sums $s]
+            if {$x eq ""} { lset sums $s $r } else { lset sums $s [vecadd $x $r] }
+            lset cnt $s [expr {[lindex $cnt $s] + 1}]
+        }
+    } $cancelled
+    set means [lmap x $sums n $cnt {if {$n} { vecscale [expr {1.0 / $n}] $x } else { list }}]
+    unset sums
+    # second pass: each atom's squared deviation from its sets' mean
+    set acc [lrepeat $sets ""]
+    set told [clock milliseconds]
+    ::VMDance::Coords::each $c i r {
+        foreach s [_sets_of $labels $groups $k $i] {
+            set sq [_per_atom [vecsub $r [lindex $means $s]]]
+            set x [lindex $acc $s]
+            if {$x eq ""} { lset acc $s $sq } else { lset acc $s [vecadd $x $sq] }
+        }
+        if {$progress ne "" && [clock milliseconds] - $told >= 250} {
+            set told [clock milliseconds]
+            {*}$progress [expr {0.5 + 0.5 * $i / $nf}] "the fluctuations (frame $i of $nf)"
+        }
+    } $cancelled
+    set rmsf [lmap x $acc n $cnt {if {$n} { _round [lmap v $x {expr {sqrt($v / $n)}}] } else { list }}]
+    set diff {}
+    set mref [lindex $means $ref]
+    for {set cl 0} {$cl < $k} {incr cl} {
+        set mc [lindex $means $cl]
+        lappend diff [if {$mc ne "" && $mref ne ""} { _round [lmap v [_per_atom [vecsub $mc $mref]] {expr {sqrt($v)}}] } else { list }]
+    }
+    dict create clusters [lrange $rmsf 0 [expr {$k - 1}]] groups [lrange $rmsf $k end] differences $diff
+}
+# The sets a row is in: its cluster, and k + its group.
+proc ::VMDance::Measure::_sets_of {labels groups k i} {
+    set out {}
+    set l [lindex $labels $i]
+    if {$l >= 0} { lappend out $l }
+    set g [lindex $groups $i]
+    if {$g >= 0} { lappend out [expr {$k + $g}] }
+    return $out
+}
+# A row's squared lengths, atom by atom (x y z each).
+proc ::VMDance::Measure::_per_atom {v} {
+    set out {}
+    foreach {x y z} $v { lappend out [expr {$x * $x + $y * $y + $z * $z}] }
+    return $out
+}
+
+#---------------------------------------------------------------------------
 # From the labels
 #---------------------------------------------------------------------------
+
+# The adjusted Rand index of two clusterings of the same frames (labels;
+# noise, -1, a cluster of its own): 1 when they are the same, about 0 for
+# chance; "" when both put every frame in one cluster (or there is one
+# frame).
+proc ::VMDance::Measure::ari {a b} {
+    set n [llength $a]
+    if {$n < 2} { return "" }
+    set ab {}; set na {}; set nb {}
+    foreach x $a y $b {
+        dict incr ab $x,$y
+        dict incr na $x
+        dict incr nb $y
+    }
+    set pairs {apply {{v} {expr {$v * ($v - 1) / 2.0}}}}
+    set sij 0.0; set sa 0.0; set sb 0.0
+    dict for {key v} $ab { set sij [expr {$sij + [{*}$pairs $v]}] }
+    dict for {key v} $na { set sa [expr {$sa + [{*}$pairs $v]}] }
+    dict for {key v} $nb { set sb [expr {$sb + [{*}$pairs $v]}] }
+    set all [{*}$pairs $n]
+    set expected [expr {$sa * $sb / $all}]
+    set most [expr {($sa + $sb) / 2.0}]
+    if {$most == $expected} { return "" }
+    expr {($sij - $expected) / ($most - $expected)}
+}
+
+# The frames of each cluster by group: {cluster {count per group} ...} as
+# a k × ng matrix (rows the clusters; noise and frames of no group left
+# out).
+proc ::VMDance::Measure::makeup {labels groups k ng} {
+    set M [lrepeat $k [lrepeat $ng 0]]
+    foreach l $labels g $groups {
+        if {$l < 0 || $g < 0} continue
+        lset M $l $g [expr {[lindex $M $l $g] + 1}]
+    }
+    return $M
+}
 
 # The runs of consecutive analysed frames in one cluster: {label first
 # length} each, in order (noise too, as label -1).
@@ -461,6 +777,46 @@ proc ::VMDance::Measure::_nearest {dvar i after} {
         if {$d ne "" && ($best eq "" || $d < $best)} { set best $d; set bj $j }
     }
     expr {$best eq "" ? {} : [list $best $bj]}
+}
+
+# The height of each of HELM's merges: the MSD (MDANCE's, Å²) of the
+# cluster it makes, from the starting clusters' sums (one pass over the
+# rows c of the clustered frames: labels >= 0, init their starting
+# clusters), tree the merges as helm_tree numbers them ({rows leaves n0}).
+# A list, a value per merge, in their order: how far apart the clusters
+# each merge joins are, which their rank does not tell.
+proc ::VMDance::Measure::merge_msd {c labels init tree {cancelled ""}} {
+    lassign $tree rows leaves n0
+    set natoms [dict get $c natoms]
+    ::VMDance::Coords::each $c i r {
+        if {[lindex $labels $i] < 0} continue
+        set s [lindex $init $i]
+        set v [veclength $r]
+        if {[info exists S($s)]} {
+            set S($s) [vecadd $S($s) $r]
+            set Q($s) [expr {$Q($s) + $v * $v}]
+            incr N($s)
+        } else {
+            set S($s) $r; set Q($s) [expr {$v * $v}]; set N($s) 1
+        }
+    } $cancelled
+    set out {}
+    set j 0
+    foreach row $rows {
+        lassign $row a b
+        set nd [expr {$n0 + $j}]
+        if {[info exists S($a)] && [info exists S($b)]} {
+            set S($nd) [vecadd $S($a) $S($b)]
+            set Q($nd) [expr {$Q($a) + $Q($b)}]
+            set N($nd) [expr {$N($a) + $N($b)}]
+            set v [veclength $S($nd)]
+            lappend out [format %.6g [expr {2.0 * ($N($nd) * $Q($nd) - $v * $v) / (double($N($nd)) * $N($nd) * $natoms)}]]
+        } else {
+            lappend out ""
+        }
+        incr j
+    }
+    return $out
 }
 
 # HELM's merges with the leaves and nodes numbered as scipy numbers them:

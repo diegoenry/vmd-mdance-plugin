@@ -219,6 +219,47 @@ def tab_elbow():
     c.save("tab_elbow")
 
 
+# the groups' colours (the plots': muted, distinct from the clusters')
+GR = [hexrgb(h) for h in ("#3d5a80", "#4f7a5a", "#c09a45", "#a3483b")]
+
+
+def tab_makeup():
+    """Each cluster's frames by group: stacked bars."""
+    c = Canvas(); card(c)
+    for i, parts in enumerate([[7, 6, 4], [0, 3, 9], [5, 2, 2], [1, 0, 6]]):
+        x = 6 + i * 5.3
+        y = 26
+        for g, h in enumerate(parts):
+            if h:
+                c.rect(x, y - h, x + 3.8, y, fill=rgba(GR[g]))
+                y -= h
+    c.line([(5, 26.3), (27, 26.3)], MUTED, 0.9)
+    c.save("tab_makeup")
+
+
+def tab_map():
+    """The frames on two principal components, by group."""
+    c = Canvas(); card(c)
+    c.line([(5, 26), (27, 26)], MUTED, 0.9); c.line([(5, 5), (5, 26)], MUTED, 0.9)
+    rnd = random.Random(7)
+    for g, (cx, cy, s) in enumerate([(13, 17, 2.0), (16, 15, 3.2), (20, 11, 4.5)]):
+        for _ in range(7):
+            c.ellipse(cx + rnd.gauss(0, s), cy + rnd.gauss(0, s * 0.8), 1.1, fill=rgba(GR[[0, 2, 3][g]]))
+    c.save("tab_map")
+
+
+def tab_profiles():
+    """Residue by residue: each group's fluctuations."""
+    c = Canvas(); card(c)
+    c.line([(5, 26), (27, 26)], MUTED, 0.9)
+    xs = [5 + i * 2.2 for i in range(11)]
+    for g, base in enumerate([[22, 23, 22, 23, 23, 22, 21, 22, 23, 22, 20],
+                              [20, 21, 19, 21, 22, 20, 17, 19, 21, 20, 16],
+                              [12, 15, 13, 17, 19, 16, 10, 13, 17, 14, 7]]):
+        c.line(list(zip(xs, base)), rgba(GR[[0, 2, 3][g]]), 1.3)
+    c.save("tab_profiles")
+
+
 def tab_sweep():
     """A sweep: scores over a grid, the best outlined."""
     c = Canvas(); card(c)
@@ -525,8 +566,8 @@ def dimmed():
 
 
 if __name__ == "__main__":
-    for f in (tab_populations, tab_timeline, tab_transitions, tab_residence, tab_compactness,
-              tab_distances, tab_tree, tab_silhouette, tab_elbow, tab_sweep,
+    for f in (tab_populations, tab_makeup, tab_timeline, tab_transitions, tab_residence, tab_compactness,
+              tab_distances, tab_tree, tab_silhouette, tab_map, tab_profiles, tab_elbow, tab_sweep,
               act_open, act_save, act_export, act_figure, act_cluster, act_elbow, act_cancel, act_goto,
               act_render, act_settings, act_help, act_colour, act_reps,
               pane_setup, pane_results, pane_scans, pane_tools, pane_3d, panel_left, panel_right, flat_parts):
