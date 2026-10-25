@@ -96,10 +96,13 @@ Scans
 
 .. code-block:: tcl
 
-   vmdance elbow ?-ks {k ...} | -from 2 -to 15 -by 1? ?clustering options but -k? ?-quiet 0?
-       ;# {index k nclusters ch db sizes status message} ...
+   vmdance elbow ?-ks {k ...} | -from 2 -to 15 -by 1? ?-stability 0|1|{seedings}? \
+       ?clustering options but -k? ?-quiet 0?
+       ;# {index k nclusters ch db sizes status message ?stability?} ...
+   vmdance elbow -algorithm equal -radii {0.5 1 2 4} ?clustering options?
+       ;# {index radius nclusters ch db sizes status message} ...
    vmdance elbow show      ;# the last scan's records
-   vmdance elbow load 6    ;# that k made the clustering (a new run): info
+   vmdance elbow load 6    ;# that k (or radius) made the clustering (a new run): info
    vmdance elbow clear     ;# the scan dropped (sweep clear, pick clear: theirs)
    vmdance sweep ?input options? -algorithms {kmeans} -ks {...} | -from -to -by \
        -metrics {MSD} -seedings {StratAll} ?-params {algorithm {name value ...} ...}? ?-quiet 0?
@@ -117,6 +120,14 @@ with frames. A sweep's seedings are ``-seedings`` (HELM's: its first
 clustering's): ``-params`` with a seeding is refused. HELM from a label file
 and DIVINE with pair anchors use none: one configuration at each k, its
 seeding ``none``.
+
+``-stability 1`` clusters every k again from NANI's four seedings that draw
+no random number (StratAll, StratReduced, CompSim, DivSelect; or the list
+given, two at least), and gives each record the mean adjusted Rand index of
+every two of them (1: the same clusters whatever the seeding; 0: as alike as
+chance); k-means NANI only. eQUAL is given no k: its elbow scans its radius
+(``-radii``, MDANCE's MSD, two values at least), and a record's
+``nclusters`` is what that radius gave (:doc:`scans`).
 
 Questions after a clustering
 ----------------------------
@@ -143,6 +154,46 @@ molecule, while it has the frames they were picked from. A pick's
 100; with ``-metric MSD`` only), for ``outliers`` and ``repsample`` a
 number of frames or a share below 1 (the outliers' holds a frame at least;
 a sample is one frame at least) (:doc:`tools`).
+
+Groups, map and profiles
+------------------------
+
+.. code-block:: tcl
+
+   vmdance groups -ranges {original 0-63 moderate 64-127 aggressive 128-191}
+   vmdance groups -file groups.csv       ;# frame,group lines (a header, # comments)
+   vmdance groups -names {...}           ;# a name for each clustered frame
+   vmdance groups -colours {original #3d5a80 moderate #c09a45}   ;# with the above, or alone
+   vmdance groups          ;# names {...} sizes {...} none n colours {...}
+   vmdance groups clear
+   vmdance makeup ?-by cluster|group?    ;# {cluster {n ...}} ... or {group {n ...}} ...
+   vmdance map ?-sample 500?             ;# sample m variance {v1 v2} total t
+   vmdance map show                      ;# {frame {pc1 pc2}} ...
+   vmdance profiles ?-reference c?       ;# reference c atoms n clusters k groups {...}
+   vmdance profiles show                 ;# residues chains clusters groups differences ...
+
+The groups say where each clustered frame came from (the method, replica or
+condition that made it): up to 256, each name 1 to 64 characters; a frame
+given none has none. They are kept with the run, in sessions too, and a new
+clustering of the same frames of the same molecule takes them over. A
+group's colour in the plots is its index's in a muted palette, or the one
+``-colours`` gives its name (``#rrggbb``; ``""``: the palette's again): a
+name the groups do not have is passed over, so that one list colours the
+groups of several molecules alike, and new groups keep the colours of their
+names. ``makeup`` counts each cluster's frames by group (noise and frames of
+no group left out).
+
+``map`` places every clustered frame on the first two principal components
+of the clustered coordinates (classical scaling of their squared distances,
+after the clustering's fit; the axes from ``-sample`` frames spread evenly
+over them, 2 to 5000, every frame projected on them), in Å, with each axis's
+share of the variance. ``profiles`` measures, atom by atom of the selection,
+each cluster's and each group's RMSF about its own mean structure, and each
+cluster's mean structure's distance from ``-reference``'s (by default the
+most populated cluster). Both read the coordinates again (the molecule
+loaded, with its frames), are kept with the run and in sessions, and are
+made again when asked; profiles made with other groups are dropped when the
+groups change.
 
 The selection and the 3D window
 -------------------------------
@@ -188,7 +239,7 @@ Files
    vmdance session load file.vmdance ?-mol auto|load|none|id?
    vmdance session import file.mdance ?-mol auto|id? ?-label text?
    vmdance figures dir ?-plots {...}? ?-formats {pdf png}? ?-width 900? ?-height 560? \
-       ?-dpi 300? ?-prefix vmdance? ?-options {setting value ...}? ?-3d 0|1? ?-renderer auto?
+       ?-dpi 300? ?-text 12? ?-prefix vmdance? ?-options {setting value ...}? ?-3d 0|1? ?-renderer auto?
    vmdance figures dir -plots {} -3d 1   ;# the 3D view alone
 
 :doc:`files` describes them. ``export`` and ``figures`` make their folder

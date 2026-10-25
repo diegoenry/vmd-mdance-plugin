@@ -100,7 +100,7 @@ docs/internals.rst describe it.
   runs: check `pgrep Xephyr` when a run finds no display), then
   `DISPLAY=:9 sh tests/run_all.sh`, or one suite:
   `vmd -dispdev text -e tests/test_{core,jobs,results,session,reference,hardening,hardening2}.tcl < /dev/null | grep -E "FAIL|SKIP|RESULT"`
-  (and the second round's fixes, a suite each: `tests/test_hardening2_{fx_g1,fx_g2,fx_g3,fx_g4,fx_g5,g6,g7,g8,g9,h1,oi,h3,h4}.tcl`, which run_all.sh runs too),
+  (and the second round's fixes, a suite each: `tests/test_hardening2_{fx_g1,fx_g2,fx_g3,fx_g4,fx_g5,g6,g7,g8,g9,h1,oi,h3,h4}.tcl`, and `tests/test_groups.tcl`, which run_all.sh runs too),
   `tclsh tests/test_core.tcl`, and
   `DISPLAY=:9 vmd -dispdev win -e tests/test_gui.tcl < /dev/null; grep -E "FAIL|RESULT" tests/out/gui.log`.
   Last results (2026-10-09): 140, 110, 67, 42, 33 (3 skips), 31, 194, 219
@@ -108,7 +108,8 @@ docs/internals.rst describe it.
   the groups' 42, 5, 15, 19, 23, 25, 73, 56, 8, 59, 35, 17, 18 (fx_g1 to
   fx_g5, g6 to g9, h1, oi, h3, h4; with the papers and decks beside the
   repository and states3 made; a clone: g7 68, g8 51, h4 17), all
-  passing (the window's too, on a nested display). End to
+  passing (the window's too, on a nested display). Since 2026-10-24 also
+  `tests/test_groups.tcl` (99, the real backend; the others unchanged). End to
   end: `DISPLAY=:9 sh tests/e2e/run_e2e.sh` (29, 14, 15, 10). Profiles:
   `tests/profile/profile_{core,gui}.tcl` (reports in tests/out/profile).
 - Screenshots: `import -window [wm frame .vmdance] f.png` (ImageMagick)
@@ -210,6 +211,9 @@ docs/internals.rst describe it.
   the picks to clear: `elbow clear`, `sweep clear`, `pick clear`) and the
   limit to raise (Session::save).
 - A comment inside a `switch` body is a pattern: put it above the switch.
+- A list whose first element starts with `#` is braced in its text
+  (`{#3d5a80} #4f7a5a`): compare a list of colours as a list (`eq [list
+  …]`), never with its text typed (`eq {#3d5a80 #4f7a5a}` is false).
 - `string is integer -strict` takes "010", "0x3", " 3", "+3", which `lindex`
   and `expr` read as 8, 3, 3, 3: an index or a whole number typed, or held
   by a file, is `::VMDance::whole` (sweep load, GUI::_state_ok's spin,
@@ -508,7 +512,8 @@ docs/internals.rst describe it.
 
 Version 1.0a1 (2026-09-30): the four algorithms, PRIME, iSIM, frame picks,
 elbow scans and sweeps, runs, sessions (and the MDANCE plugin's imported),
-exports, the 3D drawing, the window with ten plots, figures. Not carried
+exports, the 3D drawing, the window with ten plots (thirteen since the
+groups), figures. Not carried
 over from the MDANCE plugin: its narrated demo, its installer. Only VMD 2.1
 on Linux has been tried. It took the MDANCE plugin's place in this
 repository on 2026-10-09 (GitHub: diegoenry/vmd-mdance-plugin).
@@ -534,6 +539,20 @@ anchors once a k (seeding none), the silhouette's nearest mean structure
 is pruned (states3's 1462 clusters: 14 s of measures, 35 before), the
 window's unused failure callback is gone, and the decks' pictures name no
 folder.
+
+Groups, maps and stability (branch groups-maps-stability, 2026-10-24):
+each frame's group (`groups`: the method, replica or condition it came
+from, and its colour by name), the clusters' make-up by group
+(`makeup`), the map (`map`: PCA by classical scaling, subspace iteration,
+from ≤ 500 frames, all projected; checked against numpy), the profiles
+(`profiles`: each group's and cluster's RMSF, each cluster's mean structure
+against the largest's), all kept with the run (Results `extras`) and in
+sessions; the elbow's stability (`-stability`: the mean pairwise ARI of
+NANI's four deterministic seedings), eQUAL's elbow by radius (`-radii`),
+HELM's merges' heights (`measures merge_msd`; the Tree's heights view),
+figures' `-text`. Three plots (Make-up, Map, Profiles: plots_groups.tcl),
+and the Results page's "Groups, map and profiles". Kept by
+tests/test_groups.tcl (99, the real backend).
 
 The repository is the code only. The papers and the decks are kept beside
 it, in folders git ignores (`manuscripts/`, `presentation/`), each its own

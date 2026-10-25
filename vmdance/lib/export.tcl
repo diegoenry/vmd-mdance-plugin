@@ -30,6 +30,10 @@ namespace eval ::VMDance::Export {
         trajectories    {_cluster.pdb molecule "Each cluster's frames as a trajectory of its own"}
         prime           {_prime.csv prime "PRIME's predictions and the medoid baselines"}
         similarity      {_similarity.csv similarity "Each cluster's extended similarity and least similar frame"}
+        groups          {_groups.csv groups "Every clustered frame, its cluster and its group"}
+        makeup          {_makeup.csv groups "The frames of each cluster by group"}
+        map             {_map.csv map "Every clustered frame on the first two principal components"}
+        profiles        {_profiles.csv profiles "Atom by atom: each cluster's and group's RMSF, each cluster's distance from the reference"}
         elbow           {_elbow.csv elbow "The elbow scan's scores at every k"}
         sweep           {_sweep.csv sweep "Every configuration of the sweep and its scores"}
         picks           {_picks.csv picks "The frames picked without clustering"}
@@ -427,6 +431,75 @@ proc ::VMDance::Export::table_similarity {} {
     join $out \n
 }
 
+proc ::VMDance::Export::_group_name {g} {
+    expr {$g < 0 ? "" : [lindex [::VMDance::Results::group_names] $g]}
+}
+proc ::VMDance::Export::table_groups {} {
+    _need_clustering
+    if {![llength [::VMDance::Results::group_names]]} { error "the frames have no groups (set them first)" }
+    set out [list [header "every clustered frame, its cluster (-1: noise) and its group (empty: none)"] [_row frame cluster group]]
+    foreach f [::VMDance::Results::frames] l [::VMDance::Results::labels] g [::VMDance::Results::group_of] {
+        lappend out [_row $f $l [_group_name $g]]
+    }
+    join $out \n
+}
+proc ::VMDance::Export::table_makeup {} {
+    _need_clustering
+    set names [::VMDance::Results::group_names]
+    if {![llength $names]} { error "the frames have no groups (set them first)" }
+    set M [::VMDance::Measure::makeup [::VMDance::Results::labels] [::VMDance::Results::group_of] \
+        [::VMDance::Results::nclusters] [llength $names]]
+    set out [list [header "the frames of each cluster by group (share_of_cluster: of the cluster's grouped frames; share_of_group: of the group's clustered frames)"] \
+        [_row cluster group frames share_of_cluster share_of_group]]
+    set ing [lrepeat [llength $names] 0]
+    foreach row $M { set ing [lmap a $ing b $row {expr {$a + $b}}] }
+    set c 0
+    foreach row $M {
+        set inc [::tcl::mathop::+ 0 {*}$row]
+        foreach nm $names n $row tot $ing {
+            # (if, not expr's ?:, which would read "1.0000" as a number again)
+            lappend out [_row $c $nm $n [if {$inc} { format %.4f [expr {double($n) / $inc}] }] \
+                [if {$tot} { format %.4f [expr {double($n) / $tot}] }]]
+        }
+        incr c
+    }
+    join $out \n
+}
+proc ::VMDance::Export::table_map {} {
+    _need_clustering
+    set m [::VMDance::Results::extra map]
+    if {![dict size $m]} { error "no map for this clustering (compute it first)" }
+    lassign [dict get $m variance] v1 v2
+    set out [list [header [format "every clustered frame on the first two principal components (Å; %.1f%% and %.1f%% of the variance, the axes from %d frames)" \
+        [expr {100 * $v1}] [expr {100 * $v2}] [dict get $m sample]]] [_row frame cluster group pc1 pc2]]
+    set gs [::VMDance::Results::group_of]
+    if {![llength $gs]} { set gs [lrepeat [::VMDance::Results::nframes] -1] }
+    foreach f [::VMDance::Results::frames] l [::VMDance::Results::labels] g $gs x [dict get $m pc1] y [dict get $m pc2] {
+        lappend out [_row $f $l [_group_name $g] $x $y]
+    }
+    join $out \n
+}
+proc ::VMDance::Export::table_profiles {} {
+    _need_clustering
+    set p [::VMDance::Results::extra profiles]
+    if {![dict size $p]} { error "no profiles for this clustering (compute them first)" }
+    set ref [dict get $p reference]
+    set cols {}
+    set k [llength [dict get $p clusters]]
+    for {set c 0} {$c < $k} {incr c} { lappend cols rmsf_cluster_$c }
+    foreach nm [dict get $p group_names] { lappend cols "rmsf_group_$nm" }
+    for {set c 0} {$c < $k} {incr c} { lappend cols distance_cluster_${c}_from_$ref }
+    set out [list [header "atom by atom (in the order of the selection): each cluster's and each group's RMSF about its own mean structure, and each cluster's mean structure's distance from cluster $ref's (Å)"] \
+        [_row atom residue chain {*}$cols]]
+    set lists [concat [dict get $p clusters] [dict get $p groups] [dict get $p differences]]
+    set i 0
+    foreach r [dict get $p residues] ch [dict get $p chains] {
+        lappend out [_row $i $r $ch {*}[lmap l $lists {lindex $l $i}]]
+        incr i
+    }
+    join $out \n
+}
+
 # The # lines of a scan's or the picks' table (s): what was scanned (the
 # molecule, the atoms, the frames, the parameters: {label params} each, ""
 # the label of one set), with which backend and when (verb: scanned,
@@ -463,12 +536,21 @@ proc ::VMDance::Export::table_elbow {} {
     set e $::VMDance::Results::elbow
     if {![dict size $e]} { error "no elbow scan" }
     set q [dict get $e request]
-    set out [list [scan_header "elbow scan of [::VMDance::Algo::label [dict get $q algorithm]] (metric [dict get $q metric]), k [join [dict get $q ks] { }]" \
-            $q [dict get $e molecule] [dict get $e frames] [list "" [dict get $q params]] $e scanned] \
-        [_row k k_actual calinski_harabasz davies_bouldin cluster_sizes status]]
+    set radius [::VMDance::Results::by_radius $e]
+    set over [expr {$radius ? "radius (MDANCE's MSD, Å²) [join [dict get $q radii] { }]" : "k [join [dict get $q ks] { }]"}]
+    set head [scan_header "elbow scan of [::VMDance::Algo::label [dict get $q algorithm]] (metric [dict get $q metric]), $over" \
+        $q [dict get $e molecule] [dict get $e frames] [list "" [dict get $q params]] $e scanned]
+    set stab [::VMDance::_get $q stability {}]
+    if {[llength $stab]} {
+        append head "\n# stability: the mean adjusted Rand index of the clusterings of seedings [join $stab {, }] (1: the same clusters)"
+        set out [list $head [_row k k_actual calinski_harabasz davies_bouldin stability cluster_sizes status]]
+    } else {
+        set out [list $head [_row [expr {$radius ? "radius" : "k"}] k_actual calinski_harabasz davies_bouldin cluster_sizes status]]
+    }
     foreach r [dict get $e records] {
-        lappend out [_row [dict get $r k] [dict get $r nclusters] [dict get $r ch] [dict get $r db] [join [dict get $r sizes] " "] \
-            [expr {[dict get $r status] eq "ok" ? "ok" : "failed: [dict get $r message]"}]]
+        set row [list [::VMDance::Results::scan_x $r] [dict get $r nclusters] [dict get $r ch] [dict get $r db]]
+        if {[llength $stab]} { lappend row [::VMDance::_get $r stability ""] }
+        lappend out [_row {*}$row [join [dict get $r sizes] " "] [expr {[dict get $r status] eq "ok" ? "ok" : "failed: [dict get $r message]"}]]
     }
     join $out \n
 }
@@ -750,12 +832,15 @@ proc ::VMDance::Export::trajectories {base {fmt dcd} {sel all}} {
 proc ::VMDance::Export::why_not {it} {
     variable catalog
     set need [lindex [dict get $catalog $it] 1]
-    if {$need in {clustering molecule prime similarity} && ![::VMDance::Results::has_data]} { return "no clustering" }
+    if {$need in {clustering molecule prime similarity groups map profiles} && ![::VMDance::Results::has_data]} { return "no clustering" }
     if {$it in {distances tree}} { return [::VMDance::Results::too_many $it] }
     switch -- $need {
         molecule { if {[::VMDance::Viz::_mol] < 0} { return [::VMDance::Viz::why] } }
         prime { if {![dict size [::VMDance::Results::extra prime]]} { return "no PRIME prediction for this clustering (run PRIME first)" } }
         similarity { if {![dict size [::VMDance::Results::extra similarity]]} { return "no similarity for this clustering (compute it first)" } }
+        groups { if {![llength [::VMDance::Results::group_names]]} { return "the frames have no groups (set them first)" } }
+        map { if {![dict size [::VMDance::Results::extra map]]} { return "no map for this clustering (compute it first)" } }
+        profiles { if {![dict size [::VMDance::Results::extra profiles]]} { return "no profiles for this clustering (compute them first)" } }
         elbow { if {![dict size $::VMDance::Results::elbow]} { return "no elbow scan" } }
         sweep { if {![dict size $::VMDance::Results::sweep]} { return "no sweep" } }
         picks { if {![dict size $::VMDance::Results::picks]} { return "no frames picked" } }

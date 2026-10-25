@@ -190,7 +190,7 @@ set rows [vmdance elbow -mol $m -sel all -from 2 -to 4 -quiet 1]
 check "  a k its seeding cannot take is not run (and says why)" [expr {[dict get [lindex $rows 0] status] eq "ok" &&
     [string match "not run: -k 3: NANI*" [dict get [lindex $rows 1] message]]}]
 check "  a scan where no k can run is refused" [string match "*-ks 3: NANI*" [err {vmdance elbow -mol $m -sel all -from 3 -to 4 -quiet 1}]]
-check "  eQUAL has no elbow" [string match "*finds its own number*" [err {vmdance elbow -mol $m -sel all -algorithm equal -threshold 1}]]
+check "  eQUAL is scanned at its radius, not k" [string match "*-radii: an elbow scan of eQUAL*" [err {vmdance elbow -mol $m -sel all -algorithm equal -threshold 1}]]
 check "  -from above -to" [string match "*-from must not be above -to*" [err {vmdance elbow -mol $m -sel all -from 6 -to 5}]]
 check "  one value of k is no scan" [string match "*at least two values of k*" [err {vmdance elbow -mol $m -sel all -from 5 -to 5}]]
 check "  -ks, or -from -to -by: not both" [string match "*not both*" [err {vmdance elbow -mol $m -sel all -ks {2 3} -to 5}]]

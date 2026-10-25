@@ -5,7 +5,8 @@ Sessions
 --------
 
 A session (``.vmdance``) keeps every run — its request, its clustering,
-the plugin's measures, and what was asked of it (PRIME, the similarity) —
+the plugin's measures, and what was asked of it (PRIME, the similarity, the
+groups and their colours, the map, the profiles) —
 the elbow scan, the sweep, the picked frames, the selection, and the plots'
 and 3D settings of the window. It is gzip-compressed UTF-8 text:
 ``VMDanceSession 1`` on the first line, then a Tcl dictionary that is
@@ -189,8 +190,21 @@ Export
        larger k, the other format) are deleted, the window asking first
    * - ``prime``, ``similarity``
      - PRIME's seven frames; each cluster's iSIM and least similar frame
+   * - ``groups``
+     - ``frame,cluster,group`` of every clustered frame (no group: empty)
+   * - ``makeup``
+     - ``cluster,group,frames,share_of_cluster,share_of_group``
+   * - ``map``
+     - ``frame,cluster,group,pc1,pc2`` (Å; the ``#`` lines give each axis's
+       share of the variance)
+   * - ``profiles``
+     - ``atom,residue,chain``, then each cluster's and each group's RMSF
+       (``rmsf_cluster_c``, ``rmsf_group_name``) and each cluster's mean
+       structure's distance from the reference's
+       (``distance_cluster_c_from_r``), atom by atom (Å)
    * - ``elbow``, ``sweep``
-     - every k or configuration and its scores
+     - every k or configuration and its scores (the elbow's stability, when
+       it was measured; an eQUAL scan's radius in place of k)
    * - ``picks``
      - the picked frames
 
@@ -232,10 +246,12 @@ Figures
 -------
 
 **File ▸ Create figures** (``vmdance figures dir -plots {…} -formats {pdf
-png eps} -width -height -dpi -prefix``): the plots, drawn again at the size
-asked, as EPS, and through Ghostscript as PDF and PNG; ``-options {setting
-value …}`` sets plot options for these figures only (``tl_view msd``,
-``ds_show representatives`` …); ``-3d 1`` renders the 3D view too
+png eps} -width -height -dpi -text -prefix``): the plots, drawn again at the
+size asked, as EPS, and through Ghostscript as PDF and PNG, their text at
+``-text`` points (8 to 24; 12 by default); ``-options {setting value …}``
+sets plot options for these figures only (``tl_view msd``, ``ds_show
+representatives``, ``mu_view groups``, ``mp_colour cluster``, ``pf_show
+differences``, ``td_view heights`` …); ``-3d 1`` renders the 3D view too
 (``-plots {} -3d 1``: it alone), with ``-renderer auto`` (TachyonInternal,
 else a snapshot), ``snapshot`` or another of VMD's internal ray tracers
 (OptiXInternal, ANARIInternal): VMD's exporters (POV3, Tachyon, Wavefront

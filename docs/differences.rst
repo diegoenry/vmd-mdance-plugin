@@ -83,7 +83,7 @@ and defaults, and measures the same things; what changed, and why:
        window
    * - Plots
      - tiles opening tabs; a font setting per plot
-     - ten tabs with their options in one panel; Cluster MSD, MSD/Pop and
+     - thirteen tabs with their options in one panel; Cluster MSD, MSD/Pop and
        the similarity are views of Compactness, the centroid distances and
        the representatives' RMSD views of Distances
 

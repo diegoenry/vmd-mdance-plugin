@@ -21,6 +21,15 @@ clusters' order or largest first; eQUAL's noise as a grey bar. Click a bar:
 select the cluster (Shift: add or remove it). Double-click: go to its
 representative.
 
+Make-up
+-------
+
+Each cluster's frames by group (Results ▸ Groups: the method, replica or
+condition each came from), stacked in the groups' colours; or each group's
+frames by cluster. As counts, or as shares (of the cluster, or of the
+group). Noise and frames of no group are left out. Click a bar: select the
+cluster. Double-click: go to its representative.
+
 Timeline
 --------
 
@@ -105,6 +114,17 @@ return them), and can join its clusters across them; the axis says which
 tree it is.
 Click a leaf: select its cluster.
 
+The **merges' heights** (*Show* in the Tree's options): each merge's
+height against the number of clusters before it — for HELM the MSD within
+the cluster it makes (MDANCE's, measured when it clustered), for the
+others the average linkage's RMSD² between the mean structures it joins. A
+merge much higher than the one before joins clusters far apart: the k
+before it is a natural place to stop. The largest jump is circled (the
+height over the one before, which counts as 5% of the highest at least:
+merges of near-identical clusters are not jumps). With HELM, cluster to
+fewer clusters than you mean to keep (a small k), and read the heights
+back.
+
 Silhouette
 ----------
 
@@ -118,6 +138,26 @@ cluster (Shift: add or remove it). With many clusters the gaps between them
 shrink (a quarter of the axis at most), and the clusters' numbers are
 written where they fit, the selected ones first.
 
+Map
+---
+
+Every clustered frame on the first two principal components of the
+clustered coordinates (Results ▸ Map), in Å, each axis with its share of
+the variance; coloured by group, or by cluster. Frames close on the map
+have close structures; the reverse need not hold (two components are a
+shadow of all of them). Click a frame: go to it and select its cluster.
+
+Profiles
+--------
+
+Atom by atom of the selection (the axis by residue, a gap between chains),
+measured by Results ▸ Profiles: each group's fluctuations (RMSF about its
+own mean structure, Å), each cluster's, or each cluster's mean structure's
+distance from the reference cluster's (the most populated, unless another
+is given). Where groups or clusters differ shows as a stretch of residues
+apart from the rest. Over several atoms a residue's value is their root
+mean square.
+
 Elbow
 -----
 
@@ -126,8 +166,11 @@ Elbow
 
 The Calinski–Harabasz and Davies–Bouldin scores at every k of the elbow
 scan, each on its own axis (a cross at a k that failed or was not run; the
-dashed line at the current clustering's k). Hover a k: its clusters'
-shares. Double-click: make it the clustering.
+dashed line at the current clustering's k); with the scan's stability, a
+bar at each k (0 to 1: how alike NANI's seedings cluster). An eQUAL scan
+is by radius: the x axis is the radius, and the bars say how many clusters
+each gave. Hover a k: its clusters' shares. Double-click: make it the
+clustering.
 
 Sweep
 -----
@@ -144,5 +187,6 @@ Figures
 -------
 
 **File ▸ Create figures** (or ``vmdance figures``) draws the plots again
-at a size of their own, with the text at the size figures are laid out for,
-and writes them as EPS, and through Ghostscript as PDF and PNG.
+at a size of their own, with the text at the size figures are laid out for
+(``-text``: another), and writes them as EPS, and through Ghostscript as
+PDF and PNG.

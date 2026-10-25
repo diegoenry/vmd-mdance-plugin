@@ -16,6 +16,10 @@ namespace eval ::VMDance::GUI {
             {combo po_sort "Order" {cluster "Cluster" size "Size, largest first"}}
             {check po_noise "Noise (eQUAL's frames outside every cluster)"}
         }
+        makeup {
+            {combo mu_view "Bars" {clusters "Clusters by group" groups "Groups by cluster"}}
+            {combo mu_show "Show" {count "Frames" share "Shares"}}
+        }
         timeline {
             {combo tl_view "Show" {lanes "The cluster of every frame" msd "Distance to its representative"}}
             {entry tl_bar "Bar height" "The height of the bars, as a share of a cluster's lane (above 0, at most 1)" -when {$S(tl_view) eq "lanes"}}
@@ -41,14 +45,22 @@ namespace eval ::VMDance::GUI {
             {check mx_values "Values in the cells"}
         }
         tree {
-            {check td_labels "Leaf labels"}
+            {combo td_view "Show" {tree "The tree" heights "The merges' heights"}}
+            {check td_labels "Leaf labels" -when {$S(td_view) eq "tree"}}
         }
         silhouette {
             {check sl_sort "Sorted within each cluster"}
             {check sl_mean "The mean"}
         }
+        map {
+            {combo mp_colour "Colour by" {group "Group" cluster "Cluster"}}
+        }
+        profiles {
+            {combo pf_show "Show" {groups "Each group's fluctuations" clusters "Each cluster's fluctuations" differences "Each cluster against the reference"}}
+        }
         elbow {
             {combo eb_show "Scores" {both "Both" ch "Calinski–Harabasz" db "Davies–Bouldin"}}
+            {check eb_stability "Stability (bars), when the scan has it"}
             {check eb_partition "The clusters' shares under the pointer"}
         }
         sweep {
@@ -67,6 +79,11 @@ namespace eval ::VMDance::GUI {
     variable opttips {
         po_show "The frames of each cluster, or their share of the frames clustered"
         po_sort "The bars in the order of the clusters, or largest first"
+        mu_view "Each cluster's frames by group, or each group's frames by cluster"
+        mu_show "The frames, or their share of the bar's"
+        mp_colour "The frames coloured by their group (Results ▸ Groups), or by their cluster"
+        pf_show "Residue by residue: each group's RMSF about its mean structure, each cluster's, or the distance of each cluster's mean structure from the reference cluster's"
+        eb_stability "How alike the clusterings of NANI's four seedings are at each k (the mean adjusted Rand index: 1, the same clusters), when the scan was made with Stability"
         tl_view "Each cluster's lane, with a bar where the trajectory is in it; or every frame's RMSD² from its cluster's representative"
         tn_show "From each cluster (rows) to the cluster lag clustered frames later (columns): the share of the frames that go there (the rest into noise), or their number"
         tn_lag "How many clustered frames later the transition is counted"
@@ -75,6 +92,7 @@ namespace eval ::VMDance::GUI {
         cp_show "The backend's mean square deviation within each cluster (MDANCE's MSD: the mean RMSD² over its pairs of frames, each with itself too); the mean RMSD² of its frames from its representative (lower: from half the MSD to all of it, with the metric MSD); the MSD against the cluster's size (dashed: the medians); or MDANCE's extended similarity (Tools ▸ Similarity)"
         ds_show "The RMSD² between the clusters' mean structures, or the RMSD between their representatives (no fit)"
         sl_sort "Each cluster's frames from its best to its worst silhouette"
+        td_view "The dendrogram; or the height of each merge against the clusters before it (HELM's: the MSD of the cluster it makes; the linkage's: the RMSD² between the mean structures it joins): a merge far above the one before joins clusters far apart"
         eb_show "Calinski–Harabasz (higher: better) and Davies–Bouldin (lower: better), each on its own axis"
         sw_score "The score shaded: the best configuration is outlined"
         mx_values "The value of each cell, when it has room"

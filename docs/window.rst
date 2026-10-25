@@ -20,7 +20,7 @@ The toolbar
 
 The left panel · open and save a session · export results and create
 figures · **Cluster**, **Elbow scan** and **Cancel**, with the ring of the
-running job's progress · the ten plots · colour by cluster, every
+running job's progress · the thirteen plots · colour by cluster, every
 representative, go to the selected cluster's representative, render the 3D
 view · Settings and the quick guide · the plot options.
 
@@ -75,11 +75,22 @@ nearest their representative. Double-click: go to the representative.
 Right-click: more. Under the table, the selection in words: frames, share,
 representative, mean silhouette, visits and residence.
 
+**Groups, map and profiles**: each frame's group (the method, replica or
+condition it came from), as names and VMD frames (``original 0-63 moderate
+64-127``) or **From a file…** (``frame,group`` lines); **Map** places the
+frames on their first two principal components (the axes from the frames
+given); **Profiles** measures each group's and cluster's fluctuations, atom
+by atom, and each cluster against one (-1: the most populated). The
+Make-up, Map and Profiles plots show them (:doc:`plots`); the command sets
+the groups' colours (:doc:`command`).
+
 Scans
 -----
 
 **Elbow**: the Setup's algorithm and parameters at every k from … to …
-every …; the Elbow plot shows it. **Sweep**: every combination of the
+every … (for eQUAL, at every radius from … to … every …), with **Stability**
+the agreement between NANI's four seedings at each k; the Elbow plot shows
+it. **Sweep**: every combination of the
 algorithms (KMeans NANI, DIVINE, HELM), the range of k, the metrics and the
 seedings (HELM's: its first clustering's; HELM from a label file and
 DIVINE's pair anchors once, using none), with the number of

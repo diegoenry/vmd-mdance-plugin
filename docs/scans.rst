@@ -35,6 +35,30 @@ which one cluster takes nearly everything, or several hold a few frames, is
 seldom the one. ``vmdance elbow load 6`` (or a double-click) makes that
 k the clustering.
 
+Choosing k is seldom settled by the two scores: on structures that are not
+in well-separated states, Davies–Bouldin falls as k grows, to the end of
+the range, and Calinski–Harabasz favours the smallest k. Three more views:
+
+- **Stability** (``vmdance elbow … -stability 1``; k-means NANI): every k
+  clustered again from the four seedings that draw no random number
+  (StratAll, StratReduced, CompSim, DivSelect), and the mean adjusted Rand
+  index of every two (1: the same clusters whatever the seeding). A k whose
+  clusters do not depend on the seeding describes the frames, not the
+  seeds; a scan that is never stable (below about 0.5 at every k) says that
+  the frames hold no clusters k-means finds at those k. The scan takes four
+  times as long; the Elbow plot draws it as bars, the table and the export
+  as a column.
+- **The merges' heights**: HELM merges its starting clusters two by two,
+  and the MSD within the cluster each merge makes is its height (the Tree
+  plot's *merges' heights*; for the other algorithms, the average linkage of
+  their clusters); the number of clusters before a jump in height is a k to
+  try.
+- **eQUAL's radius**: eQUAL is given no k but a radius, and finds as many
+  clusters as that radius makes; ``vmdance elbow -algorithm equal -radii
+  {0.5 1 2 4}`` (or the Scans tab's range of radii) scans it, and the
+  number of clusters each radius gives (a plateau over several radii: a k
+  the frames hold) stands beside the scores.
+
 Sweep
 -----
 
