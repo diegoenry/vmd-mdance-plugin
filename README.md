@@ -53,10 +53,12 @@ Then add the plugin to `~/.vmdrc`:
 
 ```tcl
 lappend auto_path /path/to/vmd-mdance-plugin/vmdance
-package require vmdance   ;# registers Extensions > Analysis > VMDance
+package require vmdance   ;# adds the menu entry Analysis > VMDance
 ```
 
-and open **Extensions ▸ Analysis ▸ VMDance**, or type `vmdance` in
+and open **Analysis ▸ VMDance** (VMD 2's main window has no Extensions
+menu; in VMD 1.9 the entry is under **Extensions ▸ Analysis ▸ VMDance**),
+or type `vmdance` in
 VMD's console. It needs a VMD built with Tcl/Tk 8.6, as VMD 2 is (`info
 patchlevel` in VMD's console says which: VMD 1.9.3 and the Linux 1.9.4
 alphas have Tcl 8.5, and cannot load it); it is
@@ -98,7 +100,12 @@ quotes: `chain "x"`). The coordinates are
 clustered as they are: an aligned trajectory, as MDANCE expects. *Fit to
 the first frame on* superposes every frame on the first clustered one
 before clustering; it is computed on the values, and VMD's own coordinates
-are never moved.
+are never moved. The fit is off unless asked, and whether it is needed is
+measured: a sample of the frames is compared with the first, as they are
+and once fitted, and when a fit halves that distance and takes an ångström
+off it the frames do not look superposed — Setup's note under the Fit box
+turns into a warning, the command notes it as it clusters them, and
+`vmdance alignment` returns the two distances.
 
 | Algorithm | What it does | Given |
 |---|---|---|
@@ -144,9 +151,13 @@ one more cluster); HELM its merges. The plugin
 measures, from the same coordinates, squared distances per atom between two
 structures (RMSD², no fit: twice MDANCE's MSD of the pair): every frame's
 from its cluster's representative, and between every two representatives
-and every two clusters' mean structures; and every frame's silhouette from
-the mean structures ((b − a) / max(a, b), a and b RMSDs; 0 for a frame
-alone in its cluster).
+and every two clusters' mean structures; and every frame's silhouette, of
+two kinds: from the mean structures ((b − a) / max(a, b), a and b RMSDs; 0
+for a frame alone in its cluster; the simplified silhouette, never below 0
+for k-means), and from every frame, of the squared distances (a the mean
+RMSD² from the other frames of its cluster, b the smallest mean from
+another cluster's: the classic silhouette, the numbers of scikit-learn's
+`silhouette_samples(metric="sqeuclidean")`).
 
 ## The window
 
@@ -156,18 +167,28 @@ help). The left panel has five tabs:
 
 - **Setup**: the molecule; the atoms, with a menu of common selections and
   their number of atoms; the frames (all, or a range) and every n-th, with
-  their number; the fit; the algorithm, with a note of those the backend
+  their number; the fit, with a note under it (the atoms it is made on;
+  without one, whether the frames look superposed: a warning when they do
+  not); the algorithm, with a note of those the backend
   lacks (and of the library, when it is the one in use); its parameters
-  (greyed when they do not apply); **Cluster** runs in the background (with
+  (greyed when they do not apply; under eQUAL's radius the RMSD it stands
+  for, and **Suggest a radius**, from the frames); **Cluster** runs in the
+  background (with
   the library, VMD waits for it).
 - **Results**: the run shown (every clustering is kept: the last 25), in
-  words; the table of clusters (frames, share, MSD within, RMSD² from the
-  representative, the representative's frame; click a heading to sort,
+  words (fitted or not, the clusters without frames named); the table of
+  clusters (frames, share, MSD within, RMSD² from the
+  representative, the representative's frame, each row in its cluster's
+  colour; click a heading to sort,
   right-click for more); the selected clusters in words; Go to
-  representative, Overlay in 3D.
+  representative, Overlay in 3D; the groups (typed, **Halves**,
+  **Blocks…**, from a file) with how unlike they are, the map and the
+  profiles. The run's menu numbers its clusters by size, as a new run.
 - **Scans**: the **Elbow** scan (the Setup's clustering at every k of a
-  range) and the **Sweep** (every combination of algorithms, k, metrics and
-  seedings), with its table, the best configurations marked.
+  range; eQUAL's at every radius of one, **Suggest** proposing it), with
+  what it points to in words, and the **Sweep** (every combination of
+  algorithms, k, metrics and
+  seedings), with its table, the best configurations' rows coloured.
 - **Tools**: **PRIME** (the native-like frame: its four predictions and
   three medoid baselines, double-click to go to one), the **similarity**
   (iSIM of the frames and of each cluster), **Pick frames** (the most
@@ -180,11 +201,17 @@ help). The left panel has five tabs:
   of the clusters' colours.
 
 The plots fill the right side; the **Plot options** panel holds every
-setting of the current plot. Both side panels can be hidden. **Settings**
+setting of the current plot, and those of all: among them the distances as
+squared values (Å², as measured) or lengths (Å), and the time per frame
+(`0.1 ns`: the Timeline and the Residence then read in time). A plot's tab
+says its name and what it shows when the pointer rests on it. Both side
+panels can be hidden. **Settings**
 chooses the backend, unlocks the metrics, and sets the text size (8–24
 pt), the window size and the theme (automatic, macOS native, flat, VMD's
 own — as in DihedralView, InteractionView and Molywood Studio); they are
-kept between sessions of VMD.
+kept between sessions of VMD. On a small screen the left pages scroll, the
+plot options take the left panel's place while they are open, and the
+dialogs are never taller than the screen.
 
 A cluster has one hue everywhere — blue, red, green, orange, purple, teal …
 — drawn in the plots in darker tones (InteractionView's) and in the 3D
@@ -199,17 +226,17 @@ the selection.
 | Tab | Shows |
 |---|---|
 | **Populations** | the frames of each cluster, or their share; in order or largest first; eQUAL's noise; click to select, double-click to go to the representative |
-| **Make-up** | each cluster's frames by group (the method, replica or condition each came from), or each group's by cluster; counts or shares |
-| **Timeline** | the cluster of every frame, a lane per cluster (noise at the bottom); or every frame's RMSD² from its representative, coloured by cluster; click to go to a frame |
+| **Make-up** | each cluster's frames by group (the method, replica or condition each came from), or each group's by cluster; counts or shares, each bar's frames written above it |
+| **Timeline** | the cluster of every frame, a lane per cluster (noise at the bottom), shaded by the cluster's share of the frames where a pixel holds several; each cluster's share window by window, or so far (with the frame by which every cluster has been seen); or every frame's RMSD² from its representative, coloured by cluster (a dot a frame and their running median above 400 frames); click to go to a frame |
 | **Transitions** | from each cluster to the one lag frames later: probabilities (the share into noise left out of the columns) or counts; the diagonal (staying) on or off |
-| **Residence** | how long the trajectory stays in a cluster once it enters it: the mean of its runs of frames, a whisker to the longest; or the number of visits |
+| **Residence** | how long the trajectory stays in a cluster once it enters it: the mean of its runs of frames, the longest written beside it; or the number of visits |
 | **Compactness** | the MSD within each cluster (MDANCE's), the RMSD² from its representative, the MSD against its size (the medians dashed), or its extended similarity (iSIM) |
 | **Distances** | between every two clusters: their mean structures (RMSD²) or their representatives (RMSD) |
-| **Tree** | how the clusters join: HELM's merges of its starting clusters (a forest when it stops at k, coloured by the cluster each ends in), or the average linkage of the clusters' mean structures (DIVINE's too, not its splits: the axis says which); or the merges' heights, the largest jump circled |
-| **Silhouette** | every frame's silhouette, cluster by cluster, sorted, with the mean |
-| **Map** | every frame on the first two principal components of the clustered coordinates, by group or by cluster |
-| **Profiles** | atom by atom: each group's or cluster's fluctuations (RMSF), or each cluster's mean structure against the most populated one's |
-| **Elbow** | Calinski–Harabasz and Davies–Bouldin at every k of the scan, each on its own axis, and the stability as bars (how alike NANI's seedings cluster); eQUAL by radius; hover a k for its clusters' shares, double-click to make it the clustering |
+| **Tree** | how the clusters join: HELM's merges of its starting clusters (a forest when it stops at k, coloured by the cluster each ends in), or the average linkage of the clusters' mean structures (DIVINE's too, not its splits: the axis says which); or the merges' heights, a jump circled when one stands out |
+| **Silhouette** | every frame's silhouette, cluster by cluster, sorted, with the mean: from the clusters' mean structures, or from every frame (squared distances) |
+| **Map** | every frame on the first two principal components of the clustered coordinates, to one scale, by group or by cluster, each cluster's representative ringed |
+| **Profiles** | atom by atom: each group's or cluster's fluctuations (RMSF), or each cluster's mean structure against the most populated one's; of many clusters, the selected (or the largest) in colour |
+| **Elbow** | Calinski–Harabasz and Davies–Bouldin at every k of the scan, each on its own axis, or the variance the clusters explain; rings where the scores point (Davies–Bouldin's lowest value and sharpest dip, Calinski–Harabasz's highest), and in a strip under them the stability (how alike NANI's seedings cluster); eQUAL by radius; hover a k for its clusters' shares, double-click to make it the clustering |
 | **Sweep** | the chosen score of every configuration, a row per algorithm, metric and seeding and a column per k, the best outlined; double-click to make one the clustering |
 
 ## Scripting (works in text mode)
@@ -222,21 +249,29 @@ mol addfile aligned_original_tau_6K.dcd waitfor all
 animate delete beg 0 end 0             ;# the PDB's own frame: cluster the DCD's 6001 (VMD's frame = MDANCE's)
 vmdance -sel backbone -algorithm kmeans -k 6 -kinit CompSim
 # -> run 1 molid 0 sel backbone fit {} frames 6001 ... nclusters 6 sizes {691 1178 985 1177 1149 821} noise 0 ch 1036.1 db 2.04 ...
+vmdance help                        ;# the subcommands, a line each (vmdance help elbow: its usage)
+vmdance alignment -sel backbone     ;# do the frames look superposed? as_is 4.146 fitted 3.956 ... superposed 1
 vmdance clusters                    ;# {cluster frames percent msd msd_to_representative representative} ...
 vmdance get 2                       ;# frames, share, representative, silhouette, visits, members ...
 vmdance labels                      ;# {frame cluster ...}
+vmdance timeline -windows 20        ;# each cluster's frames window by window, and the frame it is first seen at
 vmdance transitions -lag 10         ;# probabilities, k × k
+vmdance silhouette -kind pairs      ;# every frame's silhouette from every frame (-kind centroid: from the mean structures)
+vmdance renumber                    ;# the clusters numbered by size, the largest 0: a new run
 vmdance -sel backbone -algorithm helm -k 6 -initial-labels labels_60.csv
+vmdance radii -sel backbone         ;# a range for eQUAL's radius, from the frames: ... from 4.4 to 14 by 1.1
 vmdance -sel backbone -algorithm equal -threshold 10
 vmdance elbow -sel backbone -kinit CompSim -from 2 -to 15   ;# {index k nclusters ch db sizes status message} ...
 vmdance elbow -sel backbone -from 2 -to 15 -stability 1      ;# and each k's stability across NANI's seedings
+vmdance elbow suggest               ;# where the scores point: db_lowest, db_dip, ch_highest, stable ... and in words
 vmdance elbow load 6                ;# that k made the clustering
 vmdance sweep -sel backbone -algorithms {kmeans helm} -from 2 -to 10 -seedings {StratAll CompSim}
 vmdance sweep best db
 vmdance prime                       ;# {pairwise frame union frame ... medoidAll frame ...}
 vmdance similarity                  ;# {isim x clusters {...} least_similar {...}}
-vmdance groups -ranges {first 0-2999 second 3000-6000}   ;# where each frame came from (or -file, -names; -colours)
+vmdance groups -ranges {first 0-2999 second 3000-6000}   ;# where each frame came from (or -file, -names, -blocks 2; -colours)
 vmdance makeup                      ;# each cluster's frames by group
+vmdance groups compare              ;# how unlike the groups' shares of the clusters are (0: the same; 0.69: none in common)
 vmdance map                         ;# the frames on their first two principal components
 vmdance profiles                    ;# atom by atom: each group's and cluster's RMSF, each cluster against the largest
 vmdance pick -sel backbone -method diversity -param 10
@@ -245,6 +280,7 @@ vmdance draw -colour 1 -overlay 1 -top 10
 vmdance goto 3                      ;# VMD's frame to cluster 3's representative
 vmdance export results -prefix hepta -items {summary clusters labels representatives trajectories}
 vmdance session save hepta.vmdance
+vmdance figures figs -plots {populations elbow} -size column   ;# 85 mm wide, 8-point text (needs VMD's window)
 ```
 
 The clustering options: `-mol -sel -fit -first -last -step -algorithm -k
@@ -254,10 +290,12 @@ The clustering options: `-mol -sel -fit -first -last -step -algorithm -k
 -n-seeds -check-sim -sim-threshold -reject-lowd`, HELM's `-initial
 -initial-kinit -initial-percentage -initial-labels`), `-label -quiet`.
 `vmdance parameters helm` lists an algorithm's with their defaults and
-limits. Subcommands: `info algorithms parameters backend cancel clusters get
-labels frame transitions residence silhouette distances tree elbow sweep
-prime similarity groups makeup map profiles pick select draw goto userfield
-runs run export session figures`. Every option is checked before anything changes, and an error
+limits. Subcommands: `help info algorithms parameters backend cancel
+alignment radii clusters get labels frame timeline transitions residence
+silhouette distances tree elbow sweep prime similarity groups makeup map
+profiles pick select draw goto userfield runs run renumber export session
+figures` (`vmdance help` says what each does, `vmdance help subcommand` its
+usage). Every option is checked before anything changes, and an error
 names the option; a failed, cancelled or refused job keeps what was there.
 If the window is open, it shows what the command did. A scan or a pick
 takes its own options, the command's defaults where none is given, not the
@@ -299,18 +337,27 @@ need be.
   what was clustered, how and when; every clustered frame's cluster
   (`frame,cluster`: MDANCE's labels, and HELM's starting clusters again);
   each cluster's frames nearest its representative, ranked; the timeline,
-  the transitions, the residence, the silhouettes, the distances, the
+  the transitions, the residence, the silhouettes (both kinds), the
+  distances, the
   tree's merges; PRIME, the similarity, the elbow scan, the sweep, the
   picked frames; the representatives' structures (one per cluster) and each
   cluster's frames as a trajectory of its own (DCD with a PDB of its atoms,
   or PDB, as VMD's writers write them: a DCD keeps every frame's unit
-  cell). Frames are VMD's frame numbers; every scan's and the picks' table
+  cell; in a PDB each frame is a model, `MODEL n` … `ENDMDL`, with a
+  `REMARK` before it naming its cluster and frame, and VMD reads the file
+  back as frames). Frames are VMD's frame numbers; every scan's and the picks' table
   names its backend too. An export is checked whole first, its folder made
   when it does not exist, and its files renamed into place only once all
   are written (a failure changes none), each under a temporary name of its
   own beside it: a link put there is never followed, a file replaced keeps
   its permissions, a read-only one is refused.
-- **Figures**: the plots as PDF, PNG or EPS at any size, and the 3D view as
+- **Figures**: the plots as PDF, PNG or EPS, at the size of where they go
+  (`-size column`: 85 mm with 8-point text; `two-columns`: 178 mm, 9;
+  `slide`: 16:9, 10 in wide, 16; `screen`, the default: 900 × 560 points,
+  12) or any other (`-width 85mm -height 60mm`: points, or mm, cm, in; 160
+  points, 56 mm, at least; `-text` 6 to 36), without the current-frame line
+  unless asked (`-cursor 1`), the Timeline's lanes drawn as shapes; a plot
+  that has only a message to show gets no figure; and the 3D view as
   a PNG (snapshot, TachyonInternal or another of VMD's internal ray tracers).
 
 ## Design
@@ -412,12 +459,28 @@ Choices of this plugin:
   and reads its seedings for HELM's first clustering (HELM from a label
   file, which makes none, is run once at each k, its seeding *none*). Any
   record can be made the clustering.
+- **What a scan suggests** is said (the old plugin drew the two scores'
+  curves): rings on Davies–Bouldin's lowest value and on its sharpest dip,
+  MDANCE's two criteria, found as MDANCE's own `analysis_db` script finds
+  them (the lowest value; the local minimum of the largest second
+  difference), and on Calinski–Harabasz's highest; beside them, the
+  stability across NANI's seedings and the variance the clusters explain
+  (SSR/SST, from the Calinski–Harabasz score), which that script does not
+  draw. The readings need not agree, and the plugin leaves the choice.
 - **The measures**: the silhouette of every frame (the old plugin sampled
   200 per cluster), from the RMSD to the mean structures (the old plugin
   squared them: its values read higher, 0.62 against 0.39 on 3ptb's Cα at
-  k 4), 0 for a frame alone in its cluster; every frame's RMSD² from its representative, kept (the
+  k 4), 0 for a frame alone in its cluster; and a second kind, from every
+  frame, of the squared distances (the classic silhouette: a measure the
+  plugin adds, not one of MDANCE's; its numbers are scikit-learn's with
+  `metric="sqeuclidean"`);
+  every frame's RMSD² from its representative, kept (the
   old plugin computed it for the overlay only); the representatives' and
   the mean structures' distances, kept.
+- **Structures as PDB** are models: `MODEL n` … `ENDMDL` around each frame,
+  a `REMARK` before it naming its cluster and frame, one `END`. The old
+  plugin copied the frames into a molecule made for it and wrote them with
+  VMD's `animate write`: each ended by `END`, none named.
 - **Label files**: two-column files are read by the rows of the clustering
   (MDANCE's own) or by VMD's frames (the plugin's export of a range or a
   step, which the old plugin refused).
@@ -428,7 +491,8 @@ Choices of this plugin:
   still unmerged and by the row's count) for the Tree plot, the `tree`
   command and the export. The result keeps the backend's rows (`zmatrix`).
 - **Fit to the first frame** is new (the old plugin clustered the
-  coordinates as they were, which is still the default).
+  coordinates as they were, which is still the default), and so is the
+  note that says whether the frames look superposed.
 - **DIVINE's Refine** is greyed with NANI's anchors, whose splits are
   k-means already. Its metric is MSD, and its *Threshold* is the smallest
   share of the frames a split leaves on each side (*Smallest share*).
@@ -454,8 +518,9 @@ vmdance/
   lib/algorithms.tcl   the algorithms: parameters with defaults and limits, their checks, the backend's arguments, label files
   lib/prefs.tcl        the preferences kept between sessions of VMD (the window's, the backend chosen in Settings), read as data
   lib/backend.tcl      finding CPP-MDANCE (the preferences' first), what it was built with, running mdance-cli in the background, private files
-  lib/coords.tcl       the coordinates clustered: the same atoms at every frame, the fit, the rows kept
-  lib/measures.tcl     the plugin's measures: RMSD² from the representatives, distances, silhouettes, runs, transitions, linkage
+  lib/coords.tcl       the coordinates clustered: the same atoms at every frame, the fit, the rows kept; whether the frames look superposed
+  lib/measures.tcl     the plugin's measures: RMSD² from the representatives, distances, silhouettes (two kinds), runs, transitions,
+                       the clusters' shares window by window, the groups' divergence, linkage
   lib/analysis.tcl     requests and their checks; the jobs (cluster, elbow, sweep, adopt, import, PRIME, similarity, pick); the backend's output checked
   lib/results.tcl      the clusterings in memory, runs, scans, picks, the selection, queries
   lib/session.tcl      session files; the MDANCE plugin's, imported
@@ -491,7 +556,12 @@ tests/
                        h4: docs/tests.rst says what each keeps); g9's, what the window's fixes ask of the core
   test_groups.tcl      the groups and their colours, the make-up, the map (numpy's PCA), the profiles, the scans' stability,
                        eQUAL's radius scan, HELM's merges' heights, each against a direct computation (the real backend)
+  test_ux.tcl          what the review of the window's use added to the core and the command: alignment, timeline, the silhouette
+                       from every frame, what a scan suggests, the variance explained, blocks and the groups' divergence,
+                       renumber, radii, the structures as models, help (the real backend)
   test_gui.tcl         windowed: the window, clustering, cancelling, every plot, scans, tools, 3D, files, figures, themes
+  test_ux_gui.tcl      windowed: what the same review changed in the window (Setup's frames and fit note, the tables' colours,
+                       the plots' new views and options, the figures' sizes)
   run_all.sh           every suite (the text-mode ones through strict.tcl)
   strict.tcl           runs a suite so that an error at its top level fails it (VMD's -e goes on after one)
   e2e/                 end to end: four VMD sessions that work, save, quit and reopen (run_e2e.sh)
@@ -521,8 +591,10 @@ vmd -dispdev text -e tests/test_reference.tcl < /dev/null | grep -E "FAIL|SKIP|R
 vmd -dispdev text -e tests/test_hardening.tcl < /dev/null | grep -E "FAIL|RESULT"
 vmd -dispdev text -e tests/test_hardening2.tcl < /dev/null | grep -E "FAIL|RESULT"
 vmd -dispdev text -e tests/test_groups.tcl    < /dev/null | grep -E "FAIL|SKIP|RESULT"
+vmd -dispdev text -e tests/test_ux.tcl        < /dev/null | grep -E "FAIL|SKIP|RESULT"
 for g in fx_g1 fx_g2 fx_g3 fx_g4 fx_g5 g6 g7 g8 g9 h1 oi h3 h4; do vmd -dispdev text -e tests/test_hardening2_$g.tcl < /dev/null | grep -E "FAIL|RESULT"; done
 VMDANCE_OUT=/tmp/mdv vmd -dispdev win -e tests/test_gui.tcl < /dev/null; grep -E "FAIL|RESULT" /tmp/mdv/gui.log
+VMDANCE_OUT=/tmp/mdv vmd -dispdev win -e tests/test_ux_gui.tcl < /dev/null; grep -E "FAIL|SKIP|RESULT" /tmp/mdv/ux_gui.log
 sh tests/run_all.sh                           # all of them (strict: an error at a suite's top level fails it)
 DISPLAY=:9 sh tests/e2e/run_e2e.sh            # end to end
 ```
@@ -541,8 +613,9 @@ The windowed suite needs a display (`Xephyr :9 -screen 1600x1200x24 -ac &`
 then `DISPLAY=:9`). Current results: 140, 110, 67, 42, 61, 31, 194 and 220
 checks (core, jobs, results, session, reference, hardening, hardening2,
 gui), 407 in the second round's thirteen group suites (396 in a clone,
-without the papers beside it), and 118 in the groups suite (the real
-backend): 1390 in 22 suites, all passing in
+without the papers beside it), 118 in the groups suite and 55 in the ux
+suite (the real backend), and 68 and 72 in the window's two ux suites
+(ux_gui, ux_layout): 1585 in 25 suites, all passing in
 VMD 2.1 (Linux); the core suite also in `tclsh` 8.6. End to end
 (`DISPLAY=:9 sh tests/e2e/run_e2e.sh`: four phases, each in a new VMD, with
 the real backend): 42, 15, 21 and 10 checks, passing. The reference suite, with

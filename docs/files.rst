@@ -173,7 +173,10 @@ Export
      - ``cluster,visits,mean_frames,min_frames,max_frames`` (in clustered
        frames)
    * - ``silhouette``
-     - ``frame,cluster,silhouette``
+     - ``frame,cluster,silhouette,silhouette_pairs``: every frame's
+       silhouette from the clusters' mean structures, and from every frame,
+       of the squared distances (a run made before the second was measured:
+       the first column only)
    * - ``distances``
      - ``cluster_i,cluster_j,centroid_msd,representative_rmsd``
        (``centroid_msd`` the RMSD² between the mean structures; 300
@@ -187,7 +190,8 @@ Export
      - the representatives' structures, one frame per cluster with frames,
        in the clusters' order (an empty cluster has none: the frames are
        then fewer than k); ``-format dcd`` with a PDB of the atoms, or
-       ``pdb``; ``-sel`` the atoms
+       ``pdb`` (a model each, named by a ``REMARK``: below); ``-sel`` the
+       atoms
    * - ``trajectories``
      - each cluster's frames as a trajectory of its own
        (``name_cluster_c.dcd`` and ``.pdb``, or ``.pdb``); those an
@@ -241,7 +245,30 @@ written the same way.
 The structures are written as VMD writes them, from the clustered
 molecule (no molecule is made): a DCD keeps every frame's unit cell; a PDB
 is VMD's PDB writer's, frame by frame (residues past 9999 in its
-hexadecimal, each frame's unit cell). A PDB holds coordinates from -999.999
+hexadecimal, each frame's unit cell). In a PDB the frames are models:
+``MODEL n`` … ``ENDMDL`` around each, a ``REMARK`` before it that names it,
+and one ``END`` after the last:
+
+.. code-block:: text
+
+   REMARK     VMDance: cluster 0's representative, frame 1043 (2391 frames)
+   MODEL        1
+   CRYST1 …
+   ATOM      1  N   …
+   ENDMDL
+   REMARK     VMDance: cluster 1's representative, frame 2679 (1633 frames)
+   MODEL        2
+   …
+   ENDMDL
+   END
+
+The representatives' ``REMARK`` says the cluster, its representative's
+frame and its size; a cluster's trajectory's, *cluster c, frame f*; the
+picked frames', *picked frame f*. VMD reads such a file back as frames,
+one a model (to other programs, frames joined by ``END`` alone are one
+frame, or atoms piled up). The PDB
+of the atoms beside a DCD is one frame, as VMD writes it. A PDB holds
+coordinates from -999.999
 to 9999.999 Å: a frame beyond them is refused, naming it (a DCD holds it,
 but for the file's first frame, which the PDB beside a DCD has); so is an
 occupancy or a beta beyond them, in either format (leave those atoms out).
@@ -256,12 +283,60 @@ Figures
    :width: 60%
 
 **File ▸ Create figures** (``vmdance figures dir -plots {…} -formats {pdf
-png eps} -width -height -dpi -text -prefix``): the plots, drawn again at the
-size asked, as EPS, and through Ghostscript as PDF and PNG, their text at
-``-text`` points (8 to 24; 12 by default); ``-options {setting value …}``
-sets plot options for these figures only (``tl_view msd``, ``ds_show
+png eps} -size -width -height -dpi -text -prefix``): the plots, drawn again
+at the size asked, as EPS, and through Ghostscript as PDF and PNG. In the
+dialog, *For* chooses where the figure goes (the screen, a journal's
+column, two columns, a slide) and fills the width, the height and the
+text, which can then be typed over; the size is said in millimetres
+beside it. *The line at VMD's current frame* is left out unless ticked.
+
+``-size`` says where the figure goes, and sets its width, its height and
+its text size together:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 30 22 26
+
+   * - ``-size``
+     - For
+     - Width × height
+     - Text
+   * - ``column``
+     - a journal's column
+     - 85 × 64 mm (241 × 181 points)
+     - 8 points
+   * - ``two-columns``
+     - its two columns
+     - 178 × 100 mm (504 × 284 points)
+     - 9 points
+   * - ``slide``
+     - a 16:9 slide
+     - 10 × 5.6 in (720 × 405 points)
+     - 16 points
+   * - ``screen`` (the default)
+     - a look on the screen
+     - 900 × 560 points
+     - 12 points
+
+``-width`` and ``-height`` change what the size set: a number of points
+(72 an inch), or a number with its unit — ``85mm``, ``8.5cm``, ``3.35in``.
+A figure is 160 to 6000 points (56 mm at least) each way. ``-text`` is the
+plots' text size, 6 to 36 points. ``-dpi`` (50 to 1200; 300 by default) is
+the PNG's resolution.
+
+``-cursor`` is 0 by default: the red line at VMD's current frame is not
+drawn in a figure unless asked (``-cursor 1``). The Timeline's lanes are
+drawn in a figure as shapes, not as an image of the window's pixels: they
+are sharp at any size and resolution. A plot that has only a message to
+show (*No similarity yet*, a plot of groups without groups) gets no
+figure: the others are written, and the console names it and why; asked
+for alone, the command is refused with the same words.
+
+``-options {setting value …}``
+sets plot options for these figures only (``tl_view shares``, ``ds_show
 representatives``, ``mu_view groups``, ``mp_colour cluster``, ``pf_show
-differences``, ``td_view heights`` …); ``-3d 1`` renders the 3D view too
+differences``, ``td_view heights``, ``sl_kind pairs``, ``eb_show
+explained``, ``plot_len a``, ``plot_time "0.1 ns"`` …); ``-3d 1`` renders the 3D view too
 (``-plots {} -3d 1``: it alone), with ``-renderer auto`` (TachyonInternal,
 else a snapshot), ``snapshot`` or another of VMD's internal ray tracers
 (OptiXInternal, ANARIInternal): VMD's exporters (POV3, Tachyon, Wavefront

@@ -178,7 +178,9 @@ proc ::VMDance::Plot::fmt {v} {
 #   xticks/yticks: explicit list, or "auto"
 proc ::VMDance::Plot::axes {c xlabel ylabel {xticks auto} {yticks auto} {opts {}}} {
     variable G; variable theme
-    set o [dict merge {xfmt ::VMDance::Plot::fmt yfmt ::VMDance::Plot::fmt grid 1} $opts]
+    # (dense: many categories on x, a bar or a lane each: no vertical grid
+    # line and no tick mark but at the labels, which striped the plot)
+    set o [dict merge {xfmt ::VMDance::Plot::fmt yfmt ::VMDance::Plot::fmt grid 1 dense 0} $opts]
     lassign [area $c] x0 y0 x1 y1
     $c create rectangle $x0 $y0 $x1 $y1 -fill $theme(plotbg) -outline "" -tags {bg plotbg}
     # ticks whose labels do not touch: fewer "nice" ticks, or every k-th of
@@ -198,8 +200,9 @@ proc ::VMDance::Plot::axes {c xlabel ylabel {xticks auto} {yticks auto} {opts {}
     foreach t $xticks {
         set px [X $c $t]
         if {$px < $x0 - 0.5 || $px > $x1 + 0.5} continue
-        if {[dict get $o grid]} { $c create line $px $y0 $px $y1 -fill $theme(grid) -tags grid }
-        $c create line $px $y1 $px [expr {$y1 + 4}] -fill $theme(axis) -tags axis
+        set dense [dict get $o dense]
+        if {[dict get $o grid] && !$dense} { $c create line $px $y0 $px $y1 -fill $theme(grid) -tags grid }
+        if {!$dense || $t in $xlab} { $c create line $px $y1 $px [expr {$y1 + 4}] -fill $theme(axis) -tags axis }
         if {$t in $xlab} {
             $c create text $px [expr {$y1 + 6}] -text [{*}[dict get $o xfmt] $t] -anchor n \
                 -font MdvSmall -fill $theme(text) -tags axis
@@ -401,9 +404,22 @@ proc ::VMDance::Plot::elide {font maxw text} {
     return "[string trimright [string range $text 0 [expr {$lo - 1}]]]…"
 }
 
-# Centered placeholder message.
-proc ::VMDance::Plot::empty {c msg {sub ""}} {
+# A short note above the plot's area, at its right (what a mark means,
+# what was left out): in the top margin, never on the data. A plot that
+# has one makes its top margin note_margin high at least.
+proc ::VMDance::Plot::note_margin {} { expr {[lh] + 6} }
+proc ::VMDance::Plot::note {c text {tags note}} {
     variable theme
+    lassign [area $c] x0 y0 x1 y1
+    set text [elide MdvSmall [expr {$x1 - $x0}] $text]
+    $c create text $x1 [expr {$y0 - 3}] -text $text -anchor se -font MdvSmall -fill $theme(muted) -tags $tags
+}
+
+# Centered placeholder message. (G(c,empty) keeps it: a figure is not
+# made of a plot that has only a message to show.)
+proc ::VMDance::Plot::empty {c msg {sub ""}} {
+    variable theme; variable G
+    set G($c,empty) [list $msg $sub]
     $c delete all
     lassign [size $c] W H
     # (the title above the middle, the text below it: apart at any size)

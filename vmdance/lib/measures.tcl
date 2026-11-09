@@ -14,7 +14,18 @@
 #                 cluster's mean, b from the nearest other one ("" for
 #                 noise, or with fewer than two clusters; 0 for a frame
 #                 alone in its cluster). Not scikit-learn's, which averages
-#                 the distances to every frame: it reads higher.
+#                 the distances to every frame: it reads higher. The
+#                 "simplified" silhouette: never below 0 for k-means, which
+#                 puts a frame in the cluster of the nearest mean.
+#   silhouette_pairs  every frame's silhouette from every other frame, the
+#                 classic one, of the squared distances (RMSD²): a the mean
+#                 from the other frames of its cluster, b from the frames
+#                 of the nearest other cluster. The mean squared distance
+#                 from a frame to a cluster's frames is its squared
+#                 distance from their mean structure plus their own mean
+#                 squared distance from it: every pair, at the cost of the
+#                 means (scikit-learn's silhouette_samples with
+#                 metric="sqeuclidean" gives the same numbers).
 # The distances are VMD's vector commands (C) on the rows, read from the
 # coordinates' file in two passes. Frames are compared as they were
 # clustered: not fitted again.
@@ -54,6 +65,7 @@ proc ::VMDance::Measure::compute {c labels k reps natoms {cancelled ""} {progres
     variable maxk
     # first pass: the clusters' sums, and the representatives' rows
     set sums [lrepeat $k ""]
+    set sqs [lrepeat $k 0.0]
     set cnt [lrepeat $k 0]
     set repof [dict create]
     for {set cl 0} {$cl < $k} {incr cl} { if {[lindex $reps $cl] >= 0} { dict set repof [lindex $reps $cl] $cl } }
@@ -64,20 +76,38 @@ proc ::VMDance::Measure::compute {c labels k reps natoms {cancelled ""} {progres
             set s [lindex $sums $l]
             # (lists are never returned through expr: it could read one as a number)
             if {$s eq ""} { lset sums $l $r } else { lset sums $l [vecadd $s $r] }
+            set v [veclength $r]
+            lset sqs $l [expr {[lindex $sqs $l] + $v * $v}]
             lset cnt $l [expr {[lindex $cnt $l] + 1}]
         }
     } $cancelled
     set cent {}
     foreach s $sums n $cnt { lappend cent [if {$n} { vecscale [expr {1.0 / $n}] $s } else { list }] }
+    # each cluster's spread: its frames' mean squared distance from its
+    # mean structure (the mean of |x|² less |mean|²; not per atom, as the
+    # distances below)
+    set spread {}
+    foreach q $sqs n $cnt m $cent {
+        if {!$n} { lappend spread 0.0; continue }
+        set v [veclength $m]
+        lappend spread [expr {max(0.0, $q / $n - $v * $v)}]
+    }
     set live [lmap n $cnt {expr {$n > 0}}]
     set nlive [::tcl::mathop::+ 0 {*}$live]
     set sq [expr {sqrt($natoms)}]
     variable near_min
-    set near ""
-    if {$nlive > $near_min} { set near [_near_index $cent $live $cancelled] }
+    set near ""; set nearw {}; set nearwmin {}
+    if {$nlive > $near_min} {
+        set near [_near_index $cent $live $cancelled]
+        foreach g $near {
+            set w [lmap id [lindex $g 2] {lindex $spread $id}]
+            lappend nearw $w
+            lappend nearwmin [::tcl::mathfunc::min {*}$w]
+        }
+    }
     # second pass: every frame from its representative, and its silhouette
     # (k distances a frame, fewer with many clusters: what takes long, said)
-    set frame_msd {}; set sil {}
+    set frame_msd {}; set sil {}; set silp {}
     set nf [llength $labels]
     set mats [expr {$k <= $maxk}]
     set told [clock milliseconds]
@@ -88,28 +118,40 @@ proc ::VMDance::Measure::compute {c labels k reps natoms {cancelled ""} {progres
         }
         set l [lindex $labels $i]
         if {$l < 0} {
-            lappend frame_msd ""; lappend sil ""
+            lappend frame_msd ""; lappend sil ""; lappend silp ""
         } else {
             lappend frame_msd [expr {[info exists reprow($l)] ? [msd $r $reprow($l) $natoms] : ""}]
             if {$nlive < 2} {
-                lappend sil ""
+                lappend sil ""; lappend silp ""
             } elseif {[lindex $cnt $l] == 1} {
                 # (a frame alone in its cluster: 0, as Rousseeuw has it)
-                lappend sil 0.0
-            } elseif {$near ne ""} {
-                set a [expr {[veclength [vecsub $r [lindex $cent $l]]] / $sq}]
-                set b [expr {[_near_other $near $r $l] / $sq}]
-                set mx [expr {max($a, $b)}]
-                lappend sil [expr {$mx > 0 ? ($b - $a) / $mx : 0.0}]
+                lappend sil 0.0; lappend silp 0.0
             } else {
-                set a ""; set b ""
-                for {set cl 0} {$cl < $k} {incr cl} {
-                    if {![lindex $live $cl]} continue
-                    set d [expr {[veclength [vecsub $r [lindex $cent $cl]]] / $sq}]
-                    if {$cl == $l} { set a $d } elseif {$b eq "" || $d < $b} { set b $d }
+                # (da: from its own mean structure; b: the nearest other
+                # one; pb: the smallest squared distance plus spread)
+                if {$near ne ""} {
+                    set da [veclength [vecsub $r [lindex $cent $l]]]
+                    set b [_near_other $near $r $l]
+                    set pb [_near_pairs $near $nearw $nearwmin $r $l]
+                } else {
+                    set da ""; set b ""; set pb ""
+                    for {set cl 0} {$cl < $k} {incr cl} {
+                        if {![lindex $live $cl]} continue
+                        set d [veclength [vecsub $r [lindex $cent $cl]]]
+                        if {$cl == $l} { set da $d; continue }
+                        if {$b eq "" || $d < $b} { set b $d }
+                        set v [expr {$d * $d + [lindex $spread $cl]}]
+                        if {$pb eq "" || $v < $pb} { set pb $v }
+                    }
                 }
-                set mx [expr {max($a, $b)}]
-                lappend sil [expr {$mx > 0 ? ($b - $a) / $mx : 0.0}]
+                set mx [expr {max($da, $b)}]
+                lappend sil [expr {$mx > 0 ? ($b - $da) / $mx : 0.0}]
+                # (the mean over the other frames of its cluster: its own
+                # zero left out of the n)
+                set n [lindex $cnt $l]
+                set pa [expr {$n / ($n - 1.0) * ($da * $da + [lindex $spread $l])}]
+                set mx [expr {max($pa, $pb)}]
+                lappend silp [expr {$mx > 0 ? ($pb - $pa) / $mx : 0.0}]
             }
         }
     } $cancelled
@@ -138,7 +180,8 @@ proc ::VMDance::Measure::compute {c labels k reps natoms {cancelled ""} {progres
                 "measuring the distances between the clusters ([expr {$p + 1}] of $k)"
         }
     }
-    dict create frame_msd [_round $frame_msd] silhouette [_round $sil] rep_msd $rep_msd centroid_msd $cen_msd
+    dict create frame_msd [_round $frame_msd] silhouette [_round $sil] silhouette_pairs [_round $silp] \
+        rep_msd $rep_msd centroid_msd $cen_msd
 }
 
 # The live clusters' mean structures (cent, live: 1 for a cluster with
@@ -223,6 +266,49 @@ proc ::VMDance::Measure::_near_other {ix r l} {
             if {[lindex $ids $at] == $l} continue
             set d [veclength [vecsub $r [lindex $cents $at]]]
             if {$d < $best} { set best $d; set lim [expr {$d * (1.0 + 1e-9) + 1e-12}] }
+        }
+    }
+    return $best
+}
+
+# The smallest, over the live clusters other than l, of the squared
+# distance from row r to the cluster's mean structure plus the cluster's
+# spread (ws: the spreads, a list a group of ix in its structures' order;
+# wmin: each group's smallest): a frame's mean squared distance from the
+# frames of the cluster whose frames are nearest. Bounded as _near_other
+# bounds the distances: a structure whose distance from r is gap at least
+# has gap² plus its group's smallest spread at least.
+proc ::VMDance::Measure::_near_pairs {ix ws wmin r l} {
+    set dg [lmap g $ix {veclength [vecsub $r [lindex $g 0]]}]
+    set lb {}
+    foreach g $ix d $dg wm $wmin {
+        set x [expr {max(0.0, $d - [lindex $g 1])}]
+        lappend lb [expr {$x * $x + $wm}]
+    }
+    set best Inf; set lim Inf
+    foreach gi [lsort -real -indices $lb] {
+        if {[lindex $lb $gi] > $lim} break
+        lassign [lindex $ix $gi] - - ids cents ds
+        set w [lindex $ws $gi]; set wm [lindex $wmin $gi]
+        set rg [lindex $dg $gi]
+        set m [llength $ids]
+        set lo [lsearch -sorted -real -bisect $ds $rg]
+        set hi [expr {$lo + 1}]
+        while {$lo >= 0 || $hi < $m} {
+            if {$hi >= $m || ($lo >= 0 && $rg - [lindex $ds $lo] <= [lindex $ds $hi] - $rg)} {
+                set at $lo
+                set gap [expr {$rg - [lindex $ds $lo]}]
+                incr lo -1
+            } else {
+                set at $hi
+                set gap [expr {[lindex $ds $hi] - $rg}]
+                incr hi
+            }
+            if {$gap * $gap + $wm > $lim} break
+            if {[lindex $ids $at] == $l} continue
+            set d [veclength [vecsub $r [lindex $cents $at]]]
+            set v [expr {$d * $d + [lindex $w $at]}]
+            if {$v < $best} { set best $v; set lim [expr {$v * (1.0 + 1e-9) + 1e-12}] }
         }
     }
     return $best
@@ -707,6 +793,45 @@ proc ::VMDance::Measure::makeup {labels groups k ng} {
     return $M
 }
 
+# How unlike the groups' shares of the clusters are, from the make-up
+# matrix M (clusters × groups): {pairs {{a b jsd diff cluster} ...} most
+# {a b jsd diff cluster}} for every two groups with frames, a < b: the
+# Jensen–Shannon divergence of their distributions over the clusters (0:
+# the same shares; ln 2, 0.693: no cluster in common), and the cluster
+# whose share differs most between them, with that difference (0 to 1);
+# most: the pair of the largest divergence ({} with fewer than two groups
+# that have frames).
+proc ::VMDance::Measure::divergence {M} {
+    set ng [llength [lindex $M 0]]
+    set tot [lrepeat $ng 0]
+    foreach row $M {
+        set g 0
+        foreach v $row { lset tot $g [expr {[lindex $tot $g] + $v}]; incr g }
+    }
+    set pairs {}; set most {}
+    for {set a 0} {$a < $ng} {incr a} {
+        if {![lindex $tot $a]} continue
+        for {set b [expr {$a + 1}]} {$b < $ng} {incr b} {
+            if {![lindex $tot $b]} continue
+            set js 0.0; set diff -1.0; set at ""
+            set cl 0
+            foreach row $M {
+                set p [expr {double([lindex $row $a]) / [lindex $tot $a]}]
+                set q [expr {double([lindex $row $b]) / [lindex $tot $b]}]
+                set m [expr {($p + $q) / 2.0}]
+                if {$p > 0} { set js [expr {$js + 0.5 * $p * log($p / $m)}] }
+                if {$q > 0} { set js [expr {$js + 0.5 * $q * log($q / $m)}] }
+                if {abs($p - $q) > $diff} { set diff [expr {abs($p - $q)}]; set at $cl }
+                incr cl
+            }
+            set r [list $a $b [format %.4g [expr {max(0.0, $js)}]] [format %.4g $diff] $at]
+            lappend pairs $r
+            if {![llength $most] || [lindex $r 2] > [lindex $most 2]} { set most $r }
+        }
+    }
+    dict create pairs $pairs most $most
+}
+
 # The runs of consecutive analysed frames in one cluster: {label first
 # length} each, in order (noise too, as label -1).
 proc ::VMDance::Measure::runs {labels} {
@@ -721,6 +846,39 @@ proc ::VMDance::Measure::runs {labels} {
     }
     if {$prev ne ""} { lappend out [list $prev $start [expr {$i - $start}]] }
     return $out
+}
+
+# The clusters' frames window by window: the labels (the rows in order)
+# cut in nb windows as equal as can be, each {first last counts noise}
+# (rows; a count a cluster; the frames in no cluster).
+proc ::VMDance::Measure::shares {labels k nb} {
+    set n [llength $labels]
+    set nb [expr {max(1, min($nb, $n))}]
+    set out {}
+    for {set w 0} {$w < $nb} {incr w} {
+        set a [expr {$w * $n / $nb}]; set b [expr {($w + 1) * $n / $nb - 1}]
+        set cnt [lrepeat $k 0]
+        set noise 0
+        foreach l [lrange $labels $a $b] {
+            if {$l < 0} { incr noise } else { lset cnt $l [expr {[lindex $cnt $l] + 1}] }
+        }
+        lappend out [list $a $b $cnt $noise]
+    }
+    return $out
+}
+# The row at which each cluster is first seen (-1: never).
+proc ::VMDance::Measure::first_seen {labels k} {
+    set first [lrepeat $k -1]
+    set left $k
+    set i 0
+    foreach l $labels {
+        if {$l >= 0 && [lindex $first $l] < 0} {
+            lset first $l $i
+            if {[incr left -1] == 0} break
+        }
+        incr i
+    }
+    return $first
 }
 
 # The transitions between clusters from each analysed frame to the one

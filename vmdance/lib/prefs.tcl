@@ -17,7 +17,7 @@ namespace eval ::VMDance::Prefs {
     # key -> {default check}
     variable keys {
         ui_font        {12 {[regexp {^[1-9][0-9]?$} $v] && $v >= 8 && $v <= 24}}
-        ui_window      {compact {$v in {compact medium large}}}
+        ui_window      {medium {$v in {compact medium large}}}
         show_toolbar   {1 {[string is boolean -strict $v]}}
         ui_theme       {auto {$v in {auto native flat host}}}
         show_left      {1 {[string is boolean -strict $v]}}

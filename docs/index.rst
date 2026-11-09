@@ -29,21 +29,27 @@ clusters in 13 linked plots and on the structure in VMD's 3D window.
      - A molecule's frames — all, a range, every n-th — by the coordinates
        of the same atoms, with KMeans NANI, DIVINE, HELM (from a first NANI
        clustering or a label file) or eQUAL (clusters within a radius, and
-       noise); optionally fitted to the first frame, on the values.
+       noise); optionally fitted to the first frame, on the values, with a
+       warning when the frames do not look superposed.
    * - **Choose k**
      - An elbow scan of the Calinski–Harabasz and Davies–Bouldin scores,
-       with the clusters' **stability** across seedings; HELM's merges'
-       heights; eQUAL's scan by radius; a sweep over algorithms, k,
+       ringed where they point (MDANCE's two criteria), with the variance
+       the clusters explain and their **stability** across seedings; HELM's
+       merges' heights; eQUAL's scan by radius, the radii suggested from
+       the frames; a sweep over algorithms, k,
        metrics and seedings. Any of them made the clustering with a
        double-click.
    * - **Explore**
-     - The populations, the timeline of the clusters, their transitions and
+     - The populations, the timeline of the clusters and their shares along
+       the trajectory, their transitions and
        residence times, how tight and how far apart they are, the tree that
-       joins them, every frame's silhouette. A cluster has one hue
-       everywhere, in the plots and in VMD's 3D window.
+       joins them, every frame's silhouette (two kinds). A cluster has one hue
+       everywhere, in the plots and in VMD's 3D window. Distances in Å² or
+       Å, frames or time.
    * - **Compare groups**
-     - Give each frame the replica, condition or method it came from: each
-       cluster's **make-up** by group, a **map** of the frames on two
+     - Give each frame the half, replica, condition or method it came from:
+       each cluster's **make-up** by group and how unlike the groups are, a
+       **map** of the frames on two
        principal components, each group's and cluster's **profile** along
        the chain.
    * - **Ask**
@@ -53,7 +59,7 @@ clusters in 13 linked plots and on the structure in VMD's 3D window.
      - Every clustering kept as a run; sessions (the MDANCE plugin's too);
        tables with a header that says how they were made; the
        representatives' structures and each cluster's trajectory; figures
-       at a size and text size for a paper or a slide.
+       at the size and text size of a paper's column or a slide.
    * - **Script it**
      - One ``vmdance`` command that does all the window does, in text-mode
        VMD too.

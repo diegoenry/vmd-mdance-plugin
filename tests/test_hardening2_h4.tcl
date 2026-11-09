@@ -32,8 +32,13 @@ set H [file join $::out hardening2_h4]
 file delete -force $H
 file mkdir $H
 
-# The number of models in a PDB VMD wrote (each ends with END).
-proc pdb_models {f} { llength [regexp -all -inline -line {^END\s*$} [read_text $f]] }
+# The number of models in a PDB the plugin wrote: each ends with ENDMDL
+# (one frame without a note: as VMD writes it, ended by END).
+proc pdb_models {f} {
+    set t [read_text $f]
+    set n [llength [regexp -all -inline -line {^ENDMDL\s*$} $t]]
+    expr {$n ? $n : [llength [regexp -all -inline -line {^END\s*$} $t]]}
+}
 # The text of the members of a zip file (a deck) whose names match pat,
 # found by its central directory, each stored or deflated. (Read with
 # binary scan: the file's bytes are never made a string.)

@@ -368,9 +368,19 @@ proc ::VMDance::Export::table_residence {} {
 
 proc ::VMDance::Export::table_silhouette {} {
     _need_clustering
-    set out [list [header "every frame's silhouette from the clusters' mean structures"] [_row frame cluster silhouette]]
-    foreach f [::VMDance::Results::frames] l [::VMDance::Results::labels] s [::VMDance::Results::measure silhouette] {
-        lappend out [_row $f $l [_num $s %.6f]]
+    # (silhouette_pairs: a run made before it was measured has the first only)
+    set sp [::VMDance::Results::silhouette pairs]
+    if {![llength $sp]} {
+        set out [list [header "every frame's silhouette from the clusters' mean structures"] [_row frame cluster silhouette]]
+        foreach f [::VMDance::Results::frames] l [::VMDance::Results::labels] s [::VMDance::Results::measure silhouette] {
+            lappend out [_row $f $l [_num $s %.6f]]
+        }
+        return [join $out \n]
+    }
+    set out [list [header "every frame's silhouette: from the clusters' mean structures (silhouette), and from every frame, of the squared distances (silhouette_pairs)"] \
+        [_row frame cluster silhouette silhouette_pairs]]
+    foreach f [::VMDance::Results::frames] l [::VMDance::Results::labels] s [::VMDance::Results::measure silhouette] p $sp {
+        lappend out [_row $f $l [_num $s %.6f] [_num $p %.6f]]
     }
     join $out \n
 }
@@ -651,7 +661,7 @@ proc ::VMDance::Export::_sel {m sel frame} {
 # pdb of the same atoms beside it (its first frame), the two renamed
 # together. The files are checked before either is written; no molecule
 # is made (VMD's frame, top molecule and view are left alone).
-proc ::VMDance::Export::write_frames {m sel frames file fmt} {
+proc ::VMDance::Export::write_frames {m sel frames file fmt {notes {}}} {
     if {![::VMDance::Mol::exists $m]} { error "the clustered molecule is not loaded" }
     if {![llength $frames]} { error "no frames to write" }
     if {$fmt ni {pdb dcd}} { error "the format must be pdb or dcd" }
@@ -666,7 +676,7 @@ proc ::VMDance::Export::write_frames {m sel frames file fmt} {
                 _dcd $s $frames $file
                 _pdb $s [lrange $frames 0 0] [lindex $files 1] 0
             } else {
-                _pdb $s $frames $file 1
+                _pdb $s $frames $file 1 $notes
             }
         }
     } finally {
@@ -712,16 +722,21 @@ proc ::VMDance::Export::_dcd {s frames file} {
     }
 }
 
-# A PDB file of the atoms of selection s at frames, one model each (ended
-# by END), as VMD's own writer writes a frame: its numbers as VMD writes
-# them (residues past 9999 in hex: read back, they would not be) and each
-# frame's unit cell. Each frame is written into the private folder and
-# checked whole (VMD's writer stops at a number its columns cannot hold,
-# and does not check its last write), then copied in. dcd: whether to
-# offer a DCD for a coordinate a PDB cannot hold (a PDB export's, at a
-# frame past its first: a DCD export writes that one as a PDB too).
-proc ::VMDance::Export::_pdb {s frames file dcd} {
+# A PDB file of the atoms of selection s at frames, as VMD's own writer
+# writes a frame: its numbers as VMD writes them (residues past 9999 in
+# hex: read back, they would not be) and each frame's unit cell. Each
+# frame is written into the private folder and checked whole (VMD's writer
+# stops at a number its columns cannot hold, and does not check its last
+# write), then copied in. dcd: whether to offer a DCD for a coordinate a
+# PDB cannot hold (a PDB export's, at a frame past its first: a DCD export
+# writes that one as a PDB too). Several frames, or frames with notes
+# (one a frame: which cluster's, which frame), are models: MODEL n, the
+# frame, ENDMDL, the note in a REMARK before it, and one END after the
+# last (frames joined by END alone were one frame, or atoms piled up, to
+# programs other than VMD, and nothing said which was which).
+proc ::VMDance::Export::_pdb {s frames file dcd {notes {}}} {
     set file [target $file]
+    set models [expr {[llength $frames] > 1 || [llength $notes]}]
     set part [::VMDance::Backend::tmpfile .pdb]
     # (VMD's name of it: another file with LANG=C, Backend::vmd_name)
     set vpart [::VMDance::Backend::vmd_name $part]
@@ -729,7 +744,7 @@ proc ::VMDance::Export::_pdb {s frames file dcd} {
     try {
         fconfigure $fh -translation binary
         set i 0
-        foreach f $frames {
+        foreach f $frames note [lrange $notes 0 [expr {[llength $frames] - 1}]] {
             # (a part left by a frame before is not taken for this one)
             file delete $part
             $s frame $f
@@ -738,8 +753,21 @@ proc ::VMDance::Export::_pdb {s frames file dcd} {
             }
             incr i
             set in [open $part rb]
-            try { fcopy $in $fh } finally { close $in }
+            try {
+                if {!$models} {
+                    fcopy $in $fh
+                } else {
+                    # (VMD's frame less its END)
+                    set text [read $in]
+                    regsub {END[ \t]*\r?\n$} $text {} text
+                    if {$note ne ""} { puts -nonewline $fh "REMARK     [string range [regsub -all {[^\x20-\x7e]} $note ?] 0 67]\n" }
+                    puts -nonewline $fh [format "MODEL     %4d\n" $i]
+                    puts -nonewline $fh $text
+                    puts -nonewline $fh "ENDMDL\n"
+                }
+            } finally { close $in }
         }
+        if {$models} { puts -nonewline $fh "END\n" }
         _put $fh $file ""
         _done $tmp $file
     } on error {msg opts} {
@@ -795,7 +823,12 @@ proc ::VMDance::Export::rep_frames {} {
 proc ::VMDance::Export::representatives {file {fmt pdb} {sel all}} {
     _need_clustering
     if {[::VMDance::Viz::_mol] < 0} { error [::VMDance::Viz::why] }
-    write_frames [dict get [::VMDance::Results::request] mol] $sel [rep_frames] $file $fmt
+    set notes {}
+    for {set c 0} {$c < [::VMDance::Results::nclusters]} {incr c} {
+        set f [::VMDance::Results::rep_frame $c]
+        if {$f >= 0} { lappend notes "VMDance: cluster $c's representative, frame $f ([::VMDance::Results::size $c] frames)" }
+    }
+    write_frames [dict get [::VMDance::Results::request] mol] $sel [rep_frames] $file $fmt $notes
 }
 # The picked frames' structures (pick save, the window's Save…), from their
 # molecule while it has the frames they were picked from.
@@ -803,7 +836,8 @@ proc ::VMDance::Export::picked {file {fmt pdb} {sel all}} {
     set p $::VMDance::Results::picks
     if {![dict size $p]} { error "no frames picked" }
     if {[::VMDance::Viz::_picks_mol] < 0} { error [::VMDance::Viz::picks_why] }
-    write_frames [dict get $p input mol] $sel [dict get $p vmdframes] $file $fmt
+    write_frames [dict get $p input mol] $sel [dict get $p vmdframes] $file $fmt \
+        [lmap f [dict get $p vmdframes] {format "VMDance: picked frame %s" $f}]
 }
 
 # One trajectory per cluster: base_<c>.<fmt>, renamed together. Returns
@@ -818,7 +852,7 @@ proc ::VMDance::Export::trajectories {base {fmt dcd} {sel all}} {
             set fl [::VMDance::Results::member_frames $c]
             if {![llength $fl]} continue
             set f "${base}_$c.$fmt"
-            write_frames $m $sel $fl $f $fmt
+            write_frames $m $sel $fl $f $fmt [lmap fr $fl {format "VMDance: cluster %s, frame %s" $c $fr}]
             lappend out {*}[frame_files $f $fmt]
         }
         if {![llength $out]} { error "no cluster has frames" }

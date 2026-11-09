@@ -256,6 +256,47 @@ core limit to one byte, so that no core is dumped.
        (loaded); the distances, tree and clusters tables saying RMSD² where
        it is one, and the number it names; no document or deck claiming VMD
        1.9.4 or later, and a Tcl 8.5 told what the plugin needs
+   * - ``test_ux``
+     - what the review of the window's use added to the core and the
+       command (the real backend): whether the frames look superposed
+       (``alignment``, the rule, the clustering's note); the clusters'
+       frames window by window (``timeline``); the silhouette from every
+       frame, against every pair of frames counted directly, and among many
+       clusters; what an elbow scan suggests (MDANCE's two criteria), and
+       the variance explained against the coordinates; the groups by blocks
+       and their divergence (a worked example); the clusters numbered by
+       size; a range for eQUAL's radius; the structures as the models of a
+       PDB, read back by VMD; the summaries of clusters without frames;
+       ``help`` for every subcommand
+   * - ``test_ux_gui``
+     - windowed, what the same review changed in the window: Setup's frames
+       after a scan's k and for another molecule; the tables' row colours;
+       the note under the Fit box; the Silhouette's two kinds and its axis;
+       the Elbow's strip, rings and words; the Map's scale and
+       representatives, and a map kept by a new clustering of the same
+       frames; Halves, Blocks and the line that compares the groups; the
+       profiles' reference by name, and many clusters' curves; the Tree's
+       upright labels; the clusters numbered by size; eQUAL's radius
+       suggested; the time per frame and the distances as lengths; the
+       Timeline's shading, shares and running median (the 6001 frames of
+       MDANCE's reference runs, skipped without them); the figures' sizes
+       and lengths, and a plot
+       with only a message left out; a cancelled scan's values kept; the
+       window's names for the options in a message; the tabs' tips; the
+       quick guide
+   * - ``test_ux_layout``
+     - windowed, the window's layout on small screens and at large text:
+       the Export, Figures and Settings dialogs no taller than the screen,
+       their sections scrolling and their buttons in view, Return for the
+       main button; a long path shown by its end; the plot options panel
+       one width for every plot, and in the left panel's place where the
+       screen has no room for both; the left panel back to its width after
+       a larger text; the smallest window and the three sizes of Settings;
+       the tables' columns as wide as their headings and values; the
+       clusters' table as tall as its rows, and the wheel over it; the
+       toolbar on two rows in a narrow window; the two-line readout; the
+       notes wrapped at the panel's width; a long molecule name cut in its
+       middle; VMD's own look's fields
    * - ``test_gui``
      - windowed: the window, clustering in the background, Cancel, refused
        requests, the table and the selection, every plot (with every kind of

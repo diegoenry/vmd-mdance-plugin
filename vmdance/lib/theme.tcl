@@ -174,6 +174,22 @@ proc ::VMDance::Theme::_define {mode} {
 proc ::VMDance::Theme::_define_host {p} {
     ttk::style configure $p.Muted.TLabel -foreground #6b7280
     ttk::style configure $p.Read.TLabel -foreground #374151
+    # VMD 2 fills a field with one grey, whether it can be typed in or is
+    # off: a field that is on is white, one that is off keeps the grey
+    # (a theme that tells them apart itself, or writes in a light colour,
+    # is left as it is; and one whose colours Tk cannot read)
+    catch {
+        set ink [ttk::style lookup TEntry -foreground]
+        if {$ink eq "" || [lindex [winfo rgb . $ink] 1] < 32768} {
+            foreach cls {TEntry TSpinbox TCombobox} {
+                set on [ttk::style lookup $cls -fieldbackground]
+                set off [ttk::style lookup $cls -fieldbackground disabled]
+                if {$on eq "" || $on ne $off} continue
+                if {[winfo rgb . $off] eq [winfo rgb . white]} { set off #e6e6e6 }
+                ttk::style map $p.$cls -fieldbackground [list disabled $off {} white]
+            }
+        }
+    }
     if {[ttk::style theme use] eq "aqua"} {
         # aqua pads notebook pages by 18 px on each side; the pages have their own
         ttk::style configure $p.TNotebook -padding {2 4 2 2}
@@ -355,8 +371,11 @@ proc ::VMDance::Theme::_define_flat {p} {
         -padding [list {} {8 3}]
     ttk::style configure $p.Treeview -background $c(surface) -fieldbackground $c(surface) -foreground $c(ink) \
         -bordercolor $c(border) -lightcolor $c(surface) -padding 0
-    ttk::style map $p.Treeview -background [list selected $c(soft) {} $c(surface)] \
-        -foreground [list selected $c(ink) disabled $c(disabled) {} $c(ink)] -bordercolor [list {} $c(border)]
+    # (no colour for "any other state": since Tk 8.6.9 one such entry of the
+    # map wins over the rows' tags, and the tables' row colours, the best of
+    # a sweep, a cluster's tint, were never drawn)
+    ttk::style map $p.Treeview -background [list selected $c(soft)] \
+        -foreground [list selected $c(ink) disabled $c(disabled)] -bordercolor [list {} $c(border)]
     _borrow $p clam Heading Treeview.Heading
     ttk::style configure $p.Treeview.Heading -background $c(heading) -foreground $c(ink) -relief flat \
         -bordercolor $c(border) -lightcolor $c(heading) -darkcolor $c(heading) -padding {4 3}

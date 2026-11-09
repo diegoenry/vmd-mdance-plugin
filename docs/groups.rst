@@ -34,7 +34,10 @@ Setting the groups
 
 In the window, **Results ▸ Groups, map and profiles**: type each group's
 name and its VMD frames, ``first 0-2999 second 3000-6000``, and press
-**Set** (or Return). **From a file…** reads a file of ``frame,group``
+**Set** (or Return). **Halves** makes the first and the second half of the
+clustered frames two groups, *first* and *second*; **Blocks…** asks for a
+number and cuts them in that many blocks as equal as can be (*part1*,
+*part2* …). **From a file…** reads a file of ``frame,group``
 lines (``#`` comments; a header may name the columns, so that the
 plugin's own groups export reads back). **Clear** takes them away.
 
@@ -49,10 +52,12 @@ In a script:
 .. code-block:: tcl
 
    vmdance groups -ranges {first 0-2999 second 3000-6000}
+   vmdance groups -blocks 2                   ;# the same: the two halves (4: part1 … part4)
    vmdance groups -file groups.csv            ;# frame,group lines
    vmdance groups -names $names               ;# a name for each clustered frame
    vmdance groups -colours {first #3d5a80 second #a3483b}
    vmdance groups                             ;# names sizes none n colours
+   vmdance groups compare                     ;# how unlike the groups are
 
 A frame belongs to one group at most; a frame given none is in none. The
 groups are kept with the run and in sessions, and a new clustering of the
@@ -62,6 +67,23 @@ tones, in the order of the groups) unless ``-colours`` names one: a name
 the groups do not have is passed over, so that one list colours the groups
 of several molecules alike, and a protein without one of the groups keeps
 the others' colours.
+
+How unlike the groups are
+-------------------------
+
+One number says whether two groups visit the clusters alike: the
+Jensen–Shannon divergence of their shares of the clusters. It is 0 when
+both have the same share of their frames in every cluster, and 0.69 (ln 2)
+when they have no cluster in common. The window writes it under the
+Groups box, for the two most different groups, with the cluster whose
+share differs most between them: *First and second: divergence 0.006 (0:
+the same shares of the clusters; 0.69: no cluster in common); cluster 1
+differs most, 32.1% of first against 22.3% of second* (the tau peptide's
+two halves at k 3). ``vmdance groups compare`` gives every pair — ``pairs
+{{first second 0.006155 0.09841 1}}``: the two groups, their divergence,
+the largest difference in a cluster's share (0 to 1) and that cluster — and
+the sentence (``words``). Noise and frames of no group are left out, as in
+the make-up.
 
 Make-up
 -------
@@ -74,7 +96,8 @@ Make-up
    frames came from.
 
 The **Make-up** plot stacks each cluster's frames by group; or each group's
-frames by cluster; as counts or as shares. ``vmdance makeup`` gives the
+frames by cluster; as counts or as shares (each bar's frames written above
+it: as shares every bar is as tall). ``vmdance makeup`` gives the
 counts (``-by cluster`` or ``-by group``), and the export a row per cluster
 and group, with both shares. Noise (eQUAL's, HELM's trimmed frames) and
 frames of no group are left out.
@@ -94,10 +117,15 @@ of the clustered coordinates (after the clustering's fit), in Å. The axes
 come from at most 500 frames spread evenly over the trajectory (*axes
 from*; at most 2000, and fewer with many atoms: the map says how many),
 and every frame is projected on them. Colour it by group or by cluster.
+Both axes are drawn to one scale. Each cluster's representative is ringed,
+with its number while the clusters are 30 or fewer. The frames are drawn
+in a mixed order, noise first, so that no group or cluster covers the
+others.
 Frames close on the map have close structures; the reverse need not hold,
 since two axes are a shadow of all of them: a map whose axes hold little of
 the variance (the shares are on its axes) says little. Click a frame: VMD
-goes to it.
+goes to it. The map is of the frames, not of their clusters: a new
+clustering of the same frames and atoms (fitted the same) keeps it.
 
 Profiles
 --------
@@ -112,17 +140,20 @@ Profiles
 **Profiles** measures, atom by atom of the selection, each group's and each
 cluster's RMSF about its own mean structure, and each cluster's mean
 structure's distance from the reference cluster's (the most populated,
-unless another is given). The plot draws them residue by residue (a gap
+unless another is given: the window's chooser names them, *the largest*,
+*cluster 0* …). The plot draws them residue by residue (a gap
 between chains). Where groups differ shows as a stretch apart from the
 rest: a loop that one condition frees, a terminus one method leaves
-floppy.
+floppy. With more than 12 clusters, the selected ones (else the 8 largest)
+are drawn in colour and the others grey; point at a curve for its name,
+click it to select its cluster.
 
 Reading them
 ------------
 
 - **Shares, not counts.** Groups of different sizes fill clusters
   differently by chance; compare a cluster's share of each group (the
-  make-up's shares *of the group*).
+  make-up's shares *of the group*). The divergence compares those shares.
 - **A cluster of one group** is the strongest signal, and the easiest to
   over-read: check its size, its silhouette and where it lies on the map
   before calling it a state of its own.

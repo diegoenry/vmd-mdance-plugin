@@ -55,7 +55,17 @@ proc ::VMDance::GUI::open_session_dialog {} {
     lassign $r warnings gui
     apply_session_state $gui
     set n [llength [::VMDance::Results::run_list]]
-    status "Session [file tail $f]: $n run[expr {$n == 1 ? "" : "s"}][expr {[llength $warnings] ? "; [join $warnings {; }]" : "."}]"
+    # (one note is said whole; several, each a sentence about a run's
+    # molecule, went off the status line: they are counted there, and
+    # written in VMD's console)
+    set said "."
+    if {[llength $warnings] == 1} {
+        set said "; [lindex $warnings 0]."
+    } elseif {[llength $warnings]} {
+        foreach wn $warnings { puts "VMDance) session [file tail $f]: $wn" }
+        set said ". [llength $warnings] notes on its molecules, in VMD's console."
+    }
+    status "Session [file tail $f]: $n run[expr {$n == 1 ? "" : "s"}]$said"
 }
 
 # A session of the MDANCE plugin (.mdance): imported as a run.
@@ -147,8 +157,9 @@ proc ::VMDance::GUI::export_dialog {} {
     wm title $d "Export results"
     wm transient $d $w
     if {$S(out_dir) eq ""} { set S(out_dir) [pwd] }
-    set f [ttk::frame $d.f -padding 12]
-    pack $f -fill both -expand 1
+    # (the sections scroll when the screen is too short for them; Export
+    # and Cancel stay under them)
+    set f [_dialog_body $d]
     set A [_section $f.where "Where" -padding {8 6}]
     pack ${A}_sec -side top -fill x
     set df [ttk::frame $A.df]
@@ -160,11 +171,19 @@ proc ::VMDance::GUI::export_dialog {} {
     pack $df.e -side left -fill x -expand 1
     pack $df.b -side left -padx {4 0}
     _row $A 0 "Folder" $df
+    _path_field $df.e "The folder the files are written in (made when it does not exist)"
     ttk::entry $A.p -textvariable ::VMDance::GUI::S(out_prefix) -width 20
     _row $A 1 "File names" $A.p "Each file is <name>_<item>.csv (.txt, .pdb, .dcd)"
     grid columnconfigure $A 1 -weight 1
     set B [_section $f.what "What" -padding {8 6}]
     pack ${B}_sec -side top -fill x -pady {10 0}
+    # (in two columns, read down the first and then the second, where the
+    # screen is wide enough for them: in one, the dialog was 836 pixels
+    # tall, and its buttons below a laptop's screen)
+    set wide 0
+    foreach {it lab} $export_items { set wide [expr {max($wide, [font measure MdvUI $lab])}] }
+    set n [expr {[llength $export_items] / 2}]
+    set per [expr {2 * ($wide + 3 * [font measure MdvUI 0]) + 80 <= [lindex [_screen] 0] - 40 ? ($n + 1) / 2 : $n}]
     set r 0
     set defaults [::VMDance::Export::defaults]
     foreach {it lab} $export_items {
@@ -188,7 +207,7 @@ proc ::VMDance::GUI::export_dialog {} {
             set k [::VMDance::Results::nclusters]
             ::VMDance::Tip::add $B.c$it "$k × $k rows (left out unless ticked)"
         }
-        grid $B.c$it -row $r -column 0 -sticky w -pady 1
+        grid $B.c$it -row [expr {$r % $per}] -column [expr {$r / $per}] -sticky w -padx {0 16} -pady 1
         incr r
     }
     set O [_section $f.opt "Options" -padding {8 6}]
@@ -198,16 +217,17 @@ proc ::VMDance::GUI::export_dialog {} {
     grid configure $O.top -sticky w
     _combo $O.fmt ::VMDance::GUI::S(out_format) {dcd "DCD (and a PDB of the atoms)" pdb "PDB (one model per frame)"} {#}
     _row $O 1 "Structures" $O.fmt
+    grid configure $O.fmt -sticky w
     ttk::entry $O.sel -textvariable ::VMDance::GUI::S(out_sel) -width 20
     _row $O 2 "Atoms" $O.sel "The atoms of the structures written"
     grid columnconfigure $O 1 -weight 1
-    set b [ttk::frame $f.b]
-    pack $b -side top -fill x -pady {12 0}
+    set b $d.f.b
     ttk::button $b.ok -text "Export" -command ::VMDance::GUI::_export_go
     ttk::button $b.cancel -text "Cancel" -command [list destroy $d]
     pack $b.cancel $b.ok -side right -padx {6 0}
-    ::VMDance::Theme::style_tree $d
     bind $d <Escape> [list destroy $d]
+    # (Return exports)
+    _dialog_ready $d $b.ok
 }
 proc ::VMDance::GUI::_export_go {} {
     variable w; variable S; variable X; variable export_items
@@ -319,8 +339,9 @@ proc ::VMDance::GUI::figure_dialog {} {
     wm transient $d $w
     if {$S(fig_dir) eq ""} { set S(fig_dir) [pwd] }
     foreach {k t} $tabs { if {![info exists F($k)]} { set F($k) [expr {$k eq $S(tab)}] } }
-    set f [ttk::frame $d.f -padding 12]
-    pack $f -fill both -expand 1
+    # (the sections go in f, one under the other: they scroll when the
+    # screen is too short for them; Create and Cancel stay under them)
+    set f [_dialog_body $d]
     set A [_section $f.where "Where" -padding {8 6}]
     pack ${A}_sec -side top -fill x
     set df [ttk::frame $A.df]
@@ -332,6 +353,7 @@ proc ::VMDance::GUI::figure_dialog {} {
     pack $df.e -side left -fill x -expand 1
     pack $df.b -side left -padx {4 0}
     _row $A 0 "Folder" $df
+    _path_field $df.e "The folder the figures are written in (made when it does not exist)"
     ttk::entry $A.p -textvariable ::VMDance::GUI::S(fig_prefix) -width 20
     _row $A 1 "File names" $A.p "Each figure is <name>_<plot>.pdf (.png, .eps)"
     grid columnconfigure $A 1 -weight 1
@@ -347,33 +369,59 @@ proc ::VMDance::GUI::figure_dialog {} {
     }
     set Z [_section $f.size "Size and format" -padding {8 6}]
     pack ${Z}_sec -side top -fill x -pady {10 0}
+    # (where the figure goes sets its size and its text: a journal's
+    # column, its two columns, a slide; any of the three can be typed over)
+    _combo $Z.for ::VMDance::GUI::S(fig_size) {screen "The screen (900 × 560 points)" column "A journal's column (85 mm)" two-columns "Two columns (178 mm)" slide "A slide (16:9, 10 in wide)"} ::VMDance::GUI::_figure_size
+    _row $Z 0 "For" $Z.for "A size for where the figure goes: its width and height, and its text (8 points in a column, 16 on a slide).\nThe width, the height and the text can then be changed."
+    grid configure $Z.for -sticky w
     set sf [ttk::frame $Z.sf]
-    ttk::entry $sf.w -textvariable ::VMDance::GUI::S(fig_width) -width 5
+    ttk::entry $sf.w -textvariable ::VMDance::GUI::S(fig_width) -width 6
     ttk::label $sf.x -text "×"
-    ttk::entry $sf.h -textvariable ::VMDance::GUI::S(fig_height) -width 5
-    ttk::label $sf.u -text "points"
+    ttk::entry $sf.h -textvariable ::VMDance::GUI::S(fig_height) -width 6
+    ttk::label $sf.u -textvariable ::VMDance::GUI::S(fig_mm) -style Muted.TLabel
     pack $sf.w $sf.x $sf.h $sf.u -side left -padx {0 4}
-    _row $Z 0 "Size" $sf
+    _row $Z 1 "Size" $sf "The width and the height: in points (72 an inch), or with a unit: 85mm, 8.5cm, 3.35in"
+    foreach e [list $sf.w $sf.h] { bind $e <KeyRelease> ::VMDance::GUI::_figure_mm }
+    _figure_mm
     set ff [ttk::frame $Z.ff]
     foreach fm {pdf png eps} { ttk::checkbutton $ff.$fm -text [string toupper $fm] -variable ::VMDance::GUI::S(fig_$fm); pack $ff.$fm -side left -padx {0 8} }
-    _row $Z 1 "Formats" $ff
+    _row $Z 2 "Formats" $ff
     ttk::entry $Z.dpi -textvariable ::VMDance::GUI::S(fig_dpi) -width 5
-    _row $Z 2 "PNG dpi" $Z.dpi
+    _row $Z 3 "PNG dpi" $Z.dpi
     grid configure $Z.dpi -sticky w
-    ttk::spinbox $Z.ts -from 8 -to 24 -increment 1 -width 4 -textvariable ::VMDance::GUI::S(fig_text)
-    _row $Z 3 "Text (pt)" $Z.ts "The size of the figures' text, 8 to 24 points: larger for a slide, smaller for a column of a paper"
+    ttk::spinbox $Z.ts -from 6 -to 36 -increment 1 -width 4 -textvariable ::VMDance::GUI::S(fig_text)
+    _row $Z 4 "Text (pt)" $Z.ts "The size of the figures' text, 6 to 36 points: larger for a slide, smaller for a column of a paper"
     grid configure $Z.ts -sticky w
+    ttk::checkbutton $Z.cur -text "The line at VMD's current frame" -variable ::VMDance::GUI::S(fig_cursor)
+    grid $Z.cur -row 5 -column 0 -columnspan 2 -sticky w -pady 1
+    ::VMDance::Tip::add $Z.cur "The red line the Timeline draws at VMD's frame: left out of a figure unless ticked"
     if {[::VMDance::Figures::ghostscript] eq ""} {
         ttk::label $Z.gs -text "Ghostscript was not found: EPS only." -style Muted.TLabel
-        grid $Z.gs -row 4 -column 0 -columnspan 2 -sticky w
+        grid $Z.gs -row 6 -column 0 -columnspan 2 -sticky w
     }
-    set b [ttk::frame $f.b]
-    pack $b -side top -fill x -pady {12 0}
+    set b $d.f.b
     ttk::button $b.ok -text "Create" -command ::VMDance::GUI::_figures_go
     ttk::button $b.cancel -text "Cancel" -command [list destroy $d]
     pack $b.cancel $b.ok -side right -padx {6 0}
-    ::VMDance::Theme::style_tree $d
     bind $d <Escape> [list destroy $d]
+    # (Return creates)
+    _dialog_ready $d $b.ok
+}
+# A size chosen for the figures: its width, height and text in the fields.
+proc ::VMDance::GUI::_figure_size {} {
+    variable S
+    lassign [dict get $::VMDance::Figures::sizes $S(fig_size)] S(fig_width) S(fig_height) S(fig_text)
+    _figure_mm
+}
+# Beside the size typed: what it is in millimetres ("points" alone when
+# it is not a size).
+proc ::VMDance::GUI::_figure_mm {} {
+    variable S
+    if {[catch {
+        set wd [::VMDance::Figures::points w [string trim $S(fig_width)]]
+        set h [::VMDance::Figures::points h [string trim $S(fig_height)]]
+    }]} { set S(fig_mm) "points, or 85mm, 8.5cm, 3.35in"; return }
+    set S(fig_mm) [format "points: %.0f × %.0f mm" [expr {$wd / 2.834645669}] [expr {$h / 2.834645669}]]
 }
 proc ::VMDance::GUI::_figures_go {} {
     variable w; variable S; variable F; variable tabs
@@ -391,11 +439,13 @@ proc ::VMDance::GUI::_figures_go {} {
     update
     set err [catch {::VMDance::Figures::api $dir -plots $plots -formats $fmts -width [string trim $S(fig_width)] \
         -height [string trim $S(fig_height)] -dpi [string trim $S(fig_dpi)] -prefix [string trim $S(fig_prefix)] \
-        -text [string trim $S(fig_text)]} files]
+        -text [string trim $S(fig_text)] -cursor [expr {$S(fig_cursor) ? 1 : 0}]} files]
     if {[winfo exists $d]} { $d configure -cursor "" }
     redraw
     if {$err} { _error "Not created:\n$files" $d; return }
     destroy $d
+    # (and a plot that, as it is set, has only a message to show)
+    foreach {p why} $::VMDance::Figures::skipped { lappend left "[dict get $tabs $p] ($why)" }
     status "[llength $files] file[expr {[llength $files] == 1 ? "" : "s"}] written in $dir.[expr {[llength $left] ? " Not made, with nothing to show: [join $left {, }]." : ""}]"
 }
 
@@ -411,7 +461,7 @@ proc ::VMDance::GUI::save_current_plot {} {
     if {$ext ni {pdf png eps}} { set ext pdf; append f .pdf }
     set c $w.pw.right.nb.$key.c
     lassign [::VMDance::Plot::size $c] cw ch
-    if {[catch {::VMDance::Figures::export_plot $key [file rootname $f] [list $ext] [expr {max(240, $cw)}] [expr {max(240, $ch)}] $S(fig_dpi)} r]} {
+    if {[catch {::VMDance::Figures::export_plot $key [file rootname $f] [list $ext] [expr {max(160, $cw)}] [expr {max(160, $ch)}] $S(fig_dpi)} r]} {
         _error $r
     } else {
         status "Written: [join $r {, }]."
