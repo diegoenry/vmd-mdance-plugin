@@ -48,9 +48,9 @@ says so through it), and that *Automatic* took it, finding no program.
 **Parameters**: the chosen algorithm's (:doc:`parameters`); the others keep
 what was typed in them. Fields that do not apply are greyed: HELM's trim
 values without *Trim first*, its first clustering with a label file,
-DIVINE's seeding with anchors other than NANI, its smallest share with NANI
-(CPP-MDANCE's NANI splits do not use it) and its Refine (always:
-:doc:`algorithms`), eQUAL's minimum size and similarity with their options
+DIVINE's seeding with anchors other than NANI and its Refine with NANI (a
+NANI split is a k-means already: :doc:`algorithms`), eQUAL's minimum size
+and similarity with their options
 off, a seeding share that the seeding does not use. **Metric** is the mean
 square deviation unless Settings unlock the others (DIVINE's and eQUAL's
 always: the field says why).

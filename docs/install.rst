@@ -18,9 +18,9 @@ The backend
 This makes the program ``build/cli/mdance-cli`` and, with ``BUILD_TCL``, the
 library ``build/tcl/mdance_tcl.so`` (``.dylib`` on macOS, ``.dll`` on
 Windows). The program is enough; the library is optional. DIVINE is built
-only with ``-DBUILD_DIVINE=ON`` on a tree that has ``src/cluster/divine.cpp``:
-without it the plugin offers KMeans NANI, HELM and eQUAL, and says why
-DIVINE is missing.
+when the tree has ``src/cluster/divine.cpp`` (``BUILD_DIVINE``, on then):
+CPP-MDANCE's main has it since its PR #52 (1 October 2026). Without it the
+plugin offers KMeans NANI, HELM and eQUAL, and says why DIVINE is missing.
 
 The plugin
 ----------

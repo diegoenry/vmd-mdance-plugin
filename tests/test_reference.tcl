@@ -115,12 +115,15 @@ if {"divine" ni $have} {
     skip "DIVINE against the program, the library and MDANCE" "this build of CPP-MDANCE has no DIVINE (BUILD_DIVINE)"
 } else {
     foreach {opts argv} {
-        {-k 4} {--nclusters 4 --split WeightedMSD --anchors NANI --kinit StratAll --threshold 0 --end-mode k --percentage 10}
-        {-k 5 -refine 1} {--nclusters 5 --split WeightedMSD --anchors NANI --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10}
-        {-k 6 -anchors OutlierPair -split Radius} {--nclusters 6 --split Radius --anchors OutlierPair --kinit StratAll --threshold 0 --end-mode k --percentage 10}
-        {-k 6 -anchors SplinterPair -split MSD -threshold 0.05} {--nclusters 6 --split MSD --anchors SplinterPair --kinit StratAll --threshold 0.05 --end-mode k --percentage 10}
-        {-k 5 -kinit CompSim -percentage 20} {--nclusters 5 --split WeightedMSD --anchors NANI --kinit CompSim --threshold 0 --end-mode k --percentage 20}
-        {-anchors OutlierPair -threshold 0.2 -end-mode points} {--nclusters 3 --split WeightedMSD --anchors OutlierPair --kinit StratAll --threshold 0.2 --end-mode points --percentage 10}
+        {-k 4} {--nclusters 4 --split WeightedMSD --anchors NANI --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10}
+        {-k 5 -refine 0} {--nclusters 5 --split WeightedMSD --anchors NANI --kinit StratAll --threshold 0 --end-mode k --percentage 10}
+        {-k 6 -anchors OutlierPair -split Radius} {--nclusters 6 --split Radius --anchors OutlierPair --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10}
+        {-k 6 -anchors SplinterPair -split MSD -threshold 0.05 -refine 0} {--nclusters 6 --split MSD --anchors SplinterPair --kinit StratAll --threshold 0.05 --end-mode k --percentage 10}
+        {-k 6 -anchors SplinterPair} {--nclusters 6 --split WeightedMSD --anchors SplinterPair --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10}
+        {-k 5 -kinit CompSim -percentage 20} {--nclusters 5 --split WeightedMSD --anchors NANI --kinit CompSim --refine --threshold 0 --end-mode k --percentage 20}
+        {-anchors OutlierPair -refine 0 -threshold 0.2 -end-mode points} {--nclusters 3 --split WeightedMSD --anchors OutlierPair --kinit StratAll --threshold 0.2 --end-mode points --percentage 10}
+        {-k 6 -threshold 0.3} {--nclusters 6 --split WeightedMSD --anchors NANI --kinit StratAll --refine --threshold 0.3 --end-mode k --percentage 10}
+        {-kinit KmeansPP -threshold 0.1 -end-mode points} {--nclusters 3 --split WeightedMSD --anchors NANI --kinit KmeansPP --refine --threshold 0.1 --end-mode points --percentage 10}
     } {
         vmdance -mol $m -sel "name CA" -algorithm divine {*}$opts -quiet 1
         exec $cli --algorithm divine --input $csv --output $jout --natoms [dict get $c natoms] --metric MSD {*}$argv 2>@1
@@ -135,12 +138,37 @@ if {"divine" ni $have} {
     check "  NANI's splits: Refine changes nothing (the window greys it)" [expr {[${R}::labels] eq [lindex $dlabels 3]}]
     exec $cli --algorithm divine --input $csv --output $jout --natoms [dict get $c natoms] --metric RR --nclusters 4 --split WeightedMSD --anchors NANI --kinit StratAll --threshold 0 --end-mode k --percentage 10 2>@1
     check "  another metric changes none of its labels (the plugin takes MSD only)" [expr {[dict get [::VMDance::Json::parse [read_text $jout]] labels] eq [lindex $dlabels 1]}]
-    vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -anchors OutlierPair -threshold 0.3 -quiet 1
+    vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -anchors OutlierPair -refine 0 -threshold 0.3 -quiet 1
     check "  -k 6 with the smallest share 0.3: 2 clusters, and the summary says why" [expr {[${R}::nclusters] == 2 &&
         [string match "*fewer than the 6 asked: no split left 30 frames or more on each side (-threshold 0.3)" [::VMDance::_summary]]}]
+    vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -threshold 0.3 -quiet 1
+    check "  NANI's splits keep the share too (CPP-MDANCE since its PR #52): fewer than 6, said" [expr {[${R}::nclusters] < 6 &&
+        [string match "*fewer than the 6 asked: no split left 30 frames or more on each side (-threshold 0.3)" [::VMDance::_summary]]}]
+    # 99 frames at 0.5: 49 frames a side, cut from 49.5 as MDANCE and
+    # CPP-MDANCE cut it (the plugin rounded it to 50, and refused it)
+    check "  0.5 of 99 frames: taken, and run (49 frames a side)" [expr {
+        [err {vmdance -mol $m -sel "name CA" -last 98 -algorithm divine -k 2 -anchors SplinterPair -threshold 0.5 -quiet 1}] eq "" &&
+        [llength [${R}::labels]] == 99}]
     set rows [vmdance elbow -mol $m -sel "name CA" -algorithm divine -ks {10 11} -quiet 1]
     check "  a later split's cluster too small for NANI's seeds (k 11 at 10%): said in DIVINE's terms" [expr {
         [dict get [lindex $rows 0] status] eq "ok" && [string match "DIVINE chose to split a cluster of fewer than 20 frames*" [dict get [lindex $rows 1] message]]}]
+    # identical frames (frames 10-14 are frames 0-4 again): CPP-MDANCE's
+    # DIVINE crashes refining an OutlierPair split of a cluster of them,
+    # which it comes to above the 10 clusters of the frames that differ
+    # (Job::_divine_repeats; when the program no longer crashes, it can go)
+    set m2 [mol new [file join $::systems 3ptb complex.psf] waitfor all]
+    mol addfile [file join $::systems 3ptb traj.dcd] last 9 waitfor all molid $m2
+    mol addfile [file join $::systems 3ptb traj.dcd] last 4 waitfor all molid $m2
+    set c2 [::VMDance::Coords::extract [::VMDance::Job::check_cluster [list mol $m2 sel "name CA" algorithm divine k 11 params {anchors OutlierPair}]]]
+    set crashed [catch {exec $cli --algorithm divine --input [::VMDance::Coords::csv $c2] --output $jout --natoms [dict get $c2 natoms] --metric MSD \
+        --nclusters 11 --split WeightedMSD --anchors OutlierPair --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10 2>@1}]
+    check "  identical frames: the program still crashes refining an OutlierPair split of them (k 11, 10 frames differ)" $crashed
+    check "  the plugin: not run at k 11, naming the frames; run at k 10, and unrefined at 11" [expr {
+        [string match "*-anchors OutlierPair with -refine 1 and -k 11: only 10 of the 15 frames differ (frames 0 and 10 have the same coordinates)*use -k 10 or fewer*" [err {
+            vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -k 11 -quiet 1}]] &&
+        [err {vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -k 10 -quiet 1}] eq "" && [${R}::nclusters] == 10 &&
+        [err {vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -refine 0 -k 11 -quiet 1}] eq ""}]
+    mol delete $m2
 }
 
 # HELM's tree after trimming: CPP-MDANCE numbers its merges from the
@@ -250,12 +278,21 @@ if {![dict size $ref]} {
         check "DIVINE k 4: MDANCE's partition" [expr {[partition [${R}::labels]] eq [partition [dict get $ref divine_k4]]}]
         vmdance -mol $m -sel "name CA" -algorithm divine -k 5 -quiet 1
         against_mdance "DIVINE k 5" "its 34-frame cluster is split from a seed at a stratified position on a half, 16.5: CPP-MDANCE's row 17, MDANCE's 16" [dict get $ref divine_k5]
-        vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -anchors OutlierPair -threshold 0.3 -quiet 1
+        vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -anchors OutlierPair -refine 0 -threshold 0.3 -quiet 1
         check "DIVINE OutlierPair, smallest share 0.3 (k 6, 2 clusters): MDANCE's partition" [expr {[partition [${R}::labels]] eq [partition [dict get $ref divine_outlier_t0.3_k6]]}]
-        vmdance -mol $m -sel "name CA" -algorithm divine -anchors OutlierPair -threshold 0.2 -end-mode points -quiet 1
+        vmdance -mol $m -sel "name CA" -algorithm divine -anchors OutlierPair -refine 0 -threshold 0.2 -end-mode points -quiet 1
         check "DIVINE -end-mode points, OutlierPair, smallest share 0.2: MDANCE's partition" [expr {[partition [${R}::labels]] eq [partition [dict get $ref divine_outlier_t0.2_points]]}]
-        vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -anchors SplinterPair -threshold 0.035 -quiet 1
-        against_mdance "DIVINE SplinterPair, smallest share 0.035 (k 6)" "CPP-MDANCE rounds the share's frames, 3.5 of 100 to 4, where MDANCE truncates them to 3" [dict get $ref divine_splinter_t0.035_k6]
+        vmdance -mol $m -sel "name CA" -algorithm divine -k 6 -anchors SplinterPair -refine 0 -threshold 0.035 -quiet 1
+        check "DIVINE SplinterPair, smallest share 0.035 (k 6: 3 frames, cut): MDANCE's partition" [expr {[partition [${R}::labels]] eq [partition [dict get $ref divine_splinter_t0.035_k6]]}]
+        foreach {opts case} {
+            {-k 6 -anchors OutlierPair} divine_outlier_refine_k6
+            {-k 6 -anchors SplinterPair} divine_splinter_refine_k6
+            {-k 6 -threshold 0.3} divine_nani_t0.3_k6
+            {-threshold 0.2 -end-mode points} divine_nani_t0.2_points
+        } {
+            vmdance -mol $m -sel "name CA" -algorithm divine {*}$opts -quiet 1
+            check "DIVINE $opts: MDANCE's partition" [expr {[partition [${R}::labels]] eq [partition [dict get $ref $case]]}]
+        }
     }
 }
 

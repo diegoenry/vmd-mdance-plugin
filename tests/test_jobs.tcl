@@ -38,7 +38,7 @@ foreach {req why} [list \
         [list mol $m sel all metric Tanimoto] "-metric must be one of" \
         [list mol $m sel all fit "x < 3"] "-fit: the fit selection" \
         [list mol $m sel all fit "index 0 1"] "a fit needs at least 3 atoms" \
-        [list mol $m sel all algorithm divine params {anchors SplinterPair refine 1}] "crashes" \
+        [list mol $m sel all algorithm divine params {anchors SplinterPair threshold 0.6}] "so no split can be made" \
         [list mol $m sel all k 2 params {kinit Stratt}] "-kinit must be one of"] {
     check "  refused: $why" [string match "*$why*" [err {::VMDance::Job::check_cluster $req}]]
 }

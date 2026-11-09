@@ -35,14 +35,15 @@ docs/internals.rst describe it.
   for HELM from a label file and DIVINE's pair anchors, run once a k).
 - Every check that can be made before the backend runs is made there, with
   the option's name and what to change (Algo::check_combination: NANI's
-  seeds, HELM's starting clusters and trim, DIVINE's crash, metric, first
-  split, smallest share and points, the diversity selection or eQUAL with
+  seeds, HELM's starting clusters and trim, DIVINE's metric, first split,
+  smallest share and points, the diversity selection or eQUAL with
   any index but MSD; check_starting: HELM's starting clusters as the
   backend gets them, once its first clustering is made; check_trimmed: what
   -trim-val's cut left, once HELM has run; check_value: a number the
   backend can read; Coords::_row: coordinates that are numbers;
   Job::_library_fits: what the library can take; Job::_library_divine: the
-  DIVINE splits that would crash it). A scan keeps a value that fails its
+  DIVINE splits that would crash it; Job::_divine_repeats: an OutlierPair
+  split of identical frames refined). A scan keeps a value that fails its
   checks as a record "not run: …" (errorcode VMDANCE NOTRUN) and goes on.
 - The backend is the reference: test_reference runs mdance-cli directly on
   the plugin's CSV and compares every label; the library against the
@@ -90,8 +91,12 @@ docs/internals.rst describe it.
 
 - VMD 2.1: `/home/dgomes/software/vmd2-integration/bin/vmd` (`vmd` on the
   PATH). The real backend: `$MDANCE_CLI` (set in the shell:
-  `../CPP-MDANCE/build/cli/mdance-cli`, built without DIVINE) and
-  `../CPP-MDANCE/build/tcl/mdance_tcl.so`. MDANCE's reference runs:
+  `../CPP-MDANCE/build/cli/mdance-cli`, f1d3d87, built without DIVINE) and
+  `../CPP-MDANCE/build/tcl/mdance_tcl.so`; with DIVINE, CPP-MDANCE's main
+  (f9adb24, PR #52) in `../CPP-MDANCE-upstream/build` (a worktree): set
+  `MDANCE_CLI` and `MDANCE_LIB` to its `cli/mdance-cli` and
+  `tcl/mdance_tcl.so`. MDANCE 0.4 for the fixtures:
+  `../mdance-validations/.venv/bin/python` (MDANCE_PYTHON). MDANCE's reference runs:
   `~/Downloads/mdance_vmd_runs` (MDANCE_REF_RUNS). The shared systems:
   `~/github/myprojects/vmd-plugin-projects/vmd-interactions-v2/VMD-testsystems/systems`
   (VMDANCE_SYSTEMS).
@@ -109,7 +114,9 @@ docs/internals.rst describe it.
   fx_g5, g6 to g9, h1, oi, h3, h4; with the papers and decks beside the
   repository and states3 made; a clone: g7 68, g8 51, h4 17), all
   passing (the window's too, on a nested display). Since 2026-10-24 also
-  `tests/test_groups.tcl` (99, the real backend; the others unchanged). End to
+  `tests/test_groups.tcl` (99, the real backend; the others unchanged).
+  2026-11-09, with f9adb24 (DIVINE): reference 60 (2 skips), h1 66, the
+  others unchanged; with f1d3d87, reference 33 (3 skips). End to
   end: `DISPLAY=:9 sh tests/e2e/run_e2e.sh` (29, 14, 15, 10). Profiles:
   `tests/profile/profile_{core,gui}.tcl` (reports in tests/out/profile).
 - Screenshots: `import -window [wm frame .vmdance] f.png` (ImageMagick)
@@ -283,16 +290,23 @@ docs/internals.rst describe it.
   its path is asked again, and so is any before an algorithm is refused as
   not built in (a launcher's stamp stays the same); a test that changes
   what one says writes it again (another size), or clears `caps` (fake_env).
-- CPP-MDANCE's DIVINE (`BUILD_DIVINE`, on a tree with divine.cpp: its
-  feat-vmd-plugin branch; built in a scratch folder it runs test_reference's
-  DIVINE checks) splits by MSD whatever `--metric` (the representatives use
-  it); `--threshold` is the smallest share of the frames each side of a
-  split keeps, round(t × n) (MDANCE: int), tested by the pair anchors'
-  splits only, never NANI's; `--refine` is read by the pair anchors only
-  (which then read out of bounds); `points` ignores k; each NANI split is a
-  2-cluster NANI of the cluster, seeded from floor(m × p / 100) frames
-  (CompSim with none crashes). It returns no parents of its splits: its
-  Tree is a linkage.
+- CPP-MDANCE's DIVINE (main since PR #52, f9adb24; `BUILD_DIVINE`, on
+  when the tree has divine.cpp) splits by MSD whatever `--metric` (the
+  representatives use it); `--threshold` is the smallest share of the
+  frames each side of every split keeps, max(1, floor(t × n)) as MDANCE's
+  (Algo::divine_least; `entier`, not `int`, which wraps a large share);
+  `--refine` is read by the pair anchors only, and an OutlierPair split of
+  a cluster of identical frames refined reads out of bounds (a segfault;
+  MDANCE fails too): DIVINE splits one (score 0) only when nothing else
+  can be split, so Job::_divine_repeats refuses k above the frames that
+  differ (a share of one frame, where every other split succeeds), or
+  identical frames as many as the share; `points` ignores k; each NANI
+  split is a 2-cluster NANI of the cluster, seeded from floor(m × p / 100)
+  frames (CompSim with none crashes). It returns no parents of its splits:
+  its Tree is a linkage. Its earlier copy (the feat-vmd-plugin branch,
+  0733e2a) gave NANI's splits no share, rounded it, and read out of bounds
+  refining any pair anchors' split: the plugin refused those until
+  2026-11-09.
 - CPP-MDANCE's stratified seeding rounds a position half away from zero
   (`std::round`), MDANCE's half to even (`np.round`): 50 frames at 10%
   (24.5) seed otherwise (test_reference records it from

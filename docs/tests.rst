@@ -220,7 +220,8 @@ fails=… skips=…``:
      - DIVINE, and what the backend was built with: DIVINE's metric (MSD),
        its ``-threshold`` (the share each side of a split keeps), ``-end-mode
        points``, its first split's seeds and a later split's failure, Refine
-       off, its tree said not to be its splits, the library spared the
+       (on, refused only where it would crash the backend on identical
+       frames), its tree said not to be its splits, the library spared the
        CompSim splits that crash it (a scan's k kept as not run); a program rebuilt at the same path asked
        again (DIVINE against the real program, the library and MDANCE is
        ``test_reference``'s, on a build with it)

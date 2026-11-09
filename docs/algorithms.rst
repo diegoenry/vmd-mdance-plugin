@@ -73,24 +73,28 @@ CPP-MDANCE's would use another only to choose the representatives, so
 metric as *not run*).
 
 ``-threshold`` is the smallest share of all the frames each side of a split
-keeps (MDANCE's minimum size of a cluster; 0: no limit): DIVINE stops before
-k when no cluster can be split so, and the summary says so. CPP-MDANCE
-applies it to the OutlierPair and SplinterPair splits only — with NANI it is
-refused — and rounds share × frames where MDANCE truncates (0.035 of 100
-frames: 4 frames, MDANCE's 3); a share that no split can leave on both
-sides (above 0.5, or 0.5 of an odd number of frames) is refused.
+keeps (MDANCE's minimum size of a cluster; 0: no limit), at every split:
+share × frames, cut to a whole number (0.035 of 100 frames: 3). DIVINE
+stops before k when no cluster can be split so, and the summary says so; a
+share that no split can leave on both sides (above 0.5) is refused.
 ``-end-mode points`` does not use k: the splits go on until none leaves
-that share on each side, MDANCE's stopping rule. It takes the pair anchors
-and a share of 2 frames or more (else every frame ends alone: NANI's splits
-are not stopped by the share, and fail first on clusters too small to
-seed; the refusal suggests 0.05, at most 20 clusters, as CPP-MDANCE's
-splits slow with the square of their number); a scan does not take it.
+that share on each side, MDANCE's stopping rule. It takes a share of 2
+frames or more (else every frame ends alone; the refusal suggests 0.05, at
+most 20 clusters, as CPP-MDANCE's splits slow with the square of their
+number); a scan does not take it.
 
-MDANCE refines the pair anchors' splits with k-means (``-refine``);
-CPP-MDANCE's DIVINE reads out of bounds when it does, so they run
-unrefined: ``-refine 1`` with them is refused, and Refine is off by
-default. A NANI split is a k-means already, which ``-refine`` does not
-change.
+``-refine`` (on, MDANCE's default) refines the pair anchors' splits with a
+two-cluster k-means seeded by each side's medoid. A NANI split is a k-means
+already, which ``-refine`` does not change. CPP-MDANCE's DIVINE still
+crashes refining an OutlierPair split of a cluster whose frames are all the
+same (MDANCE fails there too), which it comes to only when no other cluster
+can be split: above as many clusters as there are frames that differ, or
+with a share no larger than the frames repeated. The plugin refuses those
+(``-refine 0`` or SplinterPair run them), naming the repeated frames.
+
+These are the rules of CPP-MDANCE's main since its PR #52 (1 October 2026);
+an older DIVINE, from a branch, gave NANI's splits no share, rounded it,
+and crashed refining any pair anchors' split.
 
 With the extended-similarity seedings (StratAll, StratReduced, CompSim,
 DivSelect), a NANI split of m frames draws its two seeds from
@@ -98,7 +102,8 @@ floor(m × percentage / 100) of them, so a cluster of fewer than 200 /
 percentage frames (20 at 10%) cannot be split. The plugin checks the first
 split, of every frame; a later one fails the run ("DIVINE chose to split a
 cluster of fewer than 20 frames …"): raise the percentage, seed with
-KmeansPP or Random, or ask for fewer clusters. With CompSim a cluster of
+KmeansPP or Random, or ask for fewer clusters (with ``-end-mode points``, a
+larger share). With CompSim a cluster of
 fewer than 100 / percentage frames crashes CPP-MDANCE instead: the program
 fails that clustering, saying so, and the library, which would take VMD
 with it, is refused CompSim below 50% above k 2 (the first split alone,
@@ -107,7 +112,7 @@ run*.
 
 The Tree plot of a DIVINE clustering is the average linkage of its
 clusters' mean structures, not its splits, which CPP-MDANCE does not
-return. CPP-MDANCE builds DIVINE only with ``BUILD_DIVINE``.
+return. CPP-MDANCE builds DIVINE when its tree has it (``BUILD_DIVINE``).
 
 HELM
 ----

@@ -52,8 +52,8 @@ check "metric: MSD and the ten indices" [expr {[${A}::check_metric SM] eq "SM" &
 
 # the checks across parameters
 set dv [${A}::check_params divine {anchors OutlierPair refine 1}]
-check "DIVINE: OutlierPair with refine refused (it crashes the backend)" [string match "*crashes*" [err {${A}::check_combination divine 3 $dv 100}]]
-check "  with refine 0 taken" [expr {[err {${A}::check_combination divine 3 [dict replace $dv refine 0] 100}] eq ""}]
+check "DIVINE: OutlierPair with refine taken (CPP-MDANCE refines it since its PR #52)" [expr {[err {${A}::check_combination divine 3 $dv 100}] eq ""}]
+check "  a share no split can leave (0.6) refused" [string match "-threshold 0.6: each side of a split must keep 60 of the 100 frames*" [err {${A}::check_combination divine 3 [dict replace $dv threshold 0.6] 100}]]
 set hp [${A}::check_params helm {}]
 check "HELM: 50 starting clusters need 50 frames" [string match "*-initial must be at most*" [err {${A}::check_combination helm 10 $hp 40}]]
 check "  more than k" [string match "*-initial (50) must be more than -k (60)*" [err {${A}::check_combination helm 60 $hp 1000}]]

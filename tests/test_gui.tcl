@@ -153,17 +153,18 @@ ${G}::_algorithm_changed
 set ${S}(p_divine_anchors) OutlierPair
 set ${S}(p_divine_refine) 1
 ${G}::_params_sync
-check "DIVINE with pair anchors: Refine greyed, and sent off (the request is taken)" [expr {[$pb.divine.prefine instate disabled] &&
-    [dict get [${G}::_params_of divine] refine] == 0 && ![catch {::VMDance::Job::check_cluster [${G}::request]}]}]
-# (h1: N23, Refine changes nothing with NANI either; N10, NANI's splits do
-# not use the smallest share; N09, DIVINE's metric is MSD)
+check "DIVINE with pair anchors: Refine live, and sent (the request is taken: CPP-MDANCE refines them since its PR #52)" [expr {
+    ![$pb.divine.prefine instate disabled] && [dict get [${G}::_params_of divine] refine] == 1 && ![catch {::VMDance::Job::check_cluster [${G}::request]}]}]
+# (h1: N23, Refine changes nothing with NANI; N10, every split keeps the
+# smallest share, NANI's too since CPP-MDANCE's PR #52; N09, DIVINE's
+# metric is MSD)
 check "  h1 N10: the smallest share live with them" [expr {![$pb.divine.pthreshold instate disabled]}]
 set ${S}(p_divine_anchors) NANI
 ${G}::_params_sync
-check "  h1 N23: with NANI Refine greyed and sent off too, and the smallest share greyed (not sent)" [expr {[$pb.divine.prefine instate disabled] &&
-    [dict get [${G}::_params_of divine] refine] == 0 && [$pb.divine.pthreshold instate disabled] && ![dict exists [${G}::_params_of divine] threshold]}]
+check "  h1 N23: with NANI Refine greyed and sent off, and the smallest share live (sent)" [expr {[$pb.divine.prefine instate disabled] &&
+    [dict get [${G}::_params_of divine] refine] == 0 && ![$pb.divine.pthreshold instate disabled] && [dict exists [${G}::_params_of divine] threshold]}]
 ${G}::param_defaults
-check "  h1 N23: its default unticked" [expr {[set ${S}(p_divine_refine)] == 0}]
+check "  h1 N23: its default ticked (MDANCE's)" [expr {[set ${S}(p_divine_refine)] == 1}]
 set ${S}(unlock_metrics) 1
 ${G}::_metric_lock
 set ${S}(metric) JT
