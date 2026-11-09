@@ -587,35 +587,72 @@ proc ::VMDance::Job::_library_divine {a k params} {
 # CPP-MDANCE's DIVINE refining an OutlierPair split (-refine) of a cluster
 # whose frames are all the same reads out of bounds, and crashes (the
 # program, and VMD with the library; MDANCE fails there too): both anchors
-# are one frame, which leaves one side empty. It splits such a cluster
-# (its score 0) only when no other can be split: with a smallest share of
-# one frame every other split is made, so only at a k above the number of
-# different frames; with a larger share, when a split can leave identical
-# frames alone on a side, as many as the share or more. Identical frames
-# have the same fingerprint (Coords::_print). An error says why (Job::_cluster
-# makes it a "not run").
+# are one frame, which leaves one side empty. "The same" is the same row as
+# the backend reads it (the CSV's line; the library's numbers are its):
+# frames that a fit makes alike too (a copy turned by 90°), not only
+# frames read alike. k 1 makes no split; k 2 the one of every frame, which
+# crashes only when every frame is the same. Beyond: with a smallest share
+# of one frame, every split of a cluster whose frames differ is made, so
+# DIVINE comes to a cluster of identical frames only at a k above the
+# number of rows that differ (-split Radius: an identical cluster's radius
+# is 0, any other's above); with -split MSD or WeightedMSD the rounding of
+# its MSD can rank such a cluster above one whose frames differ by little,
+# and any k from 3 is refused when rows repeat (a fuzz of the program found
+# both). With a larger share, a cluster of identical frames is made only
+# when as many rows as the share are the same. An error says why
+# (Job::_cluster makes it a "not run").
 proc ::VMDance::Job::_divine_repeats {c k params} {
     if {[dict get $params anchors] ne "OutlierPair" || ![dict get $params refine]} return
-    set alike [dict create]
-    set i 0
-    foreach fp [dict get $c fp] { dict lappend alike $fp $i; incr i }
-    set n [llength [dict get $c frames]]
-    set d [dict size $alike]
+    lassign [_row_classes $c] n d most
     if {$d == $n} return
-    set most {}
-    foreach rows [dict values $alike] { if {[llength $rows] > [llength $most]} { set most $rows } }
-    set least [::VMDance::Algo::divine_least [dict get $params threshold] $n]
     set points [expr {[dict get $params end-mode] eq "points"}]
-    if {$least < 2 && !$points && $k <= $d} return
+    if {!$points && ($k == 1 || ($k == 2 && $d >= 2))} return
+    set least [::VMDance::Algo::divine_least [dict get $params threshold] $n]
     if {$least >= 2 && [llength $most] < $least} return
+    set split [dict get $params split]
+    if {$least < 2 && !$points && $split eq "Radius" && $k <= $d} return
     # (VMD's frame numbers, never the rows)
     set fs [lmap r [lrange $most 0 2] {lindex [dict get $c frames] $r}]
-    set same "frames [join [lrange $fs 0 end-1] {, }] and [lindex $fs end][expr {[llength $most] > 3 ? " (and [expr {[llength $most] - 3}] more)" : ""}] have the same coordinates"
+    set same [expr {$d == 1 ? "all $n frames have the same coordinates" : "frames [join [lrange $fs 0 end-1] {, }] and [lindex $fs end][expr {[llength $most] > 3 ? " (and [expr {[llength $most] - 3}] more)" : ""}] have the same coordinates[expr {[dict get $c fitatoms] ne "" ? " once fitted" : ""}]"}]
     set crash "and CPP-MDANCE's DIVINE crashes refining a split of a cluster of identical frames (MDANCE fails there too)"
-    if {$least < 2 && !$points} {
+    if {$d == 1} {
+        error "-anchors OutlierPair with -refine 1: $same, $crash; use -refine 0, or -anchors SplinterPair"
+    }
+    if {$least >= 2} {
+        error "-anchors OutlierPair with -refine 1 and -threshold [dict get $params threshold]: $same, as many as a side of a split keeps ($least), so DIVINE can split a cluster of identical frames, $crash; use -refine 0, -anchors SplinterPair, or a -threshold that keeps more than [llength $most] frames a side"
+    }
+    if {$split eq "Radius"} {
         error "-anchors OutlierPair with -refine 1 and -k $k: only $d of the $n frames differ ($same), so DIVINE would split a cluster of identical frames, $crash; use -k $d or fewer, -refine 0, or -anchors SplinterPair"
     }
-    error "-anchors OutlierPair with -refine 1 and -threshold [dict get $params threshold]: $same, as many as a side of a split keeps ($least), so DIVINE can split a cluster of identical frames, $crash; use -refine 0, -anchors SplinterPair, or a -threshold that keeps more than [llength $most] frames a side"
+    error "-anchors OutlierPair with -refine 1 and -split $split at -k $k: $same, and the rounding of a cluster's MSD can rank one of identical frames above clusters whose frames differ, so DIVINE can split it, $crash; use -split Radius (k up to $d, the frames that differ), -refine 0, -anchors SplinterPair, or leave the repeated frames out"
+}
+# The rows of an extraction as the backend reads them, by their text: {n d
+# rows}, the rows, the different ones, and the rows of the largest set of
+# identical ones (two checksums of a CSV line, -0.0 read as 0.0: a pair of
+# lines taken for alike by both is beyond chance; kept for the extraction's
+# file, a scan asks at every k).
+proc ::VMDance::Job::_row_classes {c} {
+    variable row_classes
+    set f [dict get $c csv]
+    set key [list $f [file mtime $f] [file size $f]]
+    if {[info exists row_classes] && [lindex $row_classes 0] eq $key} { return [lindex $row_classes 1] }
+    set alike [dict create]
+    set fh [open $f r]
+    try {
+        fconfigure $fh -buffersize 1048576
+        set i 0
+        while {[gets $fh line] >= 0} {
+            if {[string first -0 $line] >= 0} { regsub -all {(^|,)-0(\.0*)?(?=,|$)} $line {\10.0} line }
+            dict lappend alike "[zlib crc32 $line] [zlib adler32 $line]" $i
+            incr i
+        }
+    } finally {
+        close $fh
+    }
+    set most {}
+    foreach rows [dict values $alike] { if {[llength $rows] > [llength $most]} { set most $rows } }
+    set row_classes [list $key [list $i [dict size $alike] $most]]
+    lindex $row_classes 1
 }
 # The same for an extraction, exactly: the text the library makes of its
 # rows is their CSV's, less its last newline (the same numbers, a
@@ -973,9 +1010,10 @@ proc ::VMDance::Job::_scan {kind req recs t0 {digest ""}} {
 }
 
 # How much a clustering at k (cl, of req's seeding) depends on its seeding:
-# the mean adjusted Rand index of every two clusterings of the seedings of
-# req's stability (cl for its own; a seeding that cannot run at k left
-# out); "" when fewer than two ran.
+# {stability compared}, the mean adjusted Rand index of every two
+# clusterings of the seedings of req's stability (cl for its own; a seeding
+# that cannot run at k left out: compared says how many ran), "" when
+# fewer than two ran.
 proc ::VMDance::Job::_stability {c req cl lo hi} {
     variable cancelled
     set own [dict get $req params kinit]
@@ -998,7 +1036,7 @@ proc ::VMDance::Job::_stability {c req cl lo hi} {
         }
         incr j
     }
-    if {[llength $labs] < 2} { return "" }
+    if {[llength $labs] < 2} { return [list "" [llength $labs]] }
     set sum 0.0; set m 0
     for {set x 0} {$x < [llength $labs]} {incr x} {
         for {set y [expr {$x + 1}]} {$y < [llength $labs]} {incr y} {
@@ -1008,7 +1046,7 @@ proc ::VMDance::Job::_stability {c req cl lo hi} {
             incr m
         }
     }
-    format %.4f [expr {$sum / $m}]
+    list [format %.4f [expr {$sum / $m}]] [llength $labs]
 }
 
 # An elbow scan: the same clustering at every k of ks (HELM starts from
@@ -1063,7 +1101,11 @@ proc ::VMDance::Job::_do_elbow {req} {
         } else {
             incr ran
             set rec [dict merge $at [_record $cl]]
-            if {[llength [::VMDance::_get $req stability {}]]} { dict set rec stability [_stability $c $req $cl $a $b] }
+            if {[llength [::VMDance::_get $req stability {}]]} {
+                lassign [_stability $c $req $cl $a $b] st nc
+                dict set rec stability $st
+                dict set rec compared $nc
+            }
             lappend recs $rec
         }
         incr i

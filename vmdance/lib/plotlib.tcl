@@ -243,6 +243,9 @@ proc ::VMDance::Plot::axes {c xlabel ylabel {xticks auto} {yticks auto} {opts {}
     }
     if {$ylabel ne ""} {
         set f [_fit_font $ylabel [expr {$H - 4}]]
+        # (cut, with "…", when the small font does not fit either: a small
+        # figure with large text lost both ends of it)
+        set ylabel [elide $f [expr {$H - 4}] $ylabel]
         set tw [font measure $f $ylabel]
         set cy [expr {max($tw / 2.0 + 2, min($H - $tw / 2.0 - 2, ($y0 + $y1) / 2.0))}]
         $c create text [expr {max(14, 2 + [lh $f] / 2.0)}] $cy -text $ylabel -angle 90 -anchor center \

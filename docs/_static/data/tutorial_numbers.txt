@@ -1,0 +1,28 @@
+# The numbers of docs/tutorial.rst, made by docs/tools/tutorial_numbers.tcl.
+frames	6001	the frames clustered (the DCD's)
+atoms	48	the backbone's atoms
+elbow_seconds	21	the elbow scan with the stability, k 2-12
+elbow_k2	2364 1.558 0.9990	k 2: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k3	1654 2.022 0.9872	k 3: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k4	1333 2.095 0.7533	k 4: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k5	1147 2.198 0.6814	k 5: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k6	1036 2.044 0.6863	k 6: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k7	903 2.240 0.6311	k 7: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k8	850 2.067 0.5190	k 8: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k9	790 2.069 0.5453	k 9: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k10	741 2.027 0.5173	k 10: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k11	709 1.999 0.5337	k 11: Calinski-Harabasz, Davies-Bouldin, stability
+elbow_k12	673 1.961 0.5347	k 12: Calinski-Harabasz, Davies-Bouldin, stability
+k3_sizes	2391 1633 1977	k 3: the clusters' frames
+k3_silhouette	0.25	k 3: the mean silhouette
+residence_c0	2.1	cluster 0: its mean stay (frames)
+residence_c1	1.9	cluster 1: its mean stay (frames)
+residence_c2	2.1	cluster 2: its mean stay (frames)
+halves_c0	1122 1269	cluster 0: frames of the first and the second half
+halves_c1	964 669	cluster 1: frames of the first and the second half
+halves_c2	914 1063	cluster 2: frames of the first and the second half
+map_variance	39 13	the map's two axes: % of the variance
+profiles_reference	0	the profiles' reference: the most populated cluster
+helm_merges	56	HELM's merges, from its starting clusters to 3
+helm_last_heights	19.1 19.5 19.3 20.8 20 17.2 21.6 22.1	the last eight merges' heights (k 11 to 4)
+equal_radii	384 121 47 20 10	eQUAL's clusters at radius 4, 6, 8, 10, 12

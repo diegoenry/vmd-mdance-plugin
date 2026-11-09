@@ -57,7 +57,7 @@ proc every_plot_ok {} {
 # Hover over a grid of points of a plot: some readout that is not the hint.
 proc hover_says {key} {
     set c .vmdance.pw.right.nb.$key.c
-    set hint [dict get $::VMDance::GUI::hints $key]
+    set hint [::VMDance::GUI::_hint $key]
     lassign [::VMDance::Plot::size $c] W H
     for {set x 20} {$x < $W} {incr x 17} {
         for {set y 20} {$y < $H} {incr y 23} {
@@ -147,7 +147,8 @@ set ${S}(p_helm_trim-start) 0
 set ${S}(algorithm) equal
 ${G}::_algorithm_changed
 update
-check "eQUAL: no k, and the toolbar's Elbow off" [expr {![winfo exists $pb.equal.k] && [$w.tb.elbow instate disabled]}]
+# (the Elbow was off for eQUAL: it scans eQUAL's radius now)
+check "eQUAL: no k, and the toolbar's Elbow on (a scan by radius)" [expr {![winfo exists $pb.equal.k] && [$w.tb.elbow instate !disabled]}]
 set ${S}(algorithm) divine
 ${G}::_algorithm_changed
 set ${S}(p_divine_anchors) OutlierPair
@@ -872,6 +873,8 @@ set of0 [set ${S}(out_format)]
 vmdance -mol $m -sel all -k 3 -kinit KmeansPP -quiet 1
 ${G}::export_dialog
 update
+# (the groups', the map's and the profiles' were missing from the dialog)
+check "the Export dialog offers every item the command exports" [expr {[lsort [dict keys [set ${G}::export_items]]] eq [lsort [::VMDance::Export::items]]}]
 foreach {it lab} [set ${G}::export_items] { set ${G}::X($it) [expr {$it in {labels trajectories}}] }
 set ${S}(out_dir) "$td "
 set ${S}(out_prefix) t

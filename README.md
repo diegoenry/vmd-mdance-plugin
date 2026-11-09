@@ -492,10 +492,18 @@ tests/
   test_groups.tcl      the groups and their colours, the make-up, the map (numpy's PCA), the profiles, the scans' stability,
                        eQUAL's radius scan, HELM's merges' heights, each against a direct computation (the real backend)
   test_gui.tcl         windowed: the window, clustering, cancelling, every plot, scans, tools, 3D, files, figures, themes
-  run_all.sh           every suite
-docs/                  Sphinx documentation
+  run_all.sh           every suite (the text-mode ones through strict.tcl)
+  strict.tcl           runs a suite so that an error at its top level fails it (VMD's -e goes on after one)
+  e2e/                 end to end: four VMD sessions that work, save, quit and reopen (run_e2e.sh)
+docs/                  Sphinx documentation: quick start, a complete analysis, every pane and plot, choosing k,
+                       groups, the command and recipes, files, the algorithms and parameters, the design
   _static/logo/        the logo: the wordmark (light and dark backgrounds) and its mark, SVG and PNG
-  tools/make_logo.py   draws them, and the window's icon
+  _static/figures/     the screenshots; _static/diagrams/: the diagrams (SVG and PNG)
+  diagrams/            the flows' Graphviz sources
+  tools/make_logo.py   draws the logo, and the window's icon
+  tools/capture.tcl    takes the screenshots (MDANCE's tau peptide); annotate.py numbers the window's parts
+  tools/make_diagrams.py  draws the diagrams (matplotlib, and dot for the flows)
+  tools/tutorial_numbers.tcl  the tutorial's numbers; gen_parameters.tcl: the parameters page
 TESTING.md             what to check by hand
 ```
 
@@ -515,7 +523,8 @@ vmd -dispdev text -e tests/test_hardening2.tcl < /dev/null | grep -E "FAIL|RESUL
 vmd -dispdev text -e tests/test_groups.tcl    < /dev/null | grep -E "FAIL|SKIP|RESULT"
 for g in fx_g1 fx_g2 fx_g3 fx_g4 fx_g5 g6 g7 g8 g9 h1 oi h3 h4; do vmd -dispdev text -e tests/test_hardening2_$g.tcl < /dev/null | grep -E "FAIL|RESULT"; done
 VMDANCE_OUT=/tmp/mdv vmd -dispdev win -e tests/test_gui.tcl < /dev/null; grep -E "FAIL|RESULT" /tmp/mdv/gui.log
-sh tests/run_all.sh                           # all of them
+sh tests/run_all.sh                           # all of them (strict: an error at a suite's top level fails it)
+DISPLAY=:9 sh tests/e2e/run_e2e.sh            # end to end
 ```
 
 The fake backend (`tests/fake_mdance_cli`, Python 3) drives the jobs,
@@ -529,13 +538,14 @@ README's numbers on MDANCE's data (`MDANCE_DATA`, the package's
 `mdance/data`). What is missing there is skipped, and says so; so are a
 few checks of g7, g8 and h4 that read files kept outside the repository.
 The windowed suite needs a display (`Xephyr :9 -screen 1600x1200x24 -ac &`
-then `DISPLAY=:9`). Current results: 140, 110, 67, 42, 60, 31, 194 and 219
+then `DISPLAY=:9`). Current results: 140, 110, 67, 42, 61, 31, 194 and 220
 checks (core, jobs, results, session, reference, hardening, hardening2,
-gui), 391 in the second round's thirteen group suites, and 99 in the
-groups suite (the real backend), all passing in
+gui), 407 in the second round's thirteen group suites (396 in a clone,
+without the papers beside it), and 118 in the groups suite (the real
+backend): 1390 in 22 suites, all passing in
 VMD 2.1 (Linux); the core suite also in `tclsh` 8.6. End to end
 (`DISPLAY=:9 sh tests/e2e/run_e2e.sh`: four phases, each in a new VMD, with
-the real backend): 29, 14, 15 and 10 checks, passing. The reference suite, with
+the real backend): 42, 15, 21 and 10 checks, passing. The reference suite, with
 a CPP-MDANCE built with DIVINE (main since its PR #52), skips two of
 MDANCE's results that CPP-MDANCE does not reproduce, a seed at a stratified
 position on a half (3ptb's Cα: KMeans NANI of frames 0–49, k 4; DIVINE

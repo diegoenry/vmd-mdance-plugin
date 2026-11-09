@@ -1,0 +1,11 @@
+/* The diagrams are drawn on white: they keep it in the dark theme. */
+figure.diagram img, .diagram img {
+    background: #ffffff;
+    border-radius: 6px;
+    padding: 6px;
+}
+/* Screenshots: a hairline, so that a window's edge shows on the page. */
+figure img[src*="figures/"] {
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 3px;
+}

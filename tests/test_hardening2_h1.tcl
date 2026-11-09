@@ -174,6 +174,8 @@ check "  19 frames refused, 20 taken (StratAll, StratReduced, CompSim, DivSelect
     [lsort -unique [lmap ki {StratAll StratReduced CompSim DivSelect} {string match "*raise -percentage to 11*" [err {${A}::check_combination divine 3 [dict replace $dv kinit $ki] 19}]}]] eq {1} &&
     [lsort -unique [lmap ki {StratAll StratReduced CompSim DivSelect} {expr {[err {${A}::check_combination divine 3 [dict replace $dv kinit $ki] 20}] eq ""}}]] eq {1}}]
 check "  CompSim on 9 frames (no seed at all: the backend crashed): refused" [string match "*(0 of them)*" [err {${A}::check_combination divine 2 [dict replace $dv kinit CompSim] 9}]]
+check "  with -end-mode points too, whatever k (-k 1 passed it over)" [string match "-percentage 10: DIVINE's first split*" [err {
+    ${A}::check_combination divine 1 [dict replace $dv end-mode points threshold 0.2] 10}]]
 set m1 [load_system single_state]
 set c0 $::VMDance::Backend::counter
 check "  the command: refused before running" [expr {[string match "vmdance: -percentage 10: DIVINE's first split*" [err {vmdance -mol $m1 -sel all -algorithm divine -k 2 -quiet 1}]] &&
@@ -213,41 +215,74 @@ check "  the pair anchors with it taken" [expr {
     [err {${J}::check_cluster [list mol $m sel all algorithm divine params {anchors SplinterPair}]}] eq "" &&
     [err {${J}::check_cluster [list mol $m sel all algorithm divine params {anchors OutlierPair refine 1}]}] eq ""}]
 check "  its tip says where it acts, and that NANI's splits do not use it" [string match "*OutlierPair and SplinterPair*A NANI split is a k-means already*" [lindex [dict get [vmdance parameters divine] -refine] 4]]
-# identical frames (the same fingerprint): rows 0 and 2 of frames 10-13
-set c4 [dict create frames {10 11 12 13} fp {a b a c}]
-set op1 [dict replace $dv anchors OutlierPair]
-check "  identical frames, OutlierPair refined, a share of one frame: k up to the frames that differ taken, above it refused, naming VMD's frames" [expr {
+# identical frames: the same rows as the backend reads them (the CSV),
+# rows 0 and 2 of frames 10-13
+proc rows_c {lines {frames ""} {fit ""}} {
+    set f [file join $::H rows_[incr ::rows_n].csv]
+    set fh [open $f w]; puts -nonewline $fh [join $lines \n]\n; close $fh
+    if {$frames eq ""} { for {set i 0} {$i < [llength $lines]} {incr i} { lappend frames [expr {10 + $i}] } }
+    dict create frames $frames csv $f fitatoms $fit
+}
+set ::rows_n 0
+set c4 [rows_c {1,2,3 4,5,6 1,2,3 7,8,9}]
+set op1 [dict replace $dv anchors OutlierPair split Radius]
+check "  identical rows, OutlierPair refined, -split Radius, a share of one frame: k up to the rows that differ taken, above refused, naming VMD's frames" [expr {
     [err {${J}::_divine_repeats $c4 3 $op1}] eq "" &&
     [string match "-anchors OutlierPair with -refine 1 and -k 4: only 3 of the 4 frames differ (frames 10 and 12 have the same coordinates), so DIVINE would split a cluster of identical frames, and CPP-MDANCE's DIVINE crashes refining*use -k 3 or fewer, -refine 0, or -anchors SplinterPair" [err {${J}::_divine_repeats $c4 4 $op1}]]}]
-check "  with a share of 2 frames (0.5 of 4): refused when 2 frames are the same, whatever k" [string match "-anchors OutlierPair with -refine 1 and -threshold 0.5: frames 10 and 12 have the same coordinates, as many as a side of a split keeps (2)*" [err {
-    ${J}::_divine_repeats $c4 2 [dict replace $op1 threshold 0.5]}]]
-check "  3 of 4 the same: the 3 named; a share above the frames repeated (2 of 6, 0.5: 3), unrefined, SplinterPair, or no frame repeated: taken" [expr {
-    [string match "*: frames 10, 11 and 12 have the same coordinates, as many as*" [err {${J}::_divine_repeats [dict create frames {10 11 12 13} fp {a a a c}] 2 [dict replace $op1 threshold 0.5]}]] &&
-    [err {${J}::_divine_repeats [dict create frames {0 1 2 3 4 5} fp {a a b c d e}] 2 [dict replace $op1 threshold 0.5]}] eq "" &&
+check "  -split MSD or WeightedMSD: k 3 refused already (the MSD's rounding can rank identical frames first: a fuzz crashed the program so), k 2 taken" [expr {
+    [string match "*-split WeightedMSD at -k 3: frames 10 and 12 have the same coordinates, and the rounding*use -split Radius (k up to 3*" [err {${J}::_divine_repeats $c4 3 [dict replace $op1 split WeightedMSD]}]] &&
+    [string match "*-split MSD at -k 3:*" [err {${J}::_divine_repeats $c4 3 [dict replace $op1 split MSD]}]] &&
+    [err {${J}::_divine_repeats $c4 2 [dict replace $op1 split WeightedMSD]}] eq ""}]
+check "  every frame the same: refused from k 2 (the first split crashes), k 1 taken (no split)" [expr {
+    [string match "-anchors OutlierPair with -refine 1: all 3 frames have the same coordinates*" [err {${J}::_divine_repeats [rows_c {1,2,3 1,2,3 1,2,3}] 2 $op1}]] &&
+    [err {${J}::_divine_repeats [rows_c {1,2,3 1,2,3 1,2,3}] 1 $op1}] eq ""}]
+check "  -0.0 and 0.0 the same number" [string match "*only 2 of the 3 frames differ*" [err {${J}::_divine_repeats [rows_c {0.0,1.0 -0.0,1.0 2.0,3.0}] 3 $op1}]]
+check "  with a share of 2 frames (0.5 of 4): refused when 2 rows are the same, from k 3 (k 1 and 2 cannot crash)" [expr {
+    [string match "-anchors OutlierPair with -refine 1 and -threshold 0.5: frames 10 and 12 have the same coordinates, as many as a side of a split keeps (2)*" [err {
+        ${J}::_divine_repeats $c4 3 [dict replace $op1 threshold 0.5]}]] &&
+    [err {${J}::_divine_repeats $c4 2 [dict replace $op1 threshold 0.5]}] eq "" && [err {${J}::_divine_repeats $c4 1 [dict replace $op1 threshold 0.5]}] eq ""}]
+check "  3 of 4 the same: the 3 named; a share above the rows repeated (2 of 6, 0.5: 3), unrefined, SplinterPair, or no row repeated: taken" [expr {
+    [string match "*: frames 10, 11 and 12 have the same coordinates, as many as*" [err {${J}::_divine_repeats [rows_c {1,2 1,2 1,2 3,4}] 3 [dict replace $op1 threshold 0.5]}]] &&
+    [err {${J}::_divine_repeats [rows_c {1,2 1,2 3,4 5,6 7,8 9,0}] 3 [dict replace $op1 threshold 0.5]}] eq "" &&
     [err {${J}::_divine_repeats $c4 4 [dict replace $op1 refine 0]}] eq "" &&
     [err {${J}::_divine_repeats $c4 4 [dict replace $op1 anchors SplinterPair]}] eq "" &&
-    [err {${J}::_divine_repeats [dict create frames {10 11 12 13} fp {a b c d}] 4 $op1}] eq ""}]
+    [err {${J}::_divine_repeats [rows_c {1,2 3,4 5,6 7,8}] 4 $op1}] eq ""}]
 # a molecule with each frame twice (its file read twice): an elbow's k above
-# the frames that differ not run, said why; the others run
+# the rows that differ not run (-split Radius), said why; the others run
 set m2 [load_system two_state]
 set nf2 [molinfo $m2 get numframes]
 mol addfile [file join $::fixtures two_state.pdb] waitfor all molid $m2
-set rows [vmdance elbow -mol $m2 -sel all -algorithm divine -anchors OutlierPair -ks [list $nf2 [expr {$nf2 + 1}]] -quiet 1]
+set rows [vmdance elbow -mol $m2 -sel all -algorithm divine -anchors OutlierPair -split Radius -ks [list $nf2 [expr {$nf2 + 1}]] -quiet 1]
 check "  an elbow of k $nf2 and [expr {$nf2 + 1}] on $nf2 frames twice: the first run, the second not run (the crash), said why" [expr {
     [dict get [lindex $rows 0] status] eq "ok" &&
     [string match "not run: -anchors OutlierPair with -refine 1 and -k [expr {$nf2 + 1}]: only $nf2 of the [expr {2 * $nf2}] frames differ (frames 0 and $nf2 have*" [dict get [lindex $rows 1] message]]}]
 set c0 $::VMDance::Backend::counter
 check "  one clustering of it refused, the backend not run" [expr {[string match "*-anchors OutlierPair with -refine 1 and -k [expr {$nf2 + 1}]: only $nf2 *" [err {
-    vmdance -mol $m2 -sel all -algorithm divine -anchors OutlierPair -k [expr {$nf2 + 1}] -quiet 1}]] && $::VMDance::Backend::counter == $c0}]
+    vmdance -mol $m2 -sel all -algorithm divine -anchors OutlierPair -split Radius -k [expr {$nf2 + 1}] -quiet 1}]] && $::VMDance::Backend::counter == $c0}]
 mol delete $m2
-
+# frames alike once fitted: 3ptb's frames 0-5, then frame 2 again, turned
+# by 90° (exact in floats): its fitted row is frame 2's. The fingerprints,
+# of the frames as read, told them apart: the program crashed, and VMD with
+# the library.
+set m3 [mol new [file join $::systems 3ptb complex.psf] waitfor all]
+mol addfile [file join $::systems 3ptb traj.dcd] last 5 waitfor all molid $m3
+mol addfile [file join $::systems 3ptb traj.dcd] first 2 last 2 waitfor all molid $m3
+set all [atomselect $m3 all frame 6]
+$all move [transaxis z 90]
+$all delete
+set q3 [${J}::check_cluster [list mol $m3 sel "name CA" fit "name CA" algorithm divine k 7 params {anchors OutlierPair split Radius}]]
+set c3 [::VMDance::Coords::extract $q3]
+check "  frames alike only once fitted (a copy turned by 90°): k 7 of 6 rows that differ refused, k 6 taken" [expr {
+    [string match "*-k 7: only 6 of the 7 frames differ (frames 2 and 6 have the same coordinates once fitted)*" [err {${J}::_divine_repeats $c3 7 [dict get $q3 params]}]] &&
+    [err {${J}::_divine_repeats $c3 6 [dict get $q3 params]}] eq ""}]
+mol delete $m3
 # N22: the tree of anything but HELM is the average linkage of the mean
 # structures, which can join DIVINE's clusters across its first split.
 vmdance -mol $m -sel all -algorithm divine -k 3 -quiet 1
 vmdance export $H -items tree -prefix dv
 set hd [lindex [split [read_text [file join $H dv_tree.csv]] \n] 0]
 # (the distance is their RMSD², which the header calls so since h4's N17)
-check "N22: DIVINE's tree export says it is a linkage, not DIVINE's splits" [string match "*average linkage of the clusters' mean structures (distance: their RMSD², Å²), not DIVINE's splits" $hd]
+check "N22: DIVINE's tree export says it is a linkage, not DIVINE's splits" [string match "*average linkage of the clusters' mean structures (distance: their RMSD², Å²; height: the same), not DIVINE's splits" $hd]
 vmdance -mol $m -sel all -k 3 -kinit KmeansPP -quiet 1
 vmdance export $H -items tree -prefix km
 check "  (KMeans's names no algorithm's splits)" [expr {![string match "*splits*" [lindex [split [read_text [file join $H km_tree.csv]] \n] 0]]}]
@@ -383,7 +418,9 @@ set P [file join $H crashing-cli]
 set fh [open $P w]
 puts $fh "#!/bin/sh"
 puts $fh "if \[ \$# -eq 0 \]; then echo 'Usage: mdance-cli --algorithm {kmeans|divine|helm|equal}' >&2; exit 1; fi"
-puts $fh "ulimit -c 0; kill -SEGV \$\$"
+# (no core: systemd's coredump keeps one whatever ulimit -c 0, but the
+# kernel dumps none for a core limit of 1 byte)
+puts $fh "prlimit --pid \$\$ --core=1:1 2>/dev/null; kill -SEGV \$\$"
 close $fh
 file attributes $P -permissions 0755
 ::VMDance::Backend::configure -mode cli -cli $P

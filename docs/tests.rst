@@ -10,6 +10,15 @@ fails=… skips=…``:
    cd vmd-mdance-plugin
    sh tests/run_all.sh                 # every suite
    NOGUI=1 sh tests/run_all.sh         # without the window
+   vmd -dispdev text -e tests/strict.tcl -args tests/test_groups.tcl < /dev/null   # one suite
+   DISPLAY=:9 sh tests/e2e/run_e2e.sh  # end to end: four VMD sessions
+
+``run_all.sh`` runs every text-mode suite through ``tests/strict.tcl``,
+which sources it: an error at a suite's top level then ends it as a
+failure. (Run with ``-e``, VMD goes on after a command that fails, and a
+check after it can pass on the value the variable held before; a check of
+HELM's heights did.) A suite that crashes a program on purpose sets its
+core limit to one byte, so that no core is dumped.
 
 .. list-table::
    :header-rows: 1

@@ -495,7 +495,7 @@ proc ::VMDance::_api_tree {args} {
     _need_data "vmdance tree"
     if {[catch {::VMDance::Results::tree} t]} { error "vmdance tree: $t" }
     lassign $t how rows leaves base
-    dict create kind $how merges $rows leaves $leaves
+    dict create kind $how merges $rows leaves $leaves heights [::VMDance::Results::tree_heights]
 }
 
 #---------------------------------------------------------------------------
@@ -532,7 +532,7 @@ proc ::VMDance::_scan_rows {s} {
         foreach key {algorithm k radius metric} { if {[dict exists $r $key]} { dict set row $key [dict get $r $key] } }
         if {[dict get $s kind] eq "sweep"} { dict set row seeding [::VMDance::Export::sweep_seeding $r] }
         foreach key {nclusters ch db sizes status message} { dict set row $key [dict get $r $key] }
-        if {[dict exists $r stability]} { dict set row stability [dict get $r stability] }
+        foreach key {stability compared} { if {[dict exists $r $key]} { dict set row $key [dict get $r $key] } }
         set row
     }
 }
@@ -600,19 +600,30 @@ proc ::VMDance::_api_elbow {args} {
         if {[dict get $o -ks] ne "" || [llength [lmap {k v} $args {expr {$k in {-from -to -by} ? 1 : [continue]}}]]} {
             error "$what: eQUAL is given no k: scan its radius with -radii {0.5 1 2}"
         }
+        # (the radius is eQUAL's -threshold: a value given would be dropped
+        # for the scan's)
+        if {[llength [lmap {k v} $args {expr {$k eq "-threshold" ? 1 : [continue]}}]]} {
+            error "$what: -threshold: a scan of eQUAL runs each radius of -radii as its -threshold (-radii {0.5 1 2})"
+        }
         dict set req radii [dict get $o -radii]
         set ks {}
     } elseif {[dict get $o -radii] ne ""} {
         error "$what: -radii is eQUAL's (-algorithm equal); [::VMDance::Algo::label [_get $req algorithm kmeans]] is scanned at values of k"
     } elseif {[catch {_ks $what $o $args 200} ks]} { error $ks }
     dict set req ks $ks
-    # (-stability 1: NANI's seedings that draw no random number; 0 none; or a list)
-    set st [dict get $o -stability]
-    if {$st eq "1"} { set st $::VMDance::Algo::deterministic_kinits } elseif {$st eq "0"} { set st {} }
+    # (-stability 1: NANI's seedings that draw no random number; 0 none; or a
+    # list; as the other switches, true, yes and on too)
+    set st [string trim [dict get $o -stability]]
+    if {![string is list $st]} { error "$what: -stability must be 0, 1 or a list of seedings (got \"$st\")" }
+    if {[string is boolean -strict $st]} { set st [expr {[string is true $st] ? $::VMDance::Algo::deterministic_kinits : {}}] }
     dict set req stability $st
     if {[catch {::VMDance::Job::check_elbow $req} req]} { error "$what: $req" }
     set at [expr {[llength [_get $req radii {}]] ? "radius = [join [dict get $req radii] {, }]" : "k = [join [dict get $req ks] {, }]"}]
-    _say $quiet "scanning [_algo_said [dict get $req algorithm] [dict remove [dict get $req params] threshold] [dict get $req metric]] at $at: [_input_said $req]"
+    # (eQUAL's -threshold is the radius scanned: not said twice; DIVINE's is
+    # its smallest share)
+    set said [dict get $req params]
+    if {[dict get $req algorithm] eq "equal"} { set said [dict remove $said threshold] }
+    _say $quiet "scanning [_algo_said [dict get $req algorithm] $said [dict get $req metric]] at $at: [_input_said $req]"
     _scan_note $quiet $req {mol atoms fitatoms algorithm metric params}
     variable last_pct
     unset -nocomplain last_pct

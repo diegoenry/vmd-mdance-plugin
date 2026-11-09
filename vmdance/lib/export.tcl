@@ -396,11 +396,11 @@ proc ::VMDance::Export::table_distances {} {
 proc ::VMDance::Export::table_tree {} {
     _need_clustering
     lassign [::VMDance::Results::tree] how rows
-    set what [expr {$how eq "helm" ? "HELM's merges of its starting clusters (distance: the merge's rank)" : "average linkage of the clusters' mean structures (distance: their RMSD², Å²)"}]
+    set what [expr {$how eq "helm" ? "HELM's merges of its starting clusters (distance: the merge's rank; height: the MSD of the cluster it makes, MDANCE's, Å²)" : "average linkage of the clusters' mean structures (distance: their RMSD², Å²; height: the same)"}]
     # (not DIVINE's splits: CPP-MDANCE does not return them)
     if {$how ne "helm" && [::VMDance::Results::algorithm] eq "divine"} { append what ", not DIVINE's splits" }
-    set out [list [header "the dendrogram: $what"] [_row left right distance count]]
-    foreach r $rows { lappend out [_row {*}[lrange $r 0 1] [_num [lindex $r 2]] [lindex $r 3]] }
+    set out [list [header "the dendrogram: $what"] [_row left right distance count height]]
+    foreach r $rows h [::VMDance::Results::tree_heights] { lappend out [_row {*}[lrange $r 0 1] [_num [lindex $r 2]] [lindex $r 3] [_num $h]] }
     join $out \n
 }
 
@@ -538,18 +538,21 @@ proc ::VMDance::Export::table_elbow {} {
     set q [dict get $e request]
     set radius [::VMDance::Results::by_radius $e]
     set over [expr {$radius ? "radius (MDANCE's MSD, Å²) [join [dict get $q radii] { }]" : "k [join [dict get $q ks] { }]"}]
+    # (eQUAL's -threshold is the radius scanned: not an empty parameter)
+    set params [dict get $q params]
+    if {$radius} { set params [dict remove $params threshold] }
     set head [scan_header "elbow scan of [::VMDance::Algo::label [dict get $q algorithm]] (metric [dict get $q metric]), $over" \
-        $q [dict get $e molecule] [dict get $e frames] [list "" [dict get $q params]] $e scanned]
+        $q [dict get $e molecule] [dict get $e frames] [list "" $params] $e scanned]
     set stab [::VMDance::_get $q stability {}]
     if {[llength $stab]} {
-        append head "\n# stability: the mean adjusted Rand index of the clusterings of seedings [join $stab {, }] (1: the same clusters)"
-        set out [list $head [_row k k_actual calinski_harabasz davies_bouldin stability cluster_sizes status]]
+        append head "\n# stability: the mean adjusted Rand index of the clusterings of seedings [join $stab {, }] (1: the same clusters); seedings_compared: how many of them could seed k (none or one: no stability)"
+        set out [list $head [_row k k_actual calinski_harabasz davies_bouldin stability seedings_compared cluster_sizes status]]
     } else {
         set out [list $head [_row [expr {$radius ? "radius" : "k"}] k_actual calinski_harabasz davies_bouldin cluster_sizes status]]
     }
     foreach r [dict get $e records] {
         set row [list [::VMDance::Results::scan_x $r] [dict get $r nclusters] [dict get $r ch] [dict get $r db]]
-        if {[llength $stab]} { lappend row [::VMDance::_get $r stability ""] }
+        if {[llength $stab]} { lappend row [::VMDance::_get $r stability ""] [::VMDance::_get $r compared ""] }
         lappend out [_row {*}$row [join [dict get $r sizes] " "] [expr {[dict get $r status] eq "ok" ? "ok" : "failed: [dict get $r message]"}]]
     }
     join $out \n

@@ -5,6 +5,42 @@ The clustering is MDANCE's, as its C++ port CPP-MDANCE runs it: the plugin
 passes the coordinates and the parameters, and reads the answer. Every
 parameter, with its default and limits, is on :doc:`parameters`.
 
+.. figure:: _static/diagrams/algorithms.svg
+   :alt: The same frames clustered by KMeans NANI, DIVINE, HELM and eQUAL.
+   :width: 100%
+   :class: diagram
+
+   The four algorithms on the same frames: KMeans NANI's k clusters about
+   their means (✕), seeded from the densest frames; DIVINE's splits, the
+   first of all the frames; HELM's many small clusters merged; eQUAL's
+   clusters within a radius, and its noise.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 34 26 24
+
+   * - Algorithm
+     - What it does
+     - You give
+     - Good for
+   * - KMeans NANI
+     - k-means, its seeds drawn from the densest frames (or k-means++,
+       random)
+     - k, the seeding
+     - a first look; most trajectories; the stability scan
+   * - DIVINE
+     - splits the frames in two, then the loosest cluster, until k
+     - k, the split, the anchors, a smallest share
+     - a hierarchy from the top; clusters of very different sizes
+   * - HELM
+     - many small NANI clusters, the closest merged until k (or a distance)
+     - k or ``-eps``, the first clustering, a trim
+     - a hierarchy from the bottom; the merges' heights
+   * - eQUAL
+     - clusters within a radius of their seeds; the rest noise
+     - the radius (no k)
+     - dense states among sparse frames; a k it finds itself
+
 What is clustered
 -----------------
 
@@ -87,10 +123,16 @@ number); a scan does not take it.
 two-cluster k-means seeded by each side's medoid. A NANI split is a k-means
 already, which ``-refine`` does not change. CPP-MDANCE's DIVINE still
 crashes refining an OutlierPair split of a cluster whose frames are all the
-same (MDANCE fails there too), which it comes to only when no other cluster
-can be split: above as many clusters as there are frames that differ, or
-with a share no larger than the frames repeated. The plugin refuses those
-(``-refine 0`` or SplinterPair run them), naming the repeated frames.
+same (MDANCE fails there too). "The same" is as the backend reads them:
+frames that the fit makes alike count (a copy turned by 90°). DIVINE comes
+to such a cluster only when it ranks it first: with ``-split Radius``,
+above as many clusters as there are frames that differ; with ``MSD`` or
+``WeightedMSD``, whose rounding can rank a cluster of identical frames
+above one of frames that differ by little, from k 3; with a share of 2
+frames or more, when that many frames are the same. k 1 and 2 never come
+to it (no split, or the one of every frame). The plugin refuses the others,
+naming the repeated frames: ``-refine 0``, SplinterPair, or ``-split
+Radius`` run them.
 
 These are the rules of CPP-MDANCE's main since its PR #52 (1 October 2026);
 an older DIVINE, from a branch, gave NANI's splits no share, rounded it,

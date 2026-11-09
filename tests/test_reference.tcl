@@ -155,19 +155,24 @@ if {"divine" ni $have} {
     # identical frames (frames 10-14 are frames 0-4 again): CPP-MDANCE's
     # DIVINE crashes refining an OutlierPair split of a cluster of them,
     # which it comes to above the 10 clusters of the frames that differ
-    # (Job::_divine_repeats; when the program no longer crashes, it can go)
+    # (-split Radius; with MSD's rounding, earlier: Job::_divine_repeats;
+    # when the program no longer crashes, it can go). (Its core is not
+    # dumped: systemd's coredump keeps one whatever ulimit -c 0, but the
+    # kernel dumps none for a core limit of 1 byte.)
     set m2 [mol new [file join $::systems 3ptb complex.psf] waitfor all]
     mol addfile [file join $::systems 3ptb traj.dcd] last 9 waitfor all molid $m2
     mol addfile [file join $::systems 3ptb traj.dcd] last 4 waitfor all molid $m2
-    set c2 [::VMDance::Coords::extract [::VMDance::Job::check_cluster [list mol $m2 sel "name CA" algorithm divine k 11 params {anchors OutlierPair}]]]
-    set crashed [catch {exec $cli --algorithm divine --input [::VMDance::Coords::csv $c2] --output $jout --natoms [dict get $c2 natoms] --metric MSD \
-        --nclusters 11 --split WeightedMSD --anchors OutlierPair --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10 2>@1}]
+    set c2 [::VMDance::Coords::extract [::VMDance::Job::check_cluster [list mol $m2 sel "name CA" algorithm divine k 11 params {anchors OutlierPair split Radius}]]]
+    set crashed [catch {exec sh -c {prlimit --pid $$ --core=1:1 2>/dev/null; exec "$@"} sh $cli --algorithm divine --input [::VMDance::Coords::csv $c2] --output $jout --natoms [dict get $c2 natoms] --metric MSD \
+        --nclusters 11 --split Radius --anchors OutlierPair --kinit StratAll --refine --threshold 0 --end-mode k --percentage 10 2>@1}]
     check "  identical frames: the program still crashes refining an OutlierPair split of them (k 11, 10 frames differ)" $crashed
-    check "  the plugin: not run at k 11, naming the frames; run at k 10, and unrefined at 11" [expr {
+    check "  the plugin: not run at k 11, naming the frames; run at k 10 (-split Radius), and unrefined at 11" [expr {
         [string match "*-anchors OutlierPair with -refine 1 and -k 11: only 10 of the 15 frames differ (frames 0 and 10 have the same coordinates)*use -k 10 or fewer*" [err {
-            vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -k 11 -quiet 1}]] &&
-        [err {vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -k 10 -quiet 1}] eq "" && [${R}::nclusters] == 10 &&
+            vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -split Radius -k 11 -quiet 1}]] &&
+        [err {vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -split Radius -k 10 -quiet 1}] eq "" && [${R}::nclusters] == 10 &&
         [err {vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -refine 0 -k 11 -quiet 1}] eq ""}]
+    check "  with the MSD's splits (WeightedMSD, the default): from k 3 refused, the rounding said" [string match "*-split WeightedMSD at -k 3:*the rounding*" [err {
+        vmdance -mol $m2 -sel "name CA" -algorithm divine -anchors OutlierPair -k 3 -quiet 1}]]
     mol delete $m2
 }
 

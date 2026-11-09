@@ -1,4 +1,4 @@
-# End to end, phase 2 of 5 (text mode, a new VMD): phase 1's session
+# End to end, phase 2 of 4 (text mode, a new VMD): phase 1's session
 # opened again. First with the heptapeptide loaded with one frame too many
 # (its PDB's): the session finds it by its files, and the questions that
 # read the coordinates again must refuse rather than answer for other
@@ -6,7 +6,7 @@
 # molecules, 3ptb loaded from its files): every answer of the command for
 # every run, the scans and the picks equal phase 1's; PRIME and the
 # similarity asked again give what was kept; -mol none opens it without
-# molecules.
+# molecules, the groups, the make-up, the map and the profiles with it.
 set ::phase reopen
 source [file join [expr {[info exists ::env(VMDANCE_ROOT)] ? $::env(VMDANCE_ROOT) : [pwd]}] tests e2e e2e_common.tcl]
 
@@ -27,7 +27,9 @@ set d [file join $::refruns inputs 1_heptapeptide]
 set bad [mol new [file join $d aligned_tau.pdb] waitfor all]
 mol addfile [file join $d backbone_aligned.dcd] waitfor all molid $bad
 set w [timed "open the session (3ptb loaded from its files)" { vmdance session load $sf }]
-check "session opened: 4 runs, the current one NANI k 6" [expr {[llength [vmdance runs]] == 4 &&
+# (6 runs with DIVINE's two, 4 without)
+set nruns [expr {"divine" in [::VMDance::Backend::algorithms] ? 6 : 4}]
+check "session opened: $nruns runs, the current one NANI k 6" [expr {[llength [vmdance runs]] == $nruns &&
     [dict get [vmdance info] algorithm] eq "kmeans" && [dict get [vmdance info] molid] == $bad}]
 set e1 [err {vmdance prime}]
 check "  PRIME on a molecule with a frame more, first: refused ($e1)" [string match "*changed since*" $e1]
@@ -69,8 +71,10 @@ mol delete all
 
 # no molecule at all
 set w [vmdance session load $sf -mol none]
-check "-mol none: the tables and the scans without molecules" [expr {[llength [vmdance runs]] == 4 &&
-    [llength [vmdance clusters]] == 6 && [llength [vmdance elbow show]] == 9}]
+check "-mol none: the tables and the scans without molecules (eQUAL's scan by radius the last)" [expr {[llength [vmdance runs]] == $nruns &&
+    [llength [vmdance clusters]] == 6 && [llength [vmdance elbow show]] == 4}]
+check "  the groups, make-up, map and profiles without the molecule" [expr {[dict get [vmdance groups] names] eq {first second} &&
+    [dict size [vmdance makeup]] == 6 && [dict size [vmdance map show]] == 6001 && [dict get [vmdance profiles show] reference] ne ""}]
 check "  the questions wait for the molecule, and say so" [string match "*not loaded*" [err {vmdance prime}]]
 check "no selection left" [expr {![llength [atomselect list]]}]
 done

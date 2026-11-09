@@ -107,7 +107,7 @@ namespace eval ::VMDance::Algo {
         {metric choice MSD {MSD BUB Fai Gle Ja JT RT RR SM SS1 SS2} "Metric" "The extended similarity index (MSD: the mean square deviation)"}
     }
     variable map_params {
-        {sample int 500 {2 5000} "Axes from" "The number of frames the two axes are found from, evenly spaced (all of them when there are fewer); every frame is then placed on them"}
+        {sample int 500 {2 5000} "Axes from" "The number of frames the two axes are found from, evenly spaced (all of them when there are fewer; at most 2000, and fewer with many atoms: the map says how many); every frame is then placed on them"}
     }
     variable profiles_params {
         {reference int -1 {-1 ""} "Against" "The cluster whose mean structure the others are measured against (-1: the most populated)"}
@@ -321,7 +321,7 @@ proc ::VMDance::Algo::check_combination {a k params n {nstart ""} {metric MSD}} 
             # (each NANI split is a 2-cluster NANI of the cluster's m frames,
             # seeded from floor(m × p / 100) of them: 2 at least; the first
             # is of all n, the later ones the backend refuses, Job::_cluster)
-            if {$an eq "NANI" && $kinit in {StratAll StratReduced CompSim DivSelect} && $k > 1 && $n * $p / 100 < 2} {
+            if {$an eq "NANI" && $kinit in {StratAll StratReduced CompSim DivSelect} && ($k > 1 || $points) && $n * $p / 100 < 2} {
                 set need [expr {int(ceil(200.0 / $n))}]
                 error "-percentage $p: DIVINE's first split is a 2-cluster NANI (-kinit $kinit) seeded from the densest $p% of the $n frames ([expr {$n * $p / 100}] of them), and it needs 2; raise -percentage to [expr {min(100, $need)}], or seed with KmeansPP or Random"
             }

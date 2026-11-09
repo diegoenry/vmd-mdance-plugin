@@ -1,5 +1,20 @@
-Scans
-=====
+How many clusters? Scans
+========================
+
+Most clusterings are given their number of clusters, and the number is
+the choice that matters most. A scan answers it by clustering the same
+frames many times: at every k (the **elbow**), at every radius (eQUAL), or
+over algorithms, metrics and seedings (the **sweep**). Three views beside
+the scores help where the scores alone do not decide: the **stability** of
+the clusters across seedings, HELM's **merges' heights**, and eQUAL's
+**radius**.
+
+.. figure:: _static/diagrams/choosing_k.svg
+   :alt: Which scan answers "how many clusters" for each algorithm, and what confirms it.
+   :width: 80%
+   :class: diagram
+
+:doc:`tutorial` reads all of them on one trajectory.
 
 A scan clusters the same frames many times, and keeps every clustering: its
 scores and its clusters' sizes in the table and the plots, its labels to
@@ -52,7 +67,7 @@ the range, and Calinski–Harabasz favours the smallest k. Three more views:
   and the MSD within the cluster each merge makes is its height (the Tree
   plot's *merges' heights*; for the other algorithms, the average linkage of
   their clusters); the number of clusters before a jump in height is a k to
-  try.
+  try (``vmdance tree`` gives them: ``heights``).
 - **eQUAL's radius**: eQUAL is given no k but a radius, and finds as many
   clusters as that radius makes; ``vmdance elbow -algorithm equal -radii
   {0.5 1 2 4}`` (or the Scans tab's range of radii) scans it, and the

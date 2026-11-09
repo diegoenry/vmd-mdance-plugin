@@ -335,7 +335,7 @@ proc ::VMDance::Plots::draw_profiles {c} {
                 if {$cv ne "" && $cl != $ref} { lappend series [list "cluster $cl" [ccol $cl] $cv $cl] }
                 incr cl
             }
-            set ylab "Distance from cluster $ref's mean structure (Å)"
+            set ylab "Distance from cluster $ref (Å)"
         }
         default {
             lassign [_by_residue $p clusters] res chs curves
@@ -345,7 +345,11 @@ proc ::VMDance::Plots::draw_profiles {c} {
             set ylab "RMSF (Å)"
         }
     }
-    if {![llength $series]} { ::VMDance::Plot::empty $c "Nothing to draw" "Every cluster but the reference is needed (differences)."; return }
+    if {![llength $series]} {
+        set why [::VMDance::_get {groups "No group has clustered frames." differences "Another cluster than the reference is needed: this clustering has no other with frames."} $view "No cluster has frames."]
+        ::VMDance::Plot::empty $c "Nothing to draw" $why
+        return
+    }
     set items {}
     foreach s [lrange $series 0 23] { lappend items [lindex $s 0] [expr {$view eq "groups" ? [lindex $s 1] : [ccol [lindex $s 3] 0]}] }
     if {[llength $series] > 24} { lappend items "… [expr {[llength $series] - 24}] more" @none }

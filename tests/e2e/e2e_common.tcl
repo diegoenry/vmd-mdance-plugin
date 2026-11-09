@@ -33,7 +33,11 @@ proc state_of {} {
             info [dict remove [vmdance info] molid] clusters [vmdance clusters] labels [vmdance labels] \
             silhouette [vmdance silhouette] distances [vmdance distances] tree [vmdance tree] \
             transitions [vmdance transitions -counts 1] residence [vmdance residence] \
-            prime [${R}::extra prime] similarity [${R}::extra similarity]]
+            prime [${R}::extra prime] similarity [${R}::extra similarity] \
+            groups [vmdance groups] group_of [${R}::group_of] \
+            makeup [expr {[llength [${R}::group_names]] ? [vmdance makeup] : {}}] \
+            map [expr {[dict size [${R}::extra map]] ? [vmdance map show] : {}}] \
+            profiles [${R}::extra profiles]]
     }
     # (switching runs clears the selection: put back as it was)
     if {$cur ne ""} { vmdance run $cur; if {[llength [dict get $s select]]} { vmdance select {*}[dict get $s select] } }

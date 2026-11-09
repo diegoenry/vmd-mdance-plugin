@@ -73,7 +73,7 @@ close $ch
 set g [vmdance groups -file $f]
 check "groups from a file (a header, a comment, a name with a space)" [expr {[dict get $g names] eq {third {odd one}} && [dict get $g sizes] eq {8 16}}]
 set ch [open $f w]; puts $ch "0,a,b"; close $ch
-check "file: three columns refused" [string match "*more than two columns*" [err {vmdance groups -file $f}]]
+check "file: three columns without a header naming them refused" [string match "*line 1 is not \"frame,group\"*" [err {vmdance groups -file $f}]]
 check "file: none there refused" [string match "*cannot read*" [err {vmdance groups -file [file join $::out nothere.csv]}]]
 set g [vmdance groups -names [lrepeat $nf one]]
 check "groups by names" [expr {[dict get $g names] eq {one} && [dict get $g sizes] eq [list $nf]}]
@@ -286,16 +286,33 @@ vmdance export $d -prefix s -items {elbow}
 set er [csv_rows [file join $d s_elbow.csv]]
 check "export elbow: the stability column" [expr {[lindex $er 0 4] eq "stability" && [string is double -strict [lindex $er 1 4]]}]
 check "export elbow: the seedings said" [string match "*# stability: * StratAll, CompSim*" [read_text [file join $d s_elbow.csv]]]
+check "export elbow: the seedings compared, 2 at every k" [expr {[lindex $er 0 5] eq "seedings_compared" &&
+    [lsort -unique [lmap r [lrange $er 1 end] {lindex $r 5}]] eq {2}}]
 set s [file join $::out stability.vmdance]
 vmdance session save $s
 set before $::VMDance::Results::elbow
 vmdance run clear
 vmdance session load $s
 check "session: the stability comes back" [expr {[lmap r [dict get $::VMDance::Results::elbow records] {dict get $r stability}] eq [lmap r [dict get $before records] {dict get $r stability}]}]
+check "  and how many seedings each compared" [expr {[lmap r [dict get $::VMDance::Results::elbow records] {dict get $r compared}] eq {2 2 2 2}}]
+# (a seeding that cannot seed k was left out without a word: at k 12,
+# StratAll and CompSim draw from 10% of 100 frames, KmeansPP alone runs)
+set recs [vmdance elbow -mol $p -sel "protein and name CA" -ks {2 12} -kinit KmeansPP -stability {StratAll CompSim KmeansPP} -quiet 1]
+check "stability: the seedings that could seed k counted (3 at k 2; 1 at k 12, no stability)" [expr {
+    [dict get [lindex $recs 0] compared] == 3 && [dict get [lindex $recs 0] stability] ne "" &&
+    [dict get [lindex $recs 1] compared] == 1 && [dict get [lindex $recs 1] stability] eq ""}]
+check "stability: true and yes as 1, and a list that is none refused, naming the option" [expr {
+    [lsort -unique [lmap v {true yes} {llength [dict get [lindex [vmdance elbow -mol $p -sel "protein and name CA" -ks {2 3} -percentage 50 -stability $v -quiet 1] 0] stability]}]] eq {1} &&
+    [string match "*-stability must be 0, 1 or a list of seedings*" [err {vmdance elbow -mol $p -ks {2 3} -stability "\{" -quiet 1}]]}]
+check "elbow load: a k as a whole number (\"010\", \"0x2\", \"2e0\" are no k)" [expr {
+    [lsort -unique [lmap v {010 0x2 2e0} {string match "*has no k = $v" [err {vmdance elbow load $v}]}]] eq {1} &&
+    [err {vmdance elbow load 2}] eq ""}]
 
 #---------------------------------------------------------------------------
 # eQUAL: the radius scan
 #---------------------------------------------------------------------------
+check "radius scan: -threshold refused (each radius is the threshold)" [string match "*-threshold: a scan of eQUAL runs each radius*" [err {
+    vmdance elbow -mol $p -sel "protein and name CA" -algorithm equal -radii {1 2} -threshold 7 -quiet 1}]]
 set recs [vmdance elbow -mol $p -sel "protein and name CA" -algorithm equal -radii {2 1 4} -quiet 1]
 check "radius scan: sorted, a record each" [expr {[lmap r $recs {dict get $r radius}] eq {1.0 2.0 4.0} || [lmap r $recs {dict get $r radius}] eq {1 2 4}}]
 set ok 1
@@ -324,28 +341,41 @@ check "export elbow: a radius column" [expr {[lindex [csv_rows [file join $d r_e
 # HELM: its merges' heights, the MSD of the frames each joins
 #---------------------------------------------------------------------------
 vmdance -mol $p -sel "protein and name CA" -algorithm helm -k 2 -initial 12 -initial-percentage 20 -quiet 1
-set hs [dict get $::VMDance::Results::A measures merge_msd]
-lassign [::VMDance::Measure::helm_tree [${R}::get zmatrix] [${R}::get initial] [${R}::labels] [${R}::nclusters]] trows leaves n0
-check "heights: one per merge" [expr {[llength $hs] == [llength $trows] && [llength $hs] > 0}]
-# the frames under each node, and their MSD (MDANCE's: twice the mean
-# squared deviation from their mean, per atom)
-set init [${R}::get initial]
-set labs [${R}::labels]
-foreach l $leaves { set under($l) [lmap i [lsearch -all -exact $init $l] {expr {[lindex $labs $i] >= 0 ? $i : [continue]}}] }
-set ok 1; set j 0
-foreach row $trows h $hs {
-    lassign $row a b
-    set nd [expr {$n0 + $j}]
-    set under($nd) [concat $under($a) $under($b)]
-    set fr [lmap i $under($nd) {lindex $rows $i}]
-    set mu [mean_rows $fr]
-    set q 0.0
-    foreach r $fr { set v [veclength [vecsub $r $mu]]; set q [expr {$q + $v * $v}] }
-    set msd [expr {2.0 * $q / ([llength $fr] * 223)}]
-    if {![near $h $msd 1e-4]} { set ok 0; puts "  merge $j: $h, here $msd" }
-    incr j
+# (the frames under each node, and their MSD: MDANCE's, twice the mean
+# squared deviation from their mean, per atom; "" when every merge's is)
+proc heights_wrong {hs} {
+    set R ::VMDance::Results
+    lassign [::VMDance::Measure::helm_tree [${R}::get zmatrix] [${R}::get initial] [${R}::labels] [${R}::nclusters]] trows leaves n0
+    if {[llength $hs] != [llength $trows] || ![llength $hs]} { return "[llength $hs] heights, [llength $trows] merges" }
+    set init [${R}::get initial]
+    set labs [${R}::labels]
+    foreach l $leaves { set under($l) [lmap i [lsearch -all -exact $init $l] {expr {[lindex $labs $i] >= 0 ? $i : [continue]}}] }
+    set j 0
+    foreach row $trows h $hs {
+        lassign $row a b
+        set nd [expr {$n0 + $j}]
+        set under($nd) [concat $under($a) $under($b)]
+        set fr [lmap i $under($nd) {lindex $::rows $i}]
+        set mu [mean_rows $fr]
+        set q 0.0
+        foreach r $fr { set v [veclength [vecsub $r $mu]]; set q [expr {$q + $v * $v}] }
+        set msd [expr {2.0 * $q / ([llength $fr] * 223)}]
+        if {$h eq "" || ![near $h $msd 1e-4]} { return "merge $j: \"$h\", here $msd" }
+        incr j
+    }
+    return ""
 }
+set hs [dict get $::VMDance::Results::A measures merge_msd]
+if {[catch {heights_wrong $hs} why]} { set why "error: $why" }
+check "heights: one per merge" [expr {![string match "*heights,*merges" $why]}]
+set ok [expr {$why eq ""}]
 check "heights: each merge's MSD, counted here" $ok
+# (the window's heights view only, until the command and the export had them)
+check "  the command's tree has them, HELM's" [expr {[dict get [vmdance tree] heights] eq $hs}]
+vmdance export $d -prefix h -items {tree}
+set tt [csv_rows [file join $d h_tree.csv]]
+check "  the tree export has a height column, each merge's" [expr {[lindex $tt 0] eq {left right distance count height} &&
+    [llength [lmap r [lrange $tt 1 end] h $hs {expr {[near [lindex $r 4] $h 1e-5] ? [continue] : $r}}]] == 0}]
 vmdance session save $s
 vmdance run clear
 vmdance session load $s
@@ -353,6 +383,76 @@ check "session: the heights come back" [expr {[dict get $::VMDance::Results::A m
 set a $::VMDance::Results::A
 dict set a measures merge_msd [lrange $hs 1 end]
 check "check: heights not one per merge" [string match "*values, not*" [err {::VMDance::Results::check $a}]]
+# with trimmed starting clusters: the trimmed frames (-1) are under no
+# merge (Coords::each's continue skipped the count of every row after
+# the first trimmed one: no merge had a height)
+vmdance -mol $p -sel "protein and name CA" -algorithm helm -k 2 -initial 12 -initial-percentage 20 -trim-start 1 -trim-k 3 -quiet 1
+set hs [dict get $::VMDance::Results::A measures merge_msd]
+# (an error here would leave the last check's why: VMD goes on after it)
+if {[catch {heights_wrong $hs} why]} { set why "error: $why" }
+check "heights with trimmed starting clusters ([${R}::noise] frames trimmed): each merge's MSD[expr {$why eq "" ? "" : " ($why)"}]" [expr {[${R}::noise] > 0 && $why eq ""}]
+
+#---------------------------------------------------------------------------
+# What the plots keep of the groups and the profiles (Make-up's matrix, the
+# Profiles' curves) follows them; profiles go with the groups' frames; the
+# groups export reads back; the map's sample is bounded; a session's map
+# and profiles hold numbers
+#---------------------------------------------------------------------------
+namespace eval ::VMDance::Plots {}
+source -encoding utf-8 [file join $::VMDance::libdir plots_groups.tcl]
+vmdance -mol $p -sel "protein and name CA" -k 4 -kinit CompSim -quiet 1
+vmdance groups -ranges {early 0-49 late 50-99}
+set m1 [::VMDance::Plots::_makeup]
+vmdance groups -ranges {a 0-9 b 10-19 c 20-99}
+check "the Make-up plot's numbers follow new groups, more of them too (they stayed the first ones)" [expr {
+    [::VMDance::Plots::_makeup] eq [dict values [vmdance makeup]] && [::VMDance::Plots::_makeup] ne $m1}]
+vmdance profiles
+set P [${R}::extra profiles]
+set d0 [lindex [::VMDance::Plots::_by_residue $P differences] 2]
+set big [dict get $P reference]
+vmdance profiles -reference [expr {($big + 1) % 4}]
+set P [${R}::extra profiles]
+set d1 [lindex [::VMDance::Plots::_by_residue $P differences] 2]
+array unset ::VMDance::Results::memo profiles_*
+check "the Profiles plot's curves follow profiles made again (another reference)" [expr {$d1 ne $d0 &&
+    $d1 eq [lindex [::VMDance::Plots::_by_residue $P differences] 2]}]
+vmdance groups -ranges {early 0-49 late 50-99}
+vmdance profiles
+vmdance groups -ranges {early 0-49 late 50-99} -colours {early #aa0000}
+check "profiles kept when only the groups' colours change" [expr {[dict size [${R}::extra profiles]] > 0}]
+vmdance groups -ranges {early 0-9 late 10-99}
+check "  dropped when the groups keep their names but not their frames (they stayed, with 50 frames' RMSF)" [expr {![dict size [${R}::extra profiles]]}]
+set d [file join $::out groups_readback]
+file delete -force $d
+vmdance groups -names [lmap f [${R}::frames] {expr {$f % 3 ? "x,y" : {say "hi"}}}]
+set before [${R}::group_of]
+vmdance export $d -prefix rb -items groups
+vmdance groups clear
+vmdance groups -file [file join $d rb_groups.csv]
+check "the groups export reads back with groups -file (names with a comma and quotes)" [expr {[${R}::group_of] eq $before &&
+    [lsort [${R}::group_names]] eq [lsort {x,y {say "hi"}}]}]
+set fh [open [file join $d bad.csv] w]
+puts $fh "frame,group\n-1,a\n0,b"
+close $fh
+check "  a line whose frame is no frame refused, not taken for a header" [string match "*line 2: \"-1\" is not a frame*" [err {vmdance groups -file [file join $d bad.csv]}]]
+set mr0 $::VMDance::Measure::map_rows_most
+set ::VMDance::Measure::map_rows_most [expr {3 * 223 * 10}]
+set mm [vmdance map -sample 500]
+set ::VMDance::Measure::map_rows_most $mr0
+check "the map's sample lowered to what its bound allows, and said (10 frames of 223 atoms)" [expr {[dict get $mm sample] == 10}]
+set a $::VMDance::Results::A
+dict set a extras map variance [list "" ""]
+check "a session's map with blanks for its variance refused" [string match "*variance is corrupt*" [err {${R}::check $a}]]
+vmdance profiles
+set a $::VMDance::Results::A
+dict set a extras profiles clusters [lreplace [dict get $a extras profiles clusters] 0 0 [lreplace [lindex [dict get $a extras profiles clusters] 0] 0 0 ""]]
+check "  profiles with a blank among a cluster's numbers refused" [string match "*profiles' clusters are corrupt*" [err {${R}::check $a}]]
+set all [atomselect $p all]
+set ch0 [$all get chain]
+$all set chain MEMBRANE_PROTEIN_A
+check "profiles of atoms whose chain is longer than 8 characters (refused: \"more than 8 values\")" [expr {[err {vmdance profiles}] eq ""}]
+$all set chain $ch0
+$all delete
 
 done
 quit

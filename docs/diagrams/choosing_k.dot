@@ -1,0 +1,20 @@
+// How many clusters: which scan answers it for each algorithm, and what
+// confirms it. Made by docs/tools/make_diagrams.py.
+digraph choosing_k {
+    graph [rankdir=TB, fontname="Inter", nodesep=0.3, ranksep=0.36, bgcolor="white", pad=0.15]
+    node  [shape=box, style="rounded,filled", fontname="Inter", fontsize=10, color="#9aa7b4", fillcolor="#f3f5f8", fontcolor="#1d2733", penwidth=1.1, margin="0.13,0.07"]
+    edge  [color="#7a8796", arrowsize=0.7, penwidth=1.1, fontname="Inter", fontsize=8.5, fontcolor="#5a6573"]
+    q [label=<<b>How many clusters?</b>>, shape=box, style="rounded,filled", fillcolor="#1d2733", fontcolor="white", color="#1d2733"]
+    km [label=<<b>KMeans NANI</b>>, fillcolor="#e8edf5", color="#8ea3c0"]
+    dv [label=<<b>DIVINE</b>>, fillcolor="#f6ebe8", color="#c99a8f"]
+    hl [label=<<b>HELM</b>>, fillcolor="#f7f0e1", color="#d0b47a"]
+    eq [label=<<b>eQUAL</b>>, fillcolor="#e9f1ec", color="#93b39e"]
+    q -> {km dv hl eq}
+    elbow [label=<<b>Elbow scan</b> over k<br/><font point-size="8.5" color="#5a6573">Calinski–Harabasz: highest;<br/>Davies–Bouldin: lowest</font>>]
+    stab  [label=<<b>Stability</b><br/><font point-size="8.5" color="#5a6573">the four seedings agree<br/>(mean adjusted Rand → 1)</font>>]
+    heights [label=<<b>Merges' heights</b><br/><font point-size="8.5" color="#5a6573">Tree ▸ heights: a merge far<br/>above the one before</font>>]
+    radius  [label=<<b>Scan by radius</b><br/><font point-size="8.5" color="#5a6573">the clusters each radius<br/>gives; no k to choose</font>>]
+    km -> elbow; km -> stab; dv -> elbow; hl -> elbow; hl -> heights; eq -> radius
+    confirm [label=<<b>Then look</b><br/><font point-size="8.5" color="#5a6573">Silhouette, Populations, Timeline:<br/>clusters that are tight, populated<br/>and visited; the 3D structures</font>>, fillcolor="#f3f0f7", color="#a99cc0"]
+    {elbow stab heights radius} -> confirm
+}

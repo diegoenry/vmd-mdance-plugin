@@ -79,13 +79,17 @@ Reading the clustering
    vmdance residence       ;# {cluster visits mean min max} ... (clustered frames)
    vmdance silhouette      ;# mean m clusters {c mean ...} frames {frame s ...}
    vmdance distances       ;# centroids {k × k RMSD²} representatives {k × k RMSD}
-   vmdance tree            ;# kind helm|linkage merges {{left right distance count} ...} leaves {...}
+   vmdance tree            ;# kind helm|linkage merges {{left right distance count} ...} leaves {...} heights {...}
 
 The tables are the clustering's record, in its own frame numbers: they
 answer whether or not its molecule is loaded. ``distances`` and the average
 linkage ``tree`` are made for 300 clusters or fewer: with more, they say so
 (a smaller k, a larger eQUAL radius); HELM's tree is its merges, at any
-number. ``frame`` reads VMD's frame
+number. ``heights`` is each merge's height, the Tree plot's heights view:
+HELM's, the MSD (MDANCE's, Å²) of the cluster the merge makes; the
+linkage's, the RMSD² between the mean structures it joins (its distance).
+A merge far above the one before joins clusters far apart: the k before it
+is a natural place to stop. ``frame`` reads VMD's frame
 number as the clustered one, as ``goto``, ``draw``, ``userfield`` and the
 structure exports do: only while the clustered molecule has the frames it
 had (frames added after them change nothing); after frames deleted before
@@ -98,9 +102,9 @@ Scans
 
    vmdance elbow ?-ks {k ...} | -from 2 -to 15 -by 1? ?-stability 0|1|{seedings}? \
        ?clustering options but -k? ?-quiet 0?
-       ;# {index k nclusters ch db sizes status message ?stability?} ...
-   vmdance elbow -algorithm equal -radii {0.5 1 2 4} ?clustering options?
-       ;# {index radius nclusters ch db sizes status message} ...
+       ;# {index k nclusters ch db sizes status message ?stability compared?} ...
+   vmdance elbow -algorithm equal -radii {0.5 1 2 4} ?clustering options but -threshold?
+       ;# {index k {} radius nclusters ch db sizes status message} ...
    vmdance elbow show      ;# the last scan's records
    vmdance elbow load 6    ;# that k (or radius) made the clustering (a new run): info
    vmdance elbow clear     ;# the scan dropped (sweep clear, pick clear: theirs)
@@ -125,9 +129,14 @@ seeding ``none``.
 no random number (StratAll, StratReduced, CompSim, DivSelect; or the list
 given, two at least), and gives each record the mean adjusted Rand index of
 every two of them (1: the same clusters whatever the seeding; 0: as alike as
-chance); k-means NANI only. eQUAL is given no k: its elbow scans its radius
-(``-radii``, MDANCE's MSD, two values at least), and a record's
-``nclusters`` is what that radius gave (:doc:`scans`).
+chance); k-means NANI only. A seeding that cannot seed k (StratAll draws k
+seeds from the densest share of the frames) is left out at that k:
+``compared`` says how many were compared, and with fewer than two the
+stability is ``""``. eQUAL is given no k: its elbow scans its radius
+(``-radii``, MDANCE's MSD, two values at least; each radius is the
+clustering's ``-threshold``, which is not given), and a record's
+``nclusters`` is what that radius gave (:doc:`scans`). ``elbow load`` takes a
+k as a whole number (``010`` is not 8) and a radius as a decimal number.
 
 Questions after a clustering
 ----------------------------
@@ -161,9 +170,9 @@ Groups, map and profiles
 .. code-block:: tcl
 
    vmdance groups -ranges {original 0-63 moderate 64-127 aggressive 128-191}
-   vmdance groups -file groups.csv       ;# frame,group lines (a header, # comments)
+   vmdance groups -file groups.csv       ;# frame,group lines (# comments; a header may name the columns: frame,cluster,group reads back)
    vmdance groups -names {...}           ;# a name for each clustered frame
-   vmdance groups -colours {original #3d5a80 moderate #c09a45}   ;# with the above, or alone
+   vmdance groups -colours {original #3d5a80 moderate #c09a45 aggressive #a3483b}   ;# with the above, or alone
    vmdance groups          ;# names {...} sizes {...} none n colours {...}
    vmdance groups clear
    vmdance makeup ?-by cluster|group?    ;# {cluster {n ...}} ... or {group {n ...}} ...

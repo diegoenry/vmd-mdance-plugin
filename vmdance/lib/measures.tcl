@@ -371,8 +371,14 @@ proc ::VMDance::Measure::_scores {c cls cancelled} {
 #---------------------------------------------------------------------------
 
 # The axes come from at most map_sample frames, evenly spaced (all of them
-# when there are fewer), and every frame is projected on them.
+# when there are fewer), and every frame is projected on them. A sample
+# keeps an m × m matrix and m rows of 3 × atoms numbers (~235 bytes each in
+# Tcl, until VMD quits): it is lowered to what map_most and map_rows_most
+# allow (2000 frames; fewer with many atoms), and the result says how many
+# it took (5000 frames of 60 atoms took 3.4 GB and five minutes).
 variable ::VMDance::Measure::map_sample 500
+variable ::VMDance::Measure::map_most 4000000
+variable ::VMDance::Measure::map_rows_most 6000000
 
 # The principal components of the rows c (the coordinates as clustered:
 # fitted when the clustering was), from `sample` of them: classical scaling
@@ -386,8 +392,9 @@ variable ::VMDance::Measure::map_sample 500
 # one that makes its largest score positive. In a coroutine it yields every
 # 40 ms, and stops when `cancelled` names a true variable.
 proc ::VMDance::Measure::pca {c sample {cancelled ""} {progress ""}} {
+    variable map_most; variable map_rows_most
     set nf [llength [dict get $c frames]]
-    set m [expr {min($nf, $sample)}]
+    set m [expr {min($nf, $sample, int(sqrt($map_most)), max(2, $map_rows_most / (3 * [dict get $c natoms])))}]
     # (evenly spaced rows: the first and the last among them)
     set pick [dict create]
     for {set j 0} {$j < $m} {incr j} {
@@ -425,11 +432,14 @@ proc ::VMDance::Measure::pca {c sample {cancelled ""} {progress ""}} {
     }
     set rmean [lmap row $D {expr {[::tcl::mathop::+ 0.0 {*}$row] / $m}}]
     set g [expr {[::tcl::mathop::+ 0.0 {*}$rmean] / $m}]
-    set B {}
-    foreach row $D ri $rmean {
-        lappend B [lmap d $row rj $rmean {expr {-0.5 * ($d - $ri - $rj + $g)}}]
-    }
+    # (in place: one m × m matrix, not two)
+    set B $D
     unset D
+    for {set a 0} {$a < $m} {incr a} {
+        set ri [lindex $rmean $a]
+        lset B $a [lmap d [lindex $B $a] rj $rmean {expr {-0.5 * ($d - $ri - $rj + $g)}}]
+        ::VMDance::Coords::_breathe slice $cancelled
+    }
     set total 0.0
     for {set a 0} {$a < $m} {incr a} { set total [expr {$total + [lindex $B $a $a]}] }
     if {$progress ne ""} { {*}$progress 0.85 "the principal components" }
@@ -472,9 +482,11 @@ proc ::VMDance::Measure::pca {c sample {cancelled ""} {progress ""}} {
 # The p largest eigenvalues of the symmetric matrix B (m × m, its rows a
 # list) and their eigenvectors: {values vectors}, largest first. Subspace
 # iteration on p + 4 vectors (orthonormalized by Gram-Schmidt) until the p
-# first turn no more (|cos| of each with its last within 1e-12) or 500 steps,
-# then the Rayleigh-Ritz step (_jacobi of the small matrix). Its start is
-# fixed: the same matrix gives the same answer.
+# first turn no more (|cos| of each with its last within 1e-9: an angle of
+# 5e-5; the Rayleigh-Ritz step after refines them, and 1e-12 ran 500 steps
+# where the second and third were near) or 500 steps, then the
+# Rayleigh-Ritz step (_jacobi of the small matrix). Its start is fixed: the
+# same matrix gives the same answer.
 proc ::VMDance::Measure::_eigen {B p {cancelled ""}} {
     set m [llength $B]
     set b [expr {min($m, $p + 4)}]
@@ -487,10 +499,10 @@ proc ::VMDance::Measure::_eigen {B p {cancelled ""}} {
     set V [_orth $V]
     set slice [clock milliseconds]
     for {set it 0} {$it < 500} {incr it} {
-        set W [_orth [lmap v $V {_matvec $B $v}]]
+        set W [_orth [lmap v $V {_matvec $B $v $cancelled}]]
         set turned 0
         for {set j 0} {$j < min($p, [llength $W])} {incr j} {
-            if {abs([vecdot [lindex $W $j] [lindex $V $j]]) < 1.0 - 1e-12} { set turned 1 }
+            if {abs([vecdot [lindex $W $j] [lindex $V $j]]) < 1.0 - 1e-9} { set turned 1 }
         }
         set V $W
         ::VMDance::Coords::_breathe slice $cancelled
@@ -511,7 +523,16 @@ proc ::VMDance::Measure::_eigen {B p {cancelled ""}} {
     while {[llength $outv] < $p} { lappend outv 0.0; lappend outs [lrepeat $m 0.0] }
     list $outv $outs
 }
-proc ::VMDance::Measure::_matvec {B v} { lmap row $B {vecdot $row $v} }
+# B v (in a coroutine yielding every 40 ms: a product of 2000 rows took
+# seconds, Cancel unread).
+proc ::VMDance::Measure::_matvec {B v {cancelled ""}} {
+    set slice [clock milliseconds]
+    set i 0
+    lmap row $B {
+        if {[incr i] % 64 == 0} { ::VMDance::Coords::_breathe slice $cancelled }
+        vecdot $row $v
+    }
+}
 # Vectors made orthonormal (modified Gram-Schmidt); one that is none of its
 # own (a combination of those before) is left out.
 proc ::VMDance::Measure::_orth {vs} {

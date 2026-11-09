@@ -90,12 +90,12 @@ docs/internals.rst describe it.
 ## Running the tests (this Linux machine)
 
 - VMD 2.1: `/home/dgomes/software/vmd2-integration/bin/vmd` (`vmd` on the
-  PATH). The real backend: `$MDANCE_CLI` (set in the shell:
-  `../CPP-MDANCE/build/cli/mdance-cli`, f1d3d87, built without DIVINE) and
-  `../CPP-MDANCE/build/tcl/mdance_tcl.so`; with DIVINE, CPP-MDANCE's main
-  (f9adb24, PR #52) in `../CPP-MDANCE-upstream/build` (a worktree): set
-  `MDANCE_CLI` and `MDANCE_LIB` to its `cli/mdance-cli` and
-  `tcl/mdance_tcl.so`. MDANCE 0.4 for the fixtures:
+  PATH). The real backend: `$MDANCE_CLI` and `$MDANCE_LIB` (set in
+  ~/.bashrc, and in ~/.vmdrc where unset, since 2026-11-09): CPP-MDANCE's
+  main with DIVINE (f9adb24, PR #52), `../CPP-MDANCE-upstream/build/cli/mdance-cli`
+  and `…/tcl/mdance_tcl.so` (a worktree of ../CPP-MDANCE). The build
+  before it, without DIVINE (f1d3d87), is `../CPP-MDANCE/build`, the tests'
+  fallback when the variables are unset. MDANCE 0.4 for the fixtures:
   `../mdance-validations/.venv/bin/python` (MDANCE_PYTHON). MDANCE's reference runs:
   `~/Downloads/mdance_vmd_runs` (MDANCE_REF_RUNS). The shared systems:
   `~/github/myprojects/vmd-plugin-projects/vmd-interactions-v2/VMD-testsystems/systems`
@@ -115,9 +115,11 @@ docs/internals.rst describe it.
   repository and states3 made; a clone: g7 68, g8 51, h4 17), all
   passing (the window's too, on a nested display). Since 2026-10-24 also
   `tests/test_groups.tcl` (99, the real backend; the others unchanged).
-  2026-11-09, with f9adb24 (DIVINE): reference 60 (2 skips), h1 66, the
-  others unchanged; with f1d3d87, reference 33 (3 skips). End to
-  end: `DISPLAY=:9 sh tests/e2e/run_e2e.sh` (29, 14, 15, 10). Profiles:
+  2026-11-09 (after the review round; every text-mode suite through
+  tests/strict.tcl), with f9adb24 (DIVINE): reference 61 (2 skips), h1 71,
+  groups 118, gui 220, the others unchanged (1390 in 22 suites); with
+  f1d3d87, reference 33 (3 skips). End to end: `DISPLAY=:9 sh
+  tests/e2e/run_e2e.sh` (42, 15, 21, 10). Profiles:
   `tests/profile/profile_{core,gui}.tcl` (reports in tests/out/profile).
 - Screenshots: `import -window [wm frame .vmdance] f.png` (ImageMagick)
   on display :9.
@@ -297,10 +299,18 @@ docs/internals.rst describe it.
   (Algo::divine_least; `entier`, not `int`, which wraps a large share);
   `--refine` is read by the pair anchors only, and an OutlierPair split of
   a cluster of identical frames refined reads out of bounds (a segfault;
-  MDANCE fails too): DIVINE splits one (score 0) only when nothing else
-  can be split, so Job::_divine_repeats refuses k above the frames that
-  differ (a share of one frame, where every other split succeeds), or
-  identical frames as many as the share; `points` ignores k; each NANI
+  MDANCE fails too). Job::_divine_repeats compares the rows as the backend
+  reads them (the CSV's lines, two checksums, -0.0 as 0.0: the frames'
+  fingerprints are of the frames as read, and a fit makes a copy turned
+  by 90° the same row) and refuses, from k 3 (k 1: no split; k 2: only
+  when every row is the same): -split Radius, k above the rows that differ
+  (an identical cluster's radius is 0, ranked last); MSD and WeightedMSD,
+  any k when rows repeat (the rounding of an identical cluster's MSD can
+  rank it above clusters whose frames differ by an ULP: a fuzz of 931,000
+  runs found both); a share of 2 or more, when that many rows are the
+  same. A test that crashes a program on purpose sets its core limit to 1
+  byte (`prlimit --core=1`): systemd's coredump keeps a dump whatever
+  `ulimit -c 0`, and bash's -c counts KB; `points` ignores k; each NANI
   split is a 2-cluster NANI of the cluster, seeded from floor(m × p / 100)
   frames (CompSim with none crashes). It returns no parents of its splits:
   its Tree is a linkage. Its earlier copy (the feat-vmd-plugin branch,
@@ -516,6 +526,23 @@ docs/internals.rst describe it.
   nearest other mean structure, with many clusters, is pruned by the
   triangle inequality (Measure::_near_other), which gains about 3× only: in
   hundreds of dimensions the distances are nearly all alike.
+- VMD runs a `-e` script one top-level command at a time and goes on
+  after one that fails, printing only its message: the variable it was to
+  set keeps what it held, and a check after it passes on that (test_groups'
+  trimmed HELM heights passed on the untrimmed run's answer). run_all.sh
+  runs every text-mode suite through tests/strict.tcl, which sources it in
+  a catch (its quit and exit end it as they would): an error at a suite's
+  top level is then a failure. A check computes what it reads itself, or
+  catches.
+- `Coords::each` runs its script, then counts the row: a `continue` in the
+  script skipped the count (every row after it was row 0), so it runs the
+  script through `_step`, where continue goes on and break ends the loop.
+  HELM's merges' heights skip the trimmed frames so: with a trim, every
+  height was "".
+- What `Results::memo` keeps is of the current clustering: whatever
+  changes `A` without installing a run (`set_groups`, `attach`) forgets
+  what was made of it (`_forget_extras`: the Make-up's matrix, the
+  Profiles' curves; the plots drew the groups and profiles of before).
 - `render list` has VMD's exporters too: POV3, Tachyon, VRML … write a
   scene for another program, Wavefront fails with no message (it wants a
   .obj), the `*Interactive` ones open a window that waits for a person. The
@@ -566,7 +593,7 @@ NANI's four deterministic seedings), eQUAL's elbow by radius (`-radii`),
 HELM's merges' heights (`measures merge_msd`; the Tree's heights view),
 figures' `-text`. Three plots (Make-up, Map, Profiles: plots_groups.tcl),
 and the Results page's "Groups, map and profiles". Kept by
-tests/test_groups.tcl (99, the real backend).
+tests/test_groups.tcl (118, the real backend).
 
 The repository is the code only. The papers and the decks are kept beside
 it, in folders git ignores (`manuscripts/`, `presentation/`), each its own

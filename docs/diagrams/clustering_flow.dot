@@ -1,0 +1,18 @@
+// One clustering's way through the plugin, from the window's Cluster (or
+// the command) to what it shows. Made by docs/tools/make_diagrams.py.
+digraph clustering_flow {
+    graph [rankdir=LR, fontname="Inter", nodesep=0.25, ranksep=0.32, bgcolor="white", pad=0.15]
+    node  [shape=box, style="rounded,filled", fontname="Inter", fontsize=10, color="#9aa7b4", fillcolor="#f3f5f8", fontcolor="#1d2733", penwidth=1.1, margin="0.12,0.07", width=1.5]
+    edge  [color="#7a8796", arrowsize=0.7, penwidth=1.1]
+    req   [label=<<b>A request</b><br/><font point-size="8.5" color="#5a6573">molecule, atoms, frames,<br/>fit, algorithm, parameters</font>>, fillcolor="#f6ebe8", color="#c99a8f"]
+    check [label=<<b>Checked first</b><br/><font point-size="8.5" color="#5a6573">every value, every<br/>combination; the atoms<br/>kept as indices</font>>]
+    read  [label=<<b>Frames read</b><br/><font point-size="8.5" color="#5a6573">from VMD, fitted on<br/>the values; each frame's<br/>fingerprint kept</font>>]
+    run   [label=<<b>CPP-MDANCE runs</b><br/><font point-size="8.5" color="#5a6573">mdance-cli (a CSV)<br/>or the library (a list),<br/>in the background</font>>, fillcolor="#e9f1ec", color="#93b39e"]
+    out   [label=<<b>Its answer read</b><br/><font point-size="8.5" color="#5a6573">labels, scores, merges;<br/>the JSON checked whole</font>>]
+    meas  [label=<<b>Measured</b><br/><font point-size="8.5" color="#5a6573">populations, MSD,<br/>silhouette, tree,<br/>transitions</font>>]
+    pub   [label=<<b>Published</b><br/><font point-size="8.5" color="#5a6573">a run: plots, 3D,<br/>tables, sessions</font>>, fillcolor="#e8edf5", color="#8ea3c0"]
+    req -> check -> read -> run -> out -> meas -> pub
+    refused [label=<<font point-size="8.5" color="#a3483b">refused: what to change,<br/>by the option's name</font>>, shape=plaintext, style="", width=0]
+    check -> refused [style=dashed, color="#c99a8f", arrowsize=0.6]
+    {rank=same; check; refused}
+}

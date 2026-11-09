@@ -1,6 +1,14 @@
 The window
 ==========
 
+.. figure:: _static/figures/window_annotated.png
+   :alt: The VMDance window, its parts numbered.
+   :width: 100%
+
+   (1) The toolbar; (2) the panes: Setup, Results, Scans, Tools, 3D;
+   (3) the plots' tabs; (4) the plot; (5) its options; (6) what the
+   pointer is on; (7) the status line.
+
 A toolbar on top; on the left a panel of five tabs (**Setup**, **Results**,
 **Scans**, **Tools**, **3D**); on the right the plots, and the **Plot
 options** panel, which can be shown instead of the row of options above
@@ -26,6 +34,9 @@ view · Settings and the quick guide · the plot options.
 
 Setup
 -----
+
+.. image:: _static/figures/setup.png
+   :width: 100%
 
 **What to cluster**: the molecule (the list follows VMD; ↻ reads it again
 after frames were added to one); the atoms, in VMD's selection language,
@@ -75,6 +86,9 @@ nearest their representative. Double-click: go to the representative.
 Right-click: more. Under the table, the selection in words: frames, share,
 representative, mean silhouette, visits and residence.
 
+.. image:: _static/figures/results_groups.png
+   :width: 100%
+
 **Groups, map and profiles**: each frame's group (the method, replica or
 condition it came from), as names and VMD frames (``original 0-63 moderate
 64-127``) or **From a file…** (``frame,group`` lines); **Map** places the
@@ -102,6 +116,9 @@ a run. :doc:`scans` says more.
 Tools
 -----
 
+.. image:: _static/figures/tools.png
+   :width: 100%
+
 **PRIME**: the native-like frame of the clusters, with its similarity
 index, trim and weighting; the table of its four predictions and three
 medoid baselines (double-click: go to the frame). **Similarity (iSIM)**:
@@ -121,6 +138,9 @@ of the clusters' colours.
 
 Settings
 --------
+
+.. image:: _static/figures/dialog_settings.png
+   :width: 60%
 
 **Backend**: automatic, the program or the library, and which program and
 library (… browses); what is in use and what it was built with (a program

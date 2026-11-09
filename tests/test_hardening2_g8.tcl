@@ -380,7 +380,8 @@ set id [lsearch -glob $lines "animate delete beg 0 end 0*"]
 set ik [lsearch -glob $lines "vmdance -sel *"]
 check "F76 README's script: the PDB's own frame deleted after the trajectory, before the clustering" [expr {$ia >= 0 && $id > $ia && $ik > $id}]
 set qs [read_text [file join $::root docs quickstart.rst]]
-check "  the quick start's too" [regexp {mol addfile [^\n]*\n\s*animate delete beg 0 end 0[^\n]*\n\s*vmdance -sel} $qs]
+# (its first command after the delete a scan or a clustering)
+check "  the quick start's too" [regexp {mol addfile [^\n]*\n\s*animate delete beg 0 end 0[^\n]*\n\s*vmdance (elbow )?-(sel|mol)} $qs]
 set data [mdance_data]
 if {$data eq "" || [real_cli] eq ""} {
     skip "F76, F77 the docs' numbers" "MDANCE's data (MDANCE_DATA) or mdance-cli missing"

@@ -248,6 +248,10 @@ proc ::VMDance::Session::check_scan {s kind} {
                 ([dict get $r stability] ne "" && ([dict get $r stability] < -1 || [dict get $r stability] > 1)))} {
             error "the $kind's record $i is corrupt"
         }
+        # (the seedings compared: a record made before has none)
+        if {[dict exists $r compared] && (![::VMDance::whole [dict get $r compared]] || [dict get $r compared] > 7)} {
+            error "the $kind's record $i is corrupt"
+        }
         if {$kind eq "sweep" || [dict exists $r algorithm]} {
             foreach k {algorithm k metric params} { if {![dict exists $r $k]} { error "the $kind's record $i has no \"$k\"" } }
             # (a configuration refused is kept with what was asked, as it was:
