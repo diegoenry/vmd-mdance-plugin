@@ -24,6 +24,9 @@ representative.
 Make-up
 -------
 
+.. image:: _static/figures/plot_makeup.png
+   :width: 100%
+
 Each cluster's frames by group (Results ▸ Groups: the method, replica or
 condition each came from), stacked in the groups' colours; or each group's
 frames by cluster. As counts, or as shares (of the cluster, or of the
@@ -114,6 +117,9 @@ return them), and can join its clusters across them; the axis says which
 tree it is.
 Click a leaf: select its cluster.
 
+.. image:: _static/figures/plot_tree_heights.png
+   :width: 100%
+
 The **merges' heights** (*Show* in the Tree's options): each merge's
 height against the number of clusters before it — for HELM the MSD within
 the cluster it makes (MDANCE's, measured when it clustered), for the
@@ -123,7 +129,8 @@ before it is a natural place to stop. The largest jump is circled (the
 height over the one before, which counts as 5% of the highest at least:
 merges of near-identical clusters are not jumps). With HELM, cluster to
 fewer clusters than you mean to keep (a small k), and read the heights
-back.
+back. ``vmdance tree`` gives them too (``heights``), and the tree export a
+column of them.
 
 Silhouette
 ----------
@@ -141,6 +148,9 @@ written where they fit, the selected ones first.
 Map
 ---
 
+.. image:: _static/figures/plot_map.png
+   :width: 100%
+
 Every clustered frame on the first two principal components of the
 clustered coordinates (Results ▸ Map), in Å, each axis with its share of
 the variance; coloured by group, or by cluster. Frames close on the map
@@ -149,6 +159,9 @@ shadow of all of them). Click a frame: go to it and select its cluster.
 
 Profiles
 --------
+
+.. image:: _static/figures/plot_profiles.png
+   :width: 100%
 
 Atom by atom of the selection (the axis by residue, a gap between chains),
 measured by Results ▸ Profiles: each group's fluctuations (RMSF about its

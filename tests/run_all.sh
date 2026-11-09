@@ -28,7 +28,9 @@ for t in core jobs results session reference hardening hardening2 \
          hardening2_fx_g1 hardening2_fx_g2 hardening2_fx_g3 hardening2_fx_g4 hardening2_fx_g5 \
          hardening2_g6 hardening2_g7 hardening2_g8 hardening2_g9 hardening2_h1 hardening2_oi \
          hardening2_h3 hardening2_h4 groups; do
-    run $t "$VMD" -dispdev text -e tests/test_$t.tcl < /dev/null
+    # (sourced by strict.tcl: an error at a suite's top level ends it, as a
+    # failure; run with -e, VMD goes on after it)
+    run $t "$VMD" -dispdev text -e tests/strict.tcl -args tests/test_$t.tcl < /dev/null
 done
 if [ -z "$NOGUI" ]; then
     rm -f "$OUT/gui.log"

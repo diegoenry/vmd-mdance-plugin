@@ -176,8 +176,11 @@ use_fake
 
 # --- jobs within jobs ---------------------------------------------------------------------------------------------
 set ::inner ""
+# (once: the inner job's own end calls it again before it has returned, and
+# did until Tcl's limit of nested calls, where a selection was left)
 proc again {what kind} {
     if {$what ne "end" || $::inner ne ""} return
+    set ::inner running
     set ::inner [dict get [vmdance -mol $::m -sel all -k 3 -kinit KmeansPP -quiet 1] nclusters]
 }
 set ::m $m

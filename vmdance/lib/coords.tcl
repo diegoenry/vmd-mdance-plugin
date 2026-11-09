@@ -369,13 +369,26 @@ proc ::VMDance::Coords::flat {c {cancelled ""}} {
 }
 
 # Run script for every row, in order, with rowvar the row (a list of
-# numbers) and ivar its number, in the caller's frame; in a coroutine it
-# yields every 40 ms, and stops when `cancelled` names a true variable.
+# numbers) and ivar its number, in the caller's frame (continue in it goes
+# on to the next row, break ends the loop); in a coroutine it yields every
+# 40 ms, and stops when `cancelled` names a true variable.
 # The rows are read from VMD again while the molecule is the one they were
 # read from — the same numbers as the file's (a double's text reads back
 # to the same double), without converting text — each checked against its
 # fingerprint: coordinates changed since are an error, never measured; else
 # they are read from the file.
+# The script of each, run in each's caller: 1 when it breaks the loop. A
+# continue goes on to the next row with the row counted and the slice kept
+# (each's own incr and yield come after the script: a continue skipped
+# them, and every row after it was taken for row 0); an error or a return
+# is passed on.
+proc ::VMDance::Coords::_step {script} {
+    switch -- [catch {uplevel 2 $script} r o] {
+        0 - 4 { return 0 }
+        3 { return 1 }
+        default { dict incr o -level; return -options $o $r }
+    }
+}
 proc ::VMDance::Coords::each {c ivar rowvar script {cancelled ""}} {
     upvar 1 $ivar i $rowvar row
     set m [dict get $c mol]
@@ -390,7 +403,7 @@ proc ::VMDance::Coords::each {c ivar rowvar script {cancelled ""}} {
             foreach f $frames fp0 [dict get $c fp] {
                 lassign [_row $h $f] row fp
                 if {$fp ne $fp0} { error "the coordinates of frame $f of molecule $m changed during the job: cluster again" }
-                uplevel 1 $script
+                if {[_step $script]} break
                 incr i
                 if {[info coroutine] ne "" && [clock milliseconds] - $slice > 40} {
                     after 1 [info coroutine]
@@ -414,7 +427,7 @@ proc ::VMDance::Coords::each {c ivar rowvar script {cancelled ""}} {
         while {[gets $fh line] >= 0} {
             set row [split $line ,]
             if {$num} { set row [vecscale 1.0 $row] }
-            uplevel 1 $script
+            if {[_step $script]} break
             incr i
             if {[info coroutine] ne "" && [clock milliseconds] - $slice > 40} {
                 after 1 [info coroutine]

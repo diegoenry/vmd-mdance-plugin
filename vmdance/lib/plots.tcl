@@ -909,18 +909,12 @@ proc ::VMDance::Plots::_tree_heights {c} {
     if {$why ne ""} { ::VMDance::Plot::empty $c "[K] clusters" "[string toupper $why 0 0]."; return }
     if {[catch {::VMDance::Results::tree} tree]} { ::VMDance::Plot::empty $c "No tree" $tree; return }
     lassign $tree how rows leaves base
-    if {$how eq "helm"} {
-        set m [::VMDance::Results::get measures]
-        if {![dict exists $m merge_msd]} {
-            ::VMDance::Plot::empty $c "No heights" "This run of HELM was made before the heights of its merges were measured: cluster again."
-            return
-        }
-        set hs [dict get $m merge_msd]
-        set ylab "MSD of the cluster each merge makes (Å²)"
-    } else {
-        set hs [lmap r $rows {lindex $r 2}]
-        set ylab "RMSD² between the mean structures joined (Å²)"
+    if {$how eq "helm" && ![dict exists [::VMDance::Results::get measures] merge_msd]} {
+        ::VMDance::Plot::empty $c "No heights" "This run of HELM was made before the heights of its merges were measured: cluster again."
+        return
     }
+    set hs [::VMDance::Results::tree_heights]
+    set ylab [expr {$how eq "helm" ? "Merge height: the cluster's MSD (Å²)" : "Merge height: RMSD² (Å²)"}]
     set L [llength $leaves]
     set pts {}
     set j 0
@@ -943,9 +937,14 @@ proc ::VMDance::Plots::_tree_heights {c} {
         set d [expr {$h / max([lindex $pts $i 1], $floor)}]
         if {$d > $best} { set best $d; set jump $k }
     }
+    # (the clustering's k too: HELM's last merge is at k + 1, its k left of
+    # it; the ticks whole numbers of clusters)
+    set klo [expr {[K] >= $kmin - 1 && [K] >= 1 ? min($kmin, [K]) : $kmin}]
     set ml [::VMDance::Plot::ml]
-    ::VMDance::Plot::setup $c [expr {$kmin - 0.5}] [expr {$kmax + 0.5}] 0 [expr {$hi * 1.1}] [list $ml 18 18 [::VMDance::Plot::mb]]
-    ::VMDance::Plot::axes $c "Clusters before the merge (k)" $ylab auto auto [gridopt]
+    ::VMDance::Plot::setup $c [expr {$klo - 0.5}] [expr {$kmax + 0.5}] 0 [expr {$hi * 1.1}] [list $ml 18 18 [::VMDance::Plot::mb]]
+    set kt {}
+    for {set k $klo} {$k <= $kmax} {incr k} { lappend kt $k }
+    ::VMDance::Plot::axes $c "Clusters before the merge (k)" $ylab $kt auto [gridopt]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
     set line {}
     foreach p [lsort -integer -index 0 $pts] {
@@ -961,7 +960,7 @@ proc ::VMDance::Plots::_tree_heights {c} {
             -text [format "circled: the largest jump (× %.1f), from k = %d to %d" $best $jump [expr {$jump - 1}]] -tags label
     }
     # the clustering's k (merges stop there)
-    if {[K] >= $kmin - 1 && [K] <= $kmax} {
+    if {[K] >= $klo && [K] <= $kmax} {
         set px [::VMDance::Plot::X $c [K]]
         $c create line $px $y0 $px $y1 -fill $::VMDance::Plots::accent -dash {2 3} -tags mark
     }
@@ -1242,7 +1241,12 @@ proc ::VMDance::Plots::hover_elbow {c x y} {
         append s " ([dict get $r nclusters] clusters)"
     } elseif {[dict get $r nclusters] != $k} { append s " (found [dict get $r nclusters])" }
     append s ": Calinski–Harabasz [_sc [dict get $r ch]], Davies–Bouldin [_sc [dict get $r db]]"
-    if {[::VMDance::_get $r stability ""] ne ""} { append s ", stability [format %.2f [dict get $r stability]]" }
+    if {[::VMDance::_get $r stability ""] ne ""} {
+        append s ", stability [format %.2f [dict get $r stability]]"
+        if {[::VMDance::_get $r compared ""] ne ""} { append s " ([dict get $r compared] seedings)" }
+    } elseif {[::VMDance::_get $r compared ""] ne ""} {
+        append s ", no stability: [dict get $r compared] seeding[expr {[dict get $r compared] == 1 ? "" : "s"}] could seed it"
+    }
     append s " · double-click: make it the clustering"
     return $s
 }

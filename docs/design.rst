@@ -5,6 +5,22 @@ VMDance replaces, rewritten from scratch, the MDANCE VMD plugin that its
 repository held before. It follows the principles of the authors' DihedralView,
 InteractionView and Molywood Studio plugins.
 
+.. figure:: _static/diagrams/architecture.svg
+   :alt: VMD, VMDance (the window and the command over one core) and CPP-MDANCE (a program or a library).
+   :width: 100%
+   :class: diagram
+
+   The parts: VMD's molecule and 3D window; the window and the command over
+   one core; CPP-MDANCE, as a program or as a library inside VMD.
+
+.. figure:: _static/diagrams/clustering_flow.svg
+   :alt: A request, checked, frames read, CPP-MDANCE run, its answer read, measured, published.
+   :width: 100%
+   :class: diagram
+
+   One clustering's way: everything that can be checked is checked before
+   the backend runs, and the answer is checked whole before it is shown.
+
 Principles
 ----------
 

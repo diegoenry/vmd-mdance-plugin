@@ -45,7 +45,7 @@ namespace eval ::VMDance::GUI {
         ui_font 12 ui_window compact ui_theme auto show_left 1 show_opts 0 show_toolbar 1
         unlock_metrics 0 backend_mode auto backend_cli "" backend_lib ""
         out_dir "" out_prefix vmdance out_top 10 out_format dcd out_sel all
-        fig_width 900 fig_height 560 fig_pdf 1 fig_png 1 fig_eps 0 fig_dpi 300 fig_prefix vmdance fig_dir ""
+        fig_width 900 fig_height 560 fig_pdf 1 fig_png 1 fig_eps 0 fig_dpi 300 fig_text 12 fig_prefix vmdance fig_dir ""
     }
     # (in a procedure: a loop variable of namespace eval would be a global's
     # when the user has one of that name)
@@ -585,7 +585,7 @@ proc ::VMDance::GUI::_build_toolbar {} {
     _tb_button $f figure figure  Figures "Create figures… ($k+P)\nPDF, PNG or EPS of the plots" {::VMDance::GUI::act figures}
     _tb_sep $f s2
     _tb_button $f cluster cluster Cluster "Cluster ($k+R)\nwith the algorithm and parameters of Setup, in the background (with the library, VMD waits until it ends)" {::VMDance::GUI::act cluster}
-    _tb_button $f elbow   elbow   Elbow   "Elbow scan\nthe same clustering at every k of Scans ▸ Elbow" {::VMDance::GUI::act elbow}
+    _tb_button $f elbow   elbow   Elbow   "Elbow scan\nthe same clustering at every k of Scans ▸ Elbow (eQUAL: at every radius)" {::VMDance::GUI::act elbow}
     _tb_button $f cancel  cancel  Cancel  "Cancel the running job (what was there is kept)" {::VMDance::GUI::act cancel}
     $f.cancel state disabled
     canvas $f.prog -width 22 -height 22 -highlightthickness 0 -borderwidth 0
@@ -1045,8 +1045,8 @@ proc ::VMDance::GUI::_algorithm_changed {} {
     $parambox\_title configure -text "[::VMDance::Algo::label $a] parameters"
     catch {$page(setup).alg.about configure -text [string totitle [::VMDance::Algo::get $a about] 0 0]}
     # (off while a job runs, as _busy left it: the algorithm can be chosen
-    # meanwhile)
-    catch {$w.tb.elbow state [expr {[busy] || ![::VMDance::Algo::takes_k $a] ? "disabled" : "!disabled"}]}
+    # meanwhile; eQUAL is scanned by radius)
+    catch {$w.tb.elbow state [expr {[busy] ? "disabled" : "!disabled"}]}
     _metric_lock
     _params_sync
     _availability
@@ -1696,8 +1696,20 @@ proc ::VMDance::GUI::_tab_labels {} {
 }
 
 proc ::VMDance::GUI::_show_hint {key} {
+    variable S
+    set S(readout) [_hint $key]
+}
+# What a plot says under it when the pointer is on nothing: its hint, or the
+# hint of the view it shows (the Tree's heights, a scan by radius).
+proc ::VMDance::GUI::_hint {key} {
     variable S; variable hints
-    set S(readout) [dict get $hints $key]
+    if {$key eq "tree" && $S(td_view) eq "heights"} {
+        return "how far apart the clusters each merge joins · a merge far above the one before: the k before it is a natural place to stop"
+    }
+    if {$key eq "elbow" && [dict size $::VMDance::Results::elbow] && [llength [::VMDance::_get [dict get $::VMDance::Results::elbow request] radii {}]]} {
+        return "the scores and clusters found at every radius of the scan · hover = the clusters' shares · double-click = make it the clustering"
+    }
+    dict get $hints $key
 }
 
 # Option row above each plot (without the Plot options panel).
@@ -1899,7 +1911,12 @@ proc ::VMDance::GUI::elbow {} {
         # (the command's values of k: counted before they are made)
         dict set req ks [::VMDance::_ks "vmdance elbow" [dict create -ks "" -from [string trim $S(eb_from)] \
             -to [string trim $S(eb_to)] -by [string trim $S(eb_by)]] {} 200]
-        if {$S(eb_stab) && [dict get $req algorithm] eq "kmeans"} { dict set req stability $::VMDance::Algo::deterministic_kinits }
+        # (the stability's seedings draw from the densest share of the
+        # frames: Setup's, sent even where its seeding (k-means++) greys it)
+        if {$S(eb_stab) && [dict get $req algorithm] eq "kmeans"} {
+            dict set req stability $::VMDance::Algo::deterministic_kinits
+            dict set req params percentage [string trim $S(p_kmeans_percentage)]
+        }
         if {[dict get $req algorithm] eq "equal"} {
             dict set req ks {}
             dict set req radii [_radii]
@@ -1913,7 +1930,8 @@ proc ::VMDance::GUI::elbow {} {
         [list apply {{s} {
             ::VMDance::Results::set_elbow $s
             set bad [llength [lmap r [dict get $s records] {expr {[dict get $r status] eq "ok" ? [continue] : 1}}]]
-            ::VMDance::GUI::status "Elbow scan done in [dict get $s seconds] s[expr {$bad ? "; $bad value[expr {$bad == 1 ? "" : "s"}] of k failed" : ""}]."
+            set of [expr {[llength [::VMDance::_get [dict get $s request] radii {}]] ? "radius" : "k"}]
+            ::VMDance::GUI::status "Elbow scan done in [dict get $s seconds] s[expr {$bad ? "; $bad value[expr {$bad == 1 ? "" : "s"}] of $of failed" : ""}]."
             ::VMDance::GUI::show_tab elbow
         }}]
 }
@@ -2074,6 +2092,7 @@ proc ::VMDance::GUI::map {} {
     _start map [dict create result $::VMDance::Results::A params $p] "The map: principal components" \
         [list apply {{run r} {
             ::VMDance::Results::attach map $r $run
+            if {$run != $::VMDance::Results::current} { ::VMDance::GUI::status "Map: kept with run $run."; return }
             ::VMDance::GUI::show_tab map
             ::VMDance::GUI::status [format "Map: %.0f%% and %.0f%% of the variance." [expr {100 * [lindex [dict get $r variance] 0]}] [expr {100 * [lindex [dict get $r variance] 1]}]]
         }} $::VMDance::Results::current]
@@ -2089,6 +2108,7 @@ proc ::VMDance::GUI::profiles {} {
     _start profiles [dict create result $::VMDance::Results::A params $p groups [::VMDance::Results::groups]] "The profiles, atom by atom" \
         [list apply {{run r} {
             ::VMDance::Results::attach profiles $r $run
+            if {$run != $::VMDance::Results::current} { ::VMDance::GUI::status "Profiles: kept with run $run."; return }
             ::VMDance::GUI::show_tab profiles
             ::VMDance::GUI::status "Profiles: [llength [dict get $r residues]] atoms, against cluster [dict get $r reference]."
         }} $::VMDance::Results::current]
@@ -2228,9 +2248,10 @@ proc ::VMDance::GUI::_busy {on} {
     foreach b {open save export figure cluster elbow goto render colour reps settings} {
         if {[winfo exists $w.tb.$b]} { $w.tb.$b configure -state $idle }
     }
-    if {!$on && [winfo exists $w.tb.elbow] && ![::VMDance::Algo::takes_k $S(algorithm)]} { $w.tb.elbow configure -state disabled }
     if {[winfo exists $w.tb.cancel]} { $w.tb.cancel configure -state $run }
     foreach b [list $page(setup).b.run $page(setup).b.def $page(results).b.goto $page(results).b.ov \
+               $page(results).gp.r $page(results).gp.set $page(results).gp.bt.file $page(results).gp.bt.clear \
+               $page(results).gp.mf.go $page(results).gp.mf.n $page(results).gp.pf.go $page(results).gp.pf.n \
                $page(scans).eb.go $page(scans).gr.b.go $page(scans).b2.load \
                $page(tools).pr.go $page(tools).si.go $page(tools).pk.bt.go $page(tools).pk.bt.save $page(tools).pk.bt.show] {
         catch {$b configure -state $idle}
@@ -2747,6 +2768,8 @@ proc ::VMDance::GUI::redraw {} {
     _colours_check
     set key [_current_tab]
     set c $w.pw.right.nb.$key.c
+    # (the Tree's leaf labels: of the tree, not of its heights)
+    catch {$w.pw.right.nb.tree.opts.l state [expr {$::VMDance::GUI::S(td_view) eq "tree" ? "!disabled" : "disabled"}]}
     if {[catch {::VMDance::Plots::draw $key $c} err]} {
         ::VMDance::Plot::empty $c "Plot error" $err
         puts "VMDance) plot error: $::errorInfo"
@@ -3192,7 +3215,10 @@ proc ::VMDance::GUI::_state_ok {k v} {
         v3d_material { return [expr {$v in [material list]}] }
         eb_from - eb_to - eb_by { return [regexp {^[1-9][0-9]{0,3}$} $v] }
         eb_rfrom - eb_rto - eb_rby { return [expr {[string is double -strict $v] && ![regexp -nocase {nan|inf} $v] && $v > 0 && $v < 1e6}] }
-        eb_info { return 0 }
+        eb_stab { return [string is boolean -strict $v] }
+        mp_sample { return [expr {[::VMDance::whole $v] && $v >= 2 && $v <= 5000}] }
+        pf_reference { return [expr {$v eq "-1" || ([::VMDance::whole $v] && $v <= 999999)}] }
+        eb_info - mp_info - pf_info { return 0 }
     }
     foreach spec [concat {*}[dict values $optspec] $optall] {
         lassign $spec kind key label a b

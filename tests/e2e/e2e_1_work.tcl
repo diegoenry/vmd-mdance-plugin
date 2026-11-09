@@ -1,9 +1,11 @@
-# End to end, phase 1 of 5 (text mode, the real backend): a session of
+# End to end, phase 1 of 4 (text mode, the real backend): a session of
 # work with the command on the heptapeptide (6001 frames) and 3ptb (a
-# range, a step and a fit): elbow scan, a k of it made the clustering,
-# HELM and eQUAL, PRIME, the similarity, picks, a sweep, the selection,
-# 3D, the user field; every export checked against the command's answers
-# and the structures against VMD's coordinates; the library against the
+# range, a step and a fit): elbow scan with the seedings' stability, a k
+# of it made the clustering, HELM and its merges' heights, eQUAL and its
+# scan by radius, DIVINE, PRIME, the similarity, picks, a sweep, the
+# selection, 3D, the user field, the frames' groups, the make-up, the map
+# and the profiles; every export checked against the command's answers and
+# the structures against VMD's coordinates; the library against the
 # program; the session saved with the state the next phases compare.
 #   (run by tests/e2e/run_e2e.sh)
 set ::phase work
@@ -23,8 +25,12 @@ set R $::R
 
 # --- the heptapeptide --------------------------------------------------------------------
 set mh [timed "load the heptapeptide (6001 frames)" { load_ref heptapeptide }]
-set rows [timed "elbow scan k 2-10, KMeans NANI (6001 frames × 48 atoms)" { vmdance elbow -mol $mh -sel backbone -from 2 -to 10 -quiet 1 }]
-check "elbow: every k clustered" [expr {[llength $rows] == 9 && [lsort -unique [lmap r $rows {dict get $r status}]] eq "ok"}]
+set rows [timed "elbow scan k 2-10, KMeans NANI, with the stability of 4 seedings (6001 frames × 48 atoms)" {
+    vmdance elbow -mol $mh -sel backbone -from 2 -to 10 -stability 1 -quiet 1
+}]
+check "elbow: every k clustered, each with its stability (a mean adjusted Rand index, at most 1)" [expr {[llength $rows] == 9 &&
+    [lsort -unique [lmap r $rows {dict get $r status}]] eq "ok" &&
+    [llength [lmap r $rows {expr {[dict exists $r stability] && [dict get $r stability] <= 1.0 && [dict get $r stability] >= -1.0 ? [continue] : $r}}]] == 0}]
 set i [timed "elbow load 6 (measures of 6001 frames)" { vmdance elbow load 6 }]
 set l6 [vmdance labels]
 timed "cluster k 6 directly" { vmdance -mol $mh -sel backbone -k 6 -quiet 1 }
@@ -34,12 +40,38 @@ vmdance run label [lindex [lindex [vmdance runs] end] 0] "NANI k 6 (from the elb
 timed "HELM k 6 from 60 starting clusters" { vmdance -mol $mh -sel backbone -algorithm helm -k 6 -initial 60 -quiet 1 }
 check "HELM: 6 clusters of every frame, its tree HELM's" [expr {[${R}::nclusters] == 6 && [${R}::noise] == 0 && [dict get [vmdance tree] kind] eq "helm" &&
     [llength [dict get [vmdance tree] merges]] == 54}]
+set hs [${R}::measure merge_msd]
+check "  its merges' heights: one per merge, each an MSD above 0" [expr {[llength $hs] == 54 && [llength [lmap h $hs {expr {$h > 0 ? [continue] : $h}}]] == 0}]
 set nani [lindex [lindex [vmdance runs] 0] 0]
 vmdance run $nani
 set p [timed "PRIME (6001 frames)" { vmdance prime }]
 set s [timed "similarity (iSIM)" { vmdance similarity }]
 check "PRIME and the similarity kept with the run, PRIME's frames clustered ones" [expr {[dict size [${R}::extra prime]] > 0 &&
     [dict size [${R}::extra similarity]] > 0 && [llength [lmap f [dict values $p] {expr {$f in [dict keys [vmdance labels]] ? [continue] : $f}}]] == 0}]
+# the frames' groups: the trajectory's two halves (does each visit the
+# same clusters?), the make-up, the map and the profiles
+timed "groups: the two halves" { vmdance groups -ranges {first 0-2999 second 3000-6000} -colours {first #3d5a80 second #a3483b} }
+set gi [vmdance groups]
+check "groups: 3000 and 3001 frames, none left out, each with its colour" [expr {[dict get $gi names] eq {first second} &&
+    [dict get $gi sizes] eq {3000 3001} && [dict get $gi none] == 0 && [dict get $gi colours] eq [list #3d5a80 #a3483b]}]
+set mk [vmdance makeup]
+set mg [vmdance makeup -by group]
+check "  make-up: each cluster's frames by group add up to its size, each group's to the group's" [expr {
+    [lmap c [dict keys $mk] {::tcl::mathop::+ {*}[dict get $mk $c]}] eq [${R}::sizes] &&
+    [lmap g {first second} {::tcl::mathop::+ {*}[dict get $mg $g]}] eq {3000 3001}}]
+set mp0 [timed "the map (axes from 500 frames, 6001 placed)" { vmdance map }]
+set ms [vmdance map show]
+lassign [dict get $mp0 variance] v1 v2
+check "  map: every clustered frame placed, the axes' shares of the variance in order ([format %.3f $v1], [format %.3f $v2])" [expr {
+    [dict size $ms] == 6001 && [dict keys $ms] eq [dict keys [vmdance labels]] && [dict get $mp0 sample] == 500 && $v1 >= $v2 && $v2 > 0 && $v1 + $v2 <= 1.0}]
+set pf [timed "the profiles (6001 frames, 6 clusters, 2 groups)" { vmdance profiles }]
+set ps [vmdance profiles show]
+set na [dict get $pf atoms]
+set big [lindex [lsort -integer -decreasing -index 1 [lmap c {0 1 2 3 4 5} n [${R}::sizes] {list $c $n}]] 0 0]
+check "  profiles: an RMSF per atom for each cluster and group, against the most populated cluster ($big)" [expr {
+    [dict get $pf reference] == $big && [dict get $pf clusters] == 6 && [dict get $pf groups] eq {first second} &&
+    [llength [dict get $ps residues]] == $na && [llength [dict get $ps clusters]] == 6 && [llength [dict get $ps groups]] == 2 &&
+    [llength [lmap r [concat [dict get $ps clusters] [dict get $ps groups]] {expr {[llength $r] == $na ? [continue] : $r}}]] == 0}]
 set picks [timed "pick the most diverse 2% of the frames" { vmdance pick -mol $mh -sel backbone -method diversity -param 2 }]
 check "picks: 2% of the frames, each once ([llength $picks])" [expr {[llength $picks] == 120 && [llength [lsort -unique $picks]] == 120}]
 set sw [timed "sweep: KMeans NANI and HELM × k {4 6} × StratAll, KmeansPP" {
@@ -70,7 +102,22 @@ set dx [file join $::E export_hepta]
 file delete -force $dx
 file mkdir $dx
 set files [timed "export every item (structures as DCD)" { vmdance export $dx -prefix hepta -items [::VMDance::Export::items] }]
-check "export: every item written ([llength $files] files)" [expr {[llength $files] >= 17 && [llength [lmap f $files {expr {[file size $f] > 0 ? [continue] : $f}}]] == 0}]
+check "export: every item written ([llength $files] files)" [expr {[llength $files] >= 21 && [llength [lmap f $files {expr {[file size $f] > 0 ? [continue] : $f}}]] == 0}]
+set gt [lrange [table [file join $dx hepta_groups.csv]] 1 end]
+check "  groups.csv: every frame, its cluster and its group" [expr {[llength $gt] == 6001 &&
+    [lmap r $gt {lindex $r 0}] eq [dict keys [vmdance labels]] && [lmap r $gt {lindex $r 1}] eq [dict values [vmdance labels]] &&
+    [lmap r $gt {lindex $r 2}] eq [concat [lrepeat 3000 first] [lrepeat 3001 second]]}]
+set mt [lrange [table [file join $dx hepta_makeup.csv]] 1 end]
+check "  makeup.csv: each cluster's frames by group, a row each" [expr {[llength $mt] == 12 &&
+    [llength [lmap r $mt {expr {[lindex $r 2] == [lindex [dict get $mk [lindex $r 0]] [lsearch {first second} [lindex $r 1]]] ? [continue] : $r}}]] == 0}]
+set dm 0.0
+foreach r [lrange [table [file join $dx hepta_map.csv]] 1 end] {
+    lassign $r f cl gr x y
+    lassign [dict get $ms $f] u v
+    set dm [expr {max($dm, abs($x - $u), abs($y - $v))}]
+}
+check "  map.csv: every frame where the map places it (largest difference [format %.1e $dm] Å)" [expr {[llength [table [file join $dx hepta_map.csv]]] == 6002 && $dm < 1e-3}]
+check "  profiles.csv: a row per atom" [expr {[llength [table [file join $dx hepta_profiles.csv]]] == $na + 1}]
 set L [vmdance labels]
 check "  labels.csv: every frame and its cluster" [expr {[concat {*}[lrange [table [file join $dx hepta_labels.csv]] 1 end]] eq $L}]
 set T [lrange [table [file join $dx hepta_clusters.csv]] 1 end]
@@ -131,6 +178,22 @@ for {set c 0} {$c < 5} {incr c} {
 check "  PDB trajectories of the protein: each cluster's VMD frames, not fitted" $ok
 timed "eQUAL on 3ptb Cα (radius 1.5)" { vmdance -mol $mp -sel "name CA" -algorithm equal -threshold 1.5 -quiet 1 }
 check "  eQUAL: clusters and noise add up to the frames" [expr {[::tcl::mathop::+ {*}[${R}::sizes]] + [${R}::noise] == 100}]
+set rr [timed "eQUAL's scan by radius (0.8, 1, 1.5, 2)" { vmdance elbow -mol $mp -sel "name CA" -algorithm equal -radii {0.8 1 1.5 2} -quiet 1 }]
+check "  its scan by radius: every radius clustered, as many clusters as the radius alone gives" [expr {[llength $rr] == 4 &&
+    [lsort -unique [lmap r $rr {dict get $r status}]] eq "ok" && [dict get [lindex $rr 2] nclusters] == [${R}::nclusters]}]
+
+# --- DIVINE (a CPP-MDANCE built with it) -------------------------------------------------
+if {"divine" in [::VMDance::Backend::algorithms]} {
+    timed "DIVINE k 6 of the heptapeptide (NANI's splits)" { vmdance -mol $mh -sel backbone -algorithm divine -k 6 -quiet 1 }
+    check "DIVINE: 6 clusters of every frame, its tree the mean structures' linkage" [expr {[${R}::nclusters] == 6 && [${R}::noise] == 0 &&
+        [dict get [vmdance tree] kind] eq "linkage"}]
+    set dvn [vmdance labels]
+    timed "DIVINE k 6, OutlierPair, refined, a smallest share of 0.05" { vmdance -mol $mh -sel backbone -algorithm divine -k 6 -anchors OutlierPair -threshold 0.05 -quiet 1 }
+    check "  OutlierPair refined: every cluster keeps 300 frames or more" [expr {[${R}::nclusters] <= 6 &&
+        [::tcl::mathfunc::min {*}[${R}::sizes]] >= 300 && [dict get [vmdance info] params refine] == 1}]
+} else {
+    skip "DIVINE" "this CPP-MDANCE was built without it"
+}
 
 # --- the library gives the program's answers ------------------------------------------------
 if {[real_lib] ne ""} {
@@ -141,6 +204,15 @@ if {[real_lib] ne ""} {
     use_cli
     vmdance run $nani
     check "the library's clustering of the heptapeptide is the program's" [expr {$ll eq [vmdance labels]}]
+    if {"divine" in [::VMDance::Backend::algorithms]} {
+        use_lib
+        vmdance -mol $mh -sel backbone -algorithm divine -k 6 -quiet 1
+        set ld [vmdance labels]
+        vmdance run delete [lindex [lindex [vmdance runs] end] 0]
+        use_cli
+        vmdance run $nani
+        check "  and its DIVINE's" [expr {$ld eq $dvn}]
+    }
 } else {
     skip "the library against the program" "no mdance_tcl library"
 }

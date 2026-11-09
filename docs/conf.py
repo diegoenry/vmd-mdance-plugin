@@ -13,7 +13,7 @@ extensions = ["sphinx.ext.mathjax"]
 # pages build the same without it)
 if importlib.util.find_spec("sphinx_copybutton") is not None:
     extensions.insert(0, "sphinx_copybutton")
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "tools"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "tools", "diagrams"]
 highlight_language = "tcl"
 pygments_style = "friendly"
 pygments_dark_style = "monokai"
@@ -22,6 +22,7 @@ suppress_warnings = ["misc.highlighting_failure"]
 html_theme = "furo" if importlib.util.find_spec("furo") is not None else "alabaster"
 html_title = "VMDance"
 html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 html_favicon = "_static/logo/vmdance_mark_64.png"
 if html_theme == "furo":
     html_theme_options = {

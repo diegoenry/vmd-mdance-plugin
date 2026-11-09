@@ -1,9 +1,11 @@
 # End to end, phase 3 of 4 (the window, the real backend): 3ptb clustered
 # from the window's fields (a range, a step, a fit) and compared with the
-# command; an elbow scan and a k of it made the clustering; a sweep; PRIME,
-# the similarity, picks; HELM with trimmed starting clusters; every plot
-# drawn and hovered; figures in PDF, PNG and EPS; every export; the 3D
-# view rendered; the library chosen in Settings gives the program's
+# command; an elbow scan with the seedings' stability and a k of it made
+# the clustering; a sweep; PRIME, the similarity, picks; HELM with trimmed
+# starting clusters, and its merges' heights; DIVINE from the window; the
+# frames' groups, the map and the profiles from the Results page; every
+# plot drawn and hovered; figures in PDF, PNG and EPS; every export; the
+# 3D view rendered; the library chosen in Settings gives the program's
 # answer; the session saved from the window for phase 4.
 #   (run by tests/e2e/run_e2e.sh, on a display)
 set ::phase window
@@ -43,7 +45,7 @@ proc hovers {key} {
     for {set x 30} {$x < $W} {incr x 25} {
         for {set y 30} {$y < $H} {incr y 30} {
             ::VMDance::GUI::_hover $key $c $x $y
-            if {$::VMDance::GUI::S(readout) ne [dict get $::VMDance::GUI::hints $key]} { incr n }
+            if {$::VMDance::GUI::S(readout) ne [::VMDance::GUI::_hint $key]} { incr n }
         }
     }
     return $n
@@ -78,9 +80,15 @@ vmdance -mol $mp -sel "name CA" -first 5 -last 80 -step 3 -fit backbone -k 5 -ki
 check "  the command with the same options: the same labels" [expr {[vmdance labels] eq [run_labels $win]}]
 vmdance run delete [dict get [vmdance info] run]
 vmdance run $win
-array set $S {eb_from 2 eb_to 8 eb_by 1}
-timed "elbow scan from the window (k 2-8)" { ${G}::elbow; wait_idle }
-check "elbow: 7 values of k, the plot drawn" [expr {[llength [dict get $::VMDance::Results::elbow records]] == 7 && [plot_ok elbow] && [hovers elbow] > 0}]
+# (the stability's seedings draw k seeds from the densest share of the 26
+# frames: 50% of them, 13, for k up to 8)
+array set $S {eb_from 2 eb_to 8 eb_by 1 eb_stab 1 p_kmeans_percentage 50}
+timed "elbow scan from the window (k 2-8, with the stability of 4 seedings)" { ${G}::elbow; wait_idle }
+set recs [dict get $::VMDance::Results::elbow records]
+check "elbow: 7 values of k, each with its stability, the plot drawn" [expr {[llength $recs] == 7 &&
+    [llength [lmap r $recs {expr {[dict exists $r stability] && [dict get $r stability] ne "" ? [continue] : $r}}]] == 0 &&
+    [plot_ok elbow] && [hovers elbow] > 0}]
+set ${S}(eb_stab) 0
 timed "k 4 of the scan made the clustering" { ${G}::adopt elbow 4; wait_idle }
 set l4 [vmdance labels]
 vmdance -mol $mp -sel "name CA" -first 5 -last 80 -step 3 -fit backbone -k 4 -kinit KmeansPP -quiet 1
@@ -116,7 +124,51 @@ timed "HELM from the window (20 starting clusters, 5 trimmed)" { ${G}::cluster; 
 set cv $w.pw.right.nb.tree.c
 check "HELM trimmed: its tree drawn, the trimmed ones counted" [expr {[${R}::nclusters] == 4 && [${R}::noise] > 0 && [plot_ok tree] &&
     [llength [lmap id [$cv find withtag label] {expr {[string match "*5 starting clusters trimmed*" [$cv itemcget $id -text]] ? $id : [continue]}}]] == 1}]
+set ${S}(td_view) heights
+${G}::redraw
+check "  its merges' heights drawn, and hovered" [expr {[plot_ok tree] && [hovers tree] > 0}]
+set ${S}(td_view) tree
+${G}::redraw
+
+# DIVINE from the window (a CPP-MDANCE built with it), as the command makes it
+if {"divine" in [::VMDance::Backend::algorithms]} {
+    array set $S [list framemode range first 5 last 80 step 3 fit 1 fitsel backbone algorithm divine k_divine 4 p_divine_anchors OutlierPair]
+    ${G}::_frames_changed
+    ${G}::_fit_changed
+    ${G}::_algorithm_changed
+    ${G}::_params_sync
+    timed "DIVINE from the window (OutlierPair, refined)" { ${G}::cluster; wait_idle }
+    set ld [vmdance labels]
+    check "DIVINE from the window: refined, 4 clusters" [expr {[dict get [vmdance info] algorithm] eq "divine" &&
+        [dict get [vmdance info] params refine] == 1 && [${R}::nclusters] == 4}]
+    vmdance run delete [dict get [vmdance info] run]
+    vmdance -mol $mp -sel "name CA" -first 5 -last 80 -step 3 -fit backbone -algorithm divine -k 4 -anchors OutlierPair -quiet 1
+    check "  the command with the same options: the same labels" [expr {[vmdance labels] eq $ld}]
+    vmdance run delete [dict get [vmdance info] run]
+} else {
+    skip "DIVINE from the window" "this CPP-MDANCE was built without it"
+}
+array set $S {algorithm kmeans}
+${G}::_algorithm_changed
 vmdance run $win
+
+# the frames' groups, the map and the profiles, from the Results page
+set ${S}(gp_ranges) "early 5-41 late 44-80"
+${G}::groups_set
+update
+check "groups from the Results page: 13 frames each, said there" [expr {[dict get [vmdance groups] sizes] eq {13 13} &&
+    [string match "early: 13, late: 13*" [set ${S}(gp_info)]]}]
+set ${S}(mp_sample) 500
+timed "the map from the Results page" { ${G}::map; wait_idle }
+timed "the profiles from the Results page" { ${G}::profiles; wait_idle }
+check "  the map and the profiles kept with the run, said there" [expr {[dict size [${R}::extra map]] > 0 && [dict size [${R}::extra profiles]] > 0 &&
+    [string match "Map: *Profiles: against cluster *" [set ${S}(mp_info)]]}]
+set ok 1; set hv {}
+foreach key {makeup map profiles} {
+    if {![plot_ok $key]} { set ok 0 }
+    lappend hv $key [hovers $key]
+}
+check "  the make-up, the map and the profiles drawn, and hovered ([join $hv { }])" [expr {$ok && [llength [lmap {k n} $hv {expr {$n > 0 ? [continue] : $k}}]] == 0}]
 
 # --- figures, exports, the 3D view --------------------------------------------------------------
 set fd [file join $::E figures]
@@ -126,7 +178,7 @@ array set $S [list fig_dir $fd fig_pdf 1 fig_png 1 fig_eps 1 fig_prefix f]
 ${G}::figure_dialog
 update
 foreach k [dict keys $::VMDance::GUI::tabs] { set ${G}::F($k) 1 }
-timed "create every figure (10 plots × PDF, PNG, EPS)" { ${G}::_figures_go }
+timed "create every figure ([dict size $::VMDance::GUI::tabs] plots × PDF, PNG, EPS)" { ${G}::_figures_go }
 set bad {}
 foreach k [dict keys $::VMDance::GUI::tabs] {
     foreach {ext head} {pdf %PDF eps %!PS} {
@@ -139,7 +191,7 @@ foreach k [dict keys $::VMDance::GUI::tabs] {
     if {abs([image width $img] - 3750) > 10 || abs([image height $img] - 2333) > 10} { lappend bad "f_$k.png [image width $img]×[image height $img]" }
     image delete $img
 }
-check "figures: every plot as PDF, EPS, and PNG at 300 dpi ([expr {[llength $bad] ? [join $bad {, }] : "all 30"}])" [expr {![llength $bad]}]
+check "figures: every plot as PDF, EPS, and PNG at 300 dpi ([expr {[llength $bad] ? [join $bad {, }] : "all [expr {3 * [dict size $::VMDance::GUI::tabs]}]"}])" [expr {![llength $bad]}]
 set xd [file join $::E export_window]
 file delete -force $xd
 file mkdir $xd
@@ -149,7 +201,8 @@ update
 foreach {it lab} $::VMDance::GUI::export_items { set ${G}::X($it) [::VMDance::GUI::_exportable $it] }
 timed "export everything from the window" { ${G}::_export_go }
 set n [llength [glob -nocomplain -directory $xd *]]
-check "export from the window: every item ($n files)" [expr {$n >= 20 && [concat {*}[lrange [table [file join $xd x_labels.csv]] 1 end]] eq [vmdance labels]}]
+check "export from the window: every item ($n files), the groups' too" [expr {$n >= 24 && [concat {*}[lrange [table [file join $xd x_labels.csv]] 1 end]] eq [vmdance labels] &&
+    [file exists [file join $xd x_groups.csv]] && [file exists [file join $xd x_map.csv]] && [file exists [file join $xd x_profiles.csv]]}]
 set png [file join $::E view3d.png]
 file delete $png
 vmdance draw -colour 1 -reps 1

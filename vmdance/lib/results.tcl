@@ -448,6 +448,8 @@ proc ::VMDance::Results::_check_map {m n} {
     _intlist "the map's sample" [list [dict get $m sample]] 1 1 $n
     _numlist "the map's variance" [dict get $m variance] 2
     _numlist "the map's total" [list [dict get $m total]] 1
+    # (blanks: numbers the window and the export compute with)
+    if {"" in [dict get $m variance] || [dict get $m total] eq ""} { error "the map's variance is corrupt" }
     foreach key {pc1 pc2} {
         _numlist "the map's $key" [dict get $m $key] $n
         if {"" in [dict get $m $key]} { error "the map's $key is corrupt" }
@@ -465,9 +467,12 @@ proc ::VMDance::Results::_check_profiles {p k natoms} {
     _check_params "the profiles' parameters" [dict get $p params] $::VMDance::Algo::profiles_params
     _intlist "the profiles' reference" [list [dict get $p reference]] 1 0 [expr {$k - 1}]
     _intlist "the profiles' residues" [dict get $p residues] $natoms -999999999 999999999
+    # (a chain is any text VMD holds: a PSF's segment of 8 characters and
+    # more; up to 64, as a group's name)
     set ch [dict get $p chains]
-    _fits "the profiles' chains" $ch $natoms 8
+    if {[string length $ch] > 67 * $natoms + 2} { error "the profiles' chains are longer than 64 characters each" }
     if {![string is list $ch] || [llength $ch] != $natoms} { error "the profiles' chains are not $natoms" }
+    foreach c $ch { if {[string length $c] > 64} { error "the profiles' chain \"[string range $c 0 15]…\" is longer than 64 characters" } }
     set names [dict get $p group_names]
     if {[string length $names] > 70 * $max_groups || ![string is list $names] || [llength $names] > $max_groups} {
         error "the profiles' groups are corrupt"
@@ -476,7 +481,12 @@ proc ::VMDance::Results::_check_profiles {p k natoms} {
         set L [dict get $p $key]
         _fits "the profiles' $key" $L $count [expr {68 * $natoms + 2}]
         if {![string is list $L] || [llength $L] != $count} { error "the profiles' $key are not $count" }
-        foreach row $L { if {$row ne ""} { _numlist "the profiles' $key" $row $natoms } }
+        # (a cluster or group without frames: its row ""; a value, never)
+        foreach row $L {
+            if {$row eq ""} continue
+            _numlist "the profiles' $key" $row $natoms
+            if {"" in $row} { error "the profiles' $key are corrupt" }
+        }
     }
 }
 proc ::VMDance::Results::_check_similarity {s n k} {
@@ -714,8 +724,17 @@ proc ::VMDance::Results::attach {key value {run ""}} {
     lset runs $i 2 [pack $a]
     if {$run eq $current} {
         set A $a
+        _forget_extras
         _notify extras
     }
+}
+# What the plots made of the groups and the profiles (Make-up's matrix, the
+# Profiles' curves): made again when they change (a plot drew the groups or
+# the profiles of before, or failed on more groups).
+proc ::VMDance::Results::_forget_extras {} {
+    variable memo
+    array unset memo makeup
+    array unset memo profiles_*
 }
 proc ::VMDance::Results::extra {key} {
     variable A
@@ -764,39 +783,59 @@ proc ::VMDance::Results::keep_colours {g} {
     colour_groups $g [concat {*}[lmap nm [dict get $old names] c [dict get $old colours] {list $nm $c}]]
 }
 # Set the groups of the current run's frames ({}: none). The profiles made
-# with other groups go: they are made again with these.
+# with other groups go (other names, or other frames in them; other colours
+# alone keep them): they are made again with these.
 proc ::VMDance::Results::set_groups {g} {
     variable A; variable runs; variable current
     if {![has_data]} { error "no clustering" }
     set a $A
+    set old [groups]
     if {[dict size $g]} { dict set a extras groups $g } elseif {[dict exists $a extras groups]} { dict unset a extras groups }
-    if {[dict exists $a extras profiles] && [dict get $a extras profiles group_names] ne [::VMDance::_get $g names {}]} {
+    if {[dict exists $a extras profiles] && ([dict get $a extras profiles group_names] ne [::VMDance::_get $g names {}] ||
+            [dict remove $old colours] ne [dict remove $g colours])} {
         dict unset a extras profiles
     }
     check $a
     lset runs [_run_index $current] 2 [pack $a]
     set A $a
+    _forget_extras
     _notify extras
 }
 # The groups a list of VMD frames has (frames) by how: ranges {name
 # frames ...} (frames as "0-63,70"; a frame in two groups is refused),
-# file (a file of frame,group lines; # comments, a header line), names (a
-# name for each of the frames). {names of}: the names in the order they
-# come first; a frame given none has -1.
+# file (a file of frame,group lines; # comments; a header line, which may
+# name the columns: the plugin's own groups export, frame,cluster,group,
+# reads back), names (a name for each of the frames). {names of}: the names
+# in the order they come first (a file's: of the frames clustered); a
+# frame given none has -1. The groups are counted as they come (more than
+# max_groups are refused there), and only the clustered frames are kept: a
+# file of a frame per line, a group's name on each, took minutes, and one
+# of 50 MB of other frames gigabytes, before a refusal.
 variable ::VMDance::Results::groups_file_most 50000000
 proc ::VMDance::Results::groups_from {how value frames} {
-    variable groups_file_most
-    set names {}
+    variable groups_file_most; variable max_groups
+    set index [dict create]
     set of [dict create]
+    set want [dict create]
+    foreach f $frames { dict set want $f 1 }
+    # (a name's index, a new name counted)
+    set add {apply {{nm} {
+        upvar 1 index index
+        if {[dict exists $index $nm]} { return [dict get $index $nm] }
+        set i [dict size $index]
+        if {$i >= $::VMDance::Results::max_groups} { error "more than $::VMDance::Results::max_groups groups" }
+        dict set index $nm $i
+        return $i
+    }}}
     switch -- $how {
         ranges {
             if {![string is list $value] || [llength $value] % 2} { error "-ranges: a list of name and frames pairs (original 0-63 moderate 64-127)" }
             foreach {nm spec} $value {
                 check_group_name $nm
-                if {$nm ni $names} { lappend names $nm }
+                set g [{*}$add $nm]
                 foreach f [::VMDance::Viz::parse_frames $spec] {
-                    if {[dict exists $of $f] && [dict get $of $f] ne $nm} { error "-ranges: frame $f is in two groups ([dict get $of $f] and $nm)" }
-                    dict set of $f $nm
+                    if {[dict exists $of $f] && [dict get $of $f] != $g} { error "-ranges: frame $f is in two groups ([lindex [dict keys $index] [dict get $of $f]] and $nm)" }
+                    if {[dict exists $want $f]} { dict set of $f $g }
                 }
             }
         }
@@ -807,27 +846,53 @@ proc ::VMDance::Results::groups_from {how value frames} {
             set ch [open $f r]
             try {
                 fconfigure $ch -encoding utf-8
-                set text [read $ch]
+                set ln 0
+                set cols {}
+                set first 1
+                while {[gets $ch line] >= 0} {
+                    incr ln
+                    set line [string trim $line]
+                    if {$line eq "" || [string index $line 0] eq "#"} continue
+                    # (the first line may be a header: words; one that names
+                    # a frame and a group column says where they are)
+                    if {$first && ![regexp {^[0-9]} $line]} {
+                        set first 0
+                        set h [lmap w [_csv_fields $line] {string tolower [string trim $w]}]
+                        set fi [lsearch -exact $h frame]
+                        set gi [lsearch -exact $h group]
+                        if {$fi >= 0 && $gi >= 0} { set cols [list $fi $gi] }
+                        continue
+                    }
+                    set first 0
+                    set fl [_csv_fields $line]
+                    if {[llength $cols]} {
+                        lassign $cols fi gi
+                        if {[llength $fl] <= max($fi, $gi)} { error "-file: line $ln has no column [expr {max($fi, $gi) + 1}] (frame,…,group): $line" }
+                        set fr [lindex $fl $fi]
+                        set nm [lindex $fl $gi]
+                    } else {
+                        # (frame,group; or, without a comma, a frame then the
+                        # name after a tab, a semicolon or a space)
+                        if {[llength $fl] == 1 && [regexp {^([0-9]+)\s*[;\t ]\s*(.+)$} $line -> fr nm]} {
+                            set fl [list $fr [lindex [_csv_fields $nm] 0]]
+                        }
+                        if {[llength $fl] != 2} { error "-file: line $ln is not \"frame,group\": $line" }
+                        lassign $fl fr nm
+                    }
+                    set fr [string trim $fr]
+                    set nm [string trim $nm]
+                    if {![regexp {^[0-9]{1,9}$} $fr]} { error "-file: line $ln: \"$fr\" is not a frame (VMD's frame number, 0 or more): $line" }
+                    # (the export's frame of no group)
+                    if {$nm eq ""} continue
+                    check_group_name $nm
+                    set fr [scan $fr %d]
+                    if {![dict exists $want $fr]} continue
+                    set g [{*}$add $nm]
+                    if {[dict exists $of $fr] && [dict get $of $fr] != $g} { error "-file: frame $fr is in two groups ([lindex [dict keys $index] [dict get $of $fr]] and $nm)" }
+                    dict set of $fr $g
+                }
             } finally {
                 close $ch
-            }
-            set ln 0
-            foreach line [split $text \n] {
-                incr ln
-                set line [string trim $line]
-                if {$line eq "" || [string index $line 0] eq "#"} continue
-                if {![regexp {^([0-9]{1,9})\s*[,;\t ]\s*(.+)$} $line -> fr nm]} {
-                    # (a header line: words, no frame number)
-                    if {$ln == 1 || ![llength $names]} continue
-                    error "-file: line $ln is not \"frame,group\": $line"
-                }
-                set fr [scan $fr %d]
-                set nm [string trim $nm " \""]
-                if {[string first , $nm] >= 0} { error "-file: line $ln has more than two columns (frame,group): $line" }
-                check_group_name $nm
-                if {[dict exists $of $fr] && [dict get $of $fr] ne $nm} { error "-file: frame $fr is in two groups ([dict get $of $fr] and $nm)" }
-                if {$nm ni $names} { lappend names $nm }
-                dict set of $fr $nm
             }
         }
         names {
@@ -836,21 +901,38 @@ proc ::VMDance::Results::groups_from {how value frames} {
             }
             foreach f $frames nm $value {
                 check_group_name $nm
-                if {$nm ni $names} { lappend names $nm }
-                dict set of $f $nm
+                dict set of $f [{*}$add $nm]
             }
         }
         default { error "groups by \"$how\": ranges, file or names" }
     }
-    if {![llength $names]} { error "no group is given" }
-    variable max_groups
-    if {[llength $names] > $max_groups} { error "more than $max_groups groups" }
-    set index [dict create]
-    set i 0
-    foreach nm $names { dict set index $nm $i; incr i }
-    set rows [lmap f $frames {expr {[dict exists $of $f] ? [dict get $index [dict get $of $f]] : -1}}]
+    if {![dict size $index]} { error "no group is given[expr {$how eq "file" ? " to a frame clustered" : ""}]" }
+    set rows [lmap f $frames {expr {[dict exists $of $f] ? [dict get $of $f] : -1}}]
     if {[lsearch -exact -not $rows -1] < 0} { error "none of the [llength $frames] frames clustered is in a group" }
-    dict create names $names of $rows
+    dict create names [dict keys $index] of $rows
+}
+# The fields of a CSV line: split at commas, but for those inside quotes
+# ("a,b"; "" a quote).
+proc ::VMDance::Results::_csv_fields {line} {
+    if {[string first \" $line] < 0} { return [split $line ,] }
+    set out {}
+    set field ""
+    set q 0
+    set n [string length $line]
+    for {set i 0} {$i < $n} {incr i} {
+        set c [string index $line $i]
+        if {$q} {
+            if {$c ne "\""} { append field $c } elseif {[string index $line [expr {$i + 1}]] eq "\""} { append field \"; incr i } else { set q 0 }
+        } elseif {$c eq "\""} {
+            set q 1
+        } elseif {$c eq ","} {
+            lappend out $field
+            set field ""
+        } else {
+            append field $c
+        }
+    }
+    lappend out $field
 }
 # A new clustering of frames the current one grouped (on the same molecule,
 # whose frames it still has) takes their groups, frame by frame; when one
@@ -880,10 +962,18 @@ proc ::VMDance::Results::scan_x {r} {
 # Whether an elbow scan is of eQUAL's radius.
 proc ::VMDance::Results::by_radius {e} { expr {[llength [::VMDance::_get [dict get $e request] radii {}]] > 0} }
 # The record of an elbow scan e at value x (k or radius), {} when none.
+# (x as typed or held by a file: a k a whole number, ::VMDance::whole, a
+# radius a decimal number; expr's == read "010" as 8, "0x3" as 3, "1e1" as
+# 10. A radius as typed, ".5", "0.50" or "5e-1", is its value.)
 proc ::VMDance::Results::elbow_record {e x} {
+    if {[by_radius $e]} {
+        if {![regexp {^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$} $x] || [regexp {^0[0-9]} $x]} { return {} }
+    } elseif {![::VMDance::whole $x]} {
+        return {}
+    }
     foreach r [dict get $e records] {
         set v [scan_x $r]
-        if {[string is double -strict $x] && [string is double -strict $v] && $v == $x} { return $r }
+        if {[string is double -strict $v] && $v == $x} { return $r }
     }
     return {}
 }
@@ -1131,6 +1221,17 @@ proc ::VMDance::Results::transitions {{lag 1}} {
 # clusters with frames). rows {left right distance count}.
 proc ::VMDance::Results::tree_kind {} {
     expr {[llength [get zmatrix]] || ([algorithm] eq "helm" && [llength [get initial]]) ? "helm" : "linkage"}
+}
+# The height of each merge of the tree, in its order: HELM's, the MSD of
+# the cluster it makes (MDANCE's, Å²; measured when it was clustered: ""
+# each for a run made before); the average linkage's, the RMSD² between the
+# mean structures it joins (Å²).
+proc ::VMDance::Results::tree_heights {} {
+    lassign [tree] how rows
+    if {$how ne "helm"} { return [lmap r $rows {lindex $r 2}] }
+    set m [get measures]
+    if {[dict exists $m merge_msd]} { return [dict get $m merge_msd] }
+    lrepeat [llength $rows] ""
 }
 proc ::VMDance::Results::tree {} {
     memo tree {

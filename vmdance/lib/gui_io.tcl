@@ -7,7 +7,8 @@
 
 namespace eval ::VMDance::GUI {
     variable session_types {{"VMDance sessions" {.vmdance .mdvsession}} {"All files" *}}
-    # the Export dialog's items, and what each says
+    # the Export dialog's items, and what each says (every item of
+    # Export's catalog: test_gui checks it)
     variable export_items {
         summary "What was clustered, how, and the clusters (text)"
         clusters "The table of clusters: frames, share, MSD, representative"
@@ -23,6 +24,10 @@ namespace eval ::VMDance::GUI {
         trajectories "Each cluster's frames as a trajectory of its own"
         prime "PRIME's predictions (when run)"
         similarity "The clusters' extended similarity (when computed)"
+        groups "Every clustered frame, its cluster and its group (when given)"
+        makeup "The frames of each cluster by group (when given)"
+        map "Every frame on the first two principal components (when made)"
+        profiles "Atom by atom: each cluster's and group's RMSF (when made)"
         elbow "The elbow scan's scores"
         sweep "The sweep's configurations and scores"
         picks "The picked frames"
@@ -355,9 +360,12 @@ proc ::VMDance::GUI::figure_dialog {} {
     ttk::entry $Z.dpi -textvariable ::VMDance::GUI::S(fig_dpi) -width 5
     _row $Z 2 "PNG dpi" $Z.dpi
     grid configure $Z.dpi -sticky w
+    ttk::spinbox $Z.ts -from 8 -to 24 -increment 1 -width 4 -textvariable ::VMDance::GUI::S(fig_text)
+    _row $Z 3 "Text (pt)" $Z.ts "The size of the figures' text, 8 to 24 points: larger for a slide, smaller for a column of a paper"
+    grid configure $Z.ts -sticky w
     if {[::VMDance::Figures::ghostscript] eq ""} {
         ttk::label $Z.gs -text "Ghostscript was not found: EPS only." -style Muted.TLabel
-        grid $Z.gs -row 3 -column 0 -columnspan 2 -sticky w
+        grid $Z.gs -row 4 -column 0 -columnspan 2 -sticky w
     }
     set b [ttk::frame $f.b]
     pack $b -side top -fill x -pady {12 0}
@@ -371,21 +379,24 @@ proc ::VMDance::GUI::_figures_go {} {
     variable w; variable S; variable F; variable tabs
     set d $w.figures
     if {[busy]} { _error "A job is running: create the figures when it has ended, or cancel it." $d; return }
+    # (a plot chosen with nothing to show is left out, and said)
     set plots [lmap {k t} $tabs {expr {$F($k) && [::VMDance::Plots::has_data $k] ? $k : [continue]}}]
+    set left [lmap {k t} $tabs {expr {$F($k) && $k ni $plots ? $t : [continue]}}]
     set fmts [lmap fm {pdf png eps} {expr {$S(fig_$fm) ? $fm : [continue]}}]
-    if {![llength $plots]} { _error "Choose a plot." $d; return }
+    if {![llength $plots]} { _error [expr {[llength $left] ? "Nothing to show in [join $left {, }]." : "Choose a plot."}] $d; return }
     if {![llength $fmts]} { _error "Choose a format." $d; return }
     # (a space pasted after the folder would make a folder of its own)
     set dir [string trim $S(fig_dir)]
     $d configure -cursor watch
     update
     set err [catch {::VMDance::Figures::api $dir -plots $plots -formats $fmts -width [string trim $S(fig_width)] \
-        -height [string trim $S(fig_height)] -dpi [string trim $S(fig_dpi)] -prefix [string trim $S(fig_prefix)]} files]
+        -height [string trim $S(fig_height)] -dpi [string trim $S(fig_dpi)] -prefix [string trim $S(fig_prefix)] \
+        -text [string trim $S(fig_text)]} files]
     if {[winfo exists $d]} { $d configure -cursor "" }
     redraw
     if {$err} { _error "Not created:\n$files" $d; return }
     destroy $d
-    status "[llength $files] file[expr {[llength $files] == 1 ? "" : "s"}] written in $dir."
+    status "[llength $files] file[expr {[llength $files] == 1 ? "" : "s"}] written in $dir.[expr {[llength $left] ? " Not made, with nothing to show: [join $left {, }]." : ""}]"
 }
 
 # The current plot as a figure (File ▸ Quick export).

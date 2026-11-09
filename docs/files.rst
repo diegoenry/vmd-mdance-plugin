@@ -137,6 +137,9 @@ than make it up:
 Export
 ------
 
+.. image:: _static/figures/dialog_export.png
+   :width: 70%
+
 **File ▸ Export results** (``vmdance export dir -prefix name -items
 {…}``) writes, as ``name_item``:
 
@@ -176,8 +179,10 @@ Export
        (``centroid_msd`` the RMSD² between the mean structures; 300
        clusters or fewer: not measured above)
    * - ``tree``
-     - ``left,right,distance,count``: the dendrogram's merges (the average
-       linkage: 300 clusters or fewer; HELM's: any number)
+     - ``left,right,distance,count,height``: the dendrogram's merges (the
+       average linkage: 300 clusters or fewer; HELM's: any number) and each
+       merge's height (HELM's: the MSD of the cluster it makes; the
+       linkage's: its distance)
    * - ``representatives``
      - the representatives' structures, one frame per cluster with frames,
        in the clusters' order (an empty cluster has none: the frames are
@@ -191,14 +196,16 @@ Export
    * - ``prime``, ``similarity``
      - PRIME's seven frames; each cluster's iSIM and least similar frame
    * - ``groups``
-     - ``frame,cluster,group`` of every clustered frame (no group: empty)
+     - ``frame,cluster,group`` of every clustered frame (no group: empty);
+       ``vmdance groups -file`` reads it back
    * - ``makeup``
      - ``cluster,group,frames,share_of_cluster,share_of_group``
    * - ``map``
      - ``frame,cluster,group,pc1,pc2`` (Å; the ``#`` lines give each axis's
        share of the variance)
    * - ``profiles``
-     - ``atom,residue,chain``, then each cluster's and each group's RMSF
+     - ``atom,residue,chain`` (``atom``: the atom's place in the
+       selection, from 0), then each cluster's and each group's RMSF
        (``rmsf_cluster_c``, ``rmsf_group_name``) and each cluster's mean
        structure's distance from the reference's
        (``distance_cluster_c_from_r``), atom by atom (Å)
@@ -244,6 +251,9 @@ plot shown.
 
 Figures
 -------
+
+.. image:: _static/figures/dialog_figures.png
+   :width: 60%
 
 **File ▸ Create figures** (``vmdance figures dir -plots {…} -formats {pdf
 png eps} -width -height -dpi -text -prefix``): the plots, drawn again at the
