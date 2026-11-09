@@ -12,10 +12,22 @@
 
 # A group's colour (g its index; -1: none, grey): its own, else the
 # palette's (Results::group_colour).
+# (past the palette's ten its colours come again: lighter the second
+# time, darker the third, unless the group was given one of its own)
 proc ::VMDance::Plots::gcol {g} {
     variable noise_col
     if {$g eq "" || $g < 0} { return $noise_col }
-    ::VMDance::Results::group_colour $g
+    set col [::VMDance::Results::group_colour $g]
+    set n [llength $::VMDance::Results::group_palette]
+    if {$g < $n || [lindex [::VMDance::_get [::VMDance::Results::extra groups] colours {}] $g] ne ""} { return $col }
+    _again $col [expr {$g / $n}]
+}
+# A colour of a palette used again (round 1, 2 …): lighter, then darker,
+# so that two clusters or groups of one hue can be told apart.
+proc ::VMDance::Plots::_again {col round} {
+    if {$round % 2} { return [::VMDance::Cmap::tint $col 0.45] }
+    scan $col "#%2x%2x%2x" r g b
+    format "#%02x%02x%02x" [expr {int($r * 0.6)}] [expr {int($g * 0.6)}] [expr {int($b * 0.6)}]
 }
 
 proc ::VMDance::Plots::_no_groups {c} {
@@ -77,10 +89,12 @@ proc ::VMDance::Plots::draw_makeup {c} {
     set n [llength $bars]
     set ml [::VMDance::Plot::ml]
     set mt [_legend_margin $c $items $ml 18]
-    ::VMDance::Plot::setup $c -0.5 [expr {$n - 0.5}] 0 [expr {$top * 1.1}] [list $ml $mt 18 [::VMDance::Plot::mb]]
+    # (shares end at 100: nothing is above it but each bar's frames, written there)
+    ::VMDance::Plot::setup $c -0.5 [expr {$n - 0.5}] 0 [expr {$share ? 100 : $top * 1.1}] \
+        [list $ml [expr {$share ? $mt + [::VMDance::Plot::lh] + 2 : $mt}] 18 [::VMDance::Plot::mb]]
     set xt {}
     for {set i 0} {$i < $n} {incr i} { lappend xt $i }
-    ::VMDance::Plot::axes $c $xlab $ylab $xt auto [dict merge [gridopt] [dict create xfmt [_catfmt [lmap b $bars {lindex $b 1}]]]]
+    ::VMDance::Plot::axes $c $xlab $ylab $xt auto [dict merge [gridopt] [dict create xfmt [_catfmt [lmap b $bars {lindex $b 1}]] dense [expr {$n > 40}]]]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
     set bw [expr {max(2.0, 0.72 * ($x1 - $x0) / $n)}]
     set hit {}
@@ -99,14 +113,20 @@ proc ::VMDance::Plots::draw_makeup {c} {
             set v [expr {$share ? 100.0 * $cnt / $tot : $cnt}]
             set ya [::VMDance::Plot::Y $c $acc]; set yb [::VMDance::Plot::Y $c [expr {$acc + $v}]]
             set psel [expr {$by_group && [on $part]}]
-            $c create rectangle $xa $yb $xb $ya -fill $col -outline [expr {$psel ? "#111111" : "white"}] \
+            # (a slice thinner than 3 pixels has no white outline: of
+            # hundreds of clusters the outlines were all that showed)
+            $c create rectangle $xa $yb $xb $ya -fill $col -outline [expr {$psel ? "#111111" : ($ya - $yb >= 3 && $bw >= 4 ? "white" : "")}] \
                 -width [expr {$psel ? 2 : 1}] -tags bar
             lappend segs [list $yb $ya $part $cnt]
             set acc [expr {$acc + $v}]
         }
         if {$sel} { $c create rectangle $xa [::VMDance::Plot::Y $c $acc] $xb [::VMDance::Plot::Y $c 0] -outline #111111 -width 2 -tags bar }
-        if {!$share && $bw >= [font measure MdvSmall $tot] + 2} {
-            $c create text $cx [expr {[::VMDance::Plot::Y $c $acc] - 3}] -text $tot -anchor s -font MdvSmall -fill [theme text] -tags label
+        # (the bar's frames above it: of shares too, where a bar of 16
+        # frames is as tall as one of 3000)
+        foreach t [list [expr {$share ? "n = $tot" : $tot}] $tot] {
+            if {$bw < [font measure MdvSmall $t] + 2} continue
+            $c create text $cx [expr {[::VMDance::Plot::Y $c $acc] - 3}] -text $t -anchor s -font MdvSmall -fill [theme text] -tags label
+            break
         }
         lappend hit [list $xa $xb $cat $tot $segs]
         incr i
@@ -134,25 +154,35 @@ proc ::VMDance::Plots::hover_makeup {c x y} {
     lassign $at cat part
     set names [::VMDance::Results::group_names]
     set M [_makeup]
+    # (the slice under the pointer first, then the bar's largest: a bar of
+    # 60 clusters listed them all, and the line was cut after five)
     if {[S mu_view] eq "groups"} {
         set col [lmap row $M {lindex $row $cat}]
         set tot [::tcl::mathop::+ 0 {*}$col]
-        set s "[lindex $names $cat]: $tot frames clustered"
+        set s ""
+        if {$part ne "" && $tot} { set s [format "cluster %d: %d of %s's %d frames (%.1f%%) · " $part [lindex $col $part] [lindex $names $cat] $tot [expr {100.0 * [lindex $col $part] / $tot}]] }
+        append s "[lindex $names $cat]: $tot frames clustered"
         set l {}
         set cl 0
-        foreach n $col {
-            if {$n} { lappend l [format "%d in cluster %d (%.0f%%)" $n $cl [expr {100.0 * $n / $tot}]] }
-            incr cl
-        }
-        if {[llength $l]} { append s " — [join $l {, }]" }
+        foreach n $col { if {$n} { lappend l [list $cl $n] }; incr cl }
+        set l [lsort -integer -decreasing -index 1 $l]
+        set w [lmap p [lrange $l 0 4] {format "%d in cluster %d (%.0f%%)" [lindex $p 1] [lindex $p 0] [expr {100.0 * [lindex $p 1] / $tot}]}]
+        if {[llength $l] > 5} { lappend w "… [expr {[llength $l] - 5}] more" }
+        if {[llength $w]} { append s " — [join $w {, }]" }
         return $s
     }
     set row [lindex $M $cat]
     set tot [::tcl::mathop::+ 0 {*}$row]
-    set s "cluster $cat: $tot frames with a group"
+    set s ""
+    if {$part ne "" && $tot} { set s [format "%s: %d of cluster %d's %d frames (%.1f%%) · " [lindex $names $part] [lindex $row $part] $cat $tot [expr {100.0 * [lindex $row $part] / $tot}]] }
+    append s "cluster $cat: $tot frames with a group"
     set l {}
-    foreach n $row nm $names { if {$n} { lappend l [format "%s %d (%.0f%%)" $nm $n [expr {100.0 * $n / $tot}]] } }
-    if {[llength $l]} { append s " — [join $l {, }]" }
+    set g 0
+    foreach n $row { if {$n} { lappend l [list $g $n] }; incr g }
+    set l [lsort -integer -decreasing -index 1 $l]
+    set w [lmap p [lrange $l 0 4] {format "%s %d (%.0f%%)" [lindex $names [lindex $p 0]] [lindex $p 1] [expr {100.0 * [lindex $p 1] / $tot}]}]
+    if {[llength $l] > 5} { lappend w "… [expr {[llength $l] - 5}] more" }
+    if {[llength $w]} { append s " — [join $w {, }]" }
     return $s
 }
 proc ::VMDance::Plots::click_makeup {c x y add} {
@@ -198,26 +228,40 @@ proc ::VMDance::Plots::draw_map {c} {
     set lo1 [::tcl::mathfunc::min {*}$xs]; set hi1 [::tcl::mathfunc::max {*}$xs]
     set lo2 [::tcl::mathfunc::min {*}$ys]; set hi2 [::tcl::mathfunc::max {*}$ys]
     set p1 [expr {($hi1 - $lo1) * 0.05 + 1e-9}]; set p2 [expr {($hi2 - $lo2) * 0.05 + 1e-9}]
+    set lo1 [expr {$lo1 - $p1}]; set hi1 [expr {$hi1 + $p1}]; set lo2 [expr {$lo2 - $p2}]; set hi2 [expr {$hi2 + $p2}]
     set ml [::VMDance::Plot::ml]
+    set mb [::VMDance::Plot::mb]
+    # (asked for the groups' colours of frames that have no groups: said)
+    set note [expr {[S mp_colour] eq "group" && !$by_group ? "no groups (Results ▸ Groups): coloured by cluster" : ""}]
     set mt [_legend_margin $c $items $ml 18]
-    ::VMDance::Plot::setup $c [expr {$lo1 - $p1}] [expr {$hi1 + $p1}] [expr {$lo2 - $p2}] [expr {$hi2 + $p2}] \
-        [list $ml $mt 18 [::VMDance::Plot::mb]]
+    if {$note ne ""} { set mt [expr {max($mt, [::VMDance::Plot::note_margin]) + ([S plot_legend] && [llength $items] ? [::VMDance::Plot::rowh] : 0)}] }
+    # the two components to one scale, an ångström as long on both (they
+    # are distances: stretched to fill the pane, a round cloud looked long):
+    # the axis with room to spare shows more of it
+    lassign [::VMDance::Plot::size $c] W Hh
+    set aw [expr {max(10.0, $W - $ml - 18)}]; set ah [expr {max(10.0, $Hh - $mt - $mb)}]
+    set scale [expr {min($aw / ($hi1 - $lo1), $ah / ($hi2 - $lo2))}]
+    set e1 [expr {($aw / $scale - ($hi1 - $lo1)) / 2.0}]; set e2 [expr {($ah / $scale - ($hi2 - $lo2)) / 2.0}]
+    ::VMDance::Plot::setup $c [expr {$lo1 - $e1}] [expr {$hi1 + $e1}] [expr {$lo2 - $e2}] [expr {$hi2 + $e2}] [list $ml $mt 18 $mb]
     lassign [dict get $m variance] v1 v2
     ::VMDance::Plot::axes $c [format "PC1 (Å; %.0f%% of the variance)" [expr {100 * $v1}]] \
         [format "PC2 (Å; %.0f%%)" [expr {100 * $v2}]] auto auto [gridopt]
-    # (the colour of each frame; the selected clusters' frames last, on top;
-    # by group, the last group first: the first, often the tightest, on top)
+    # the order the frames are drawn in: noise first, the selected
+    # clusters' frames last, the others mixed (by group or by cluster one
+    # after another, the last drawn covered the rest: every dense spot
+    # looked like the first group's)
     set order {}
     set i 0
     foreach l $labels {
-        set key [expr {$by_group ? -[lindex $gs $i] : 0}]
-        set top [expr {$l >= 0 && [on $l] ? 1 : 0}]
-        lappend order [list $top $key $i]
+        set top [expr {$l < 0 ? -1 : ([on $l] ? 1 : 0)}]
+        lappend order [list $top [expr {($i * 2654435761) % 4294967296}] $i]
         incr i
     }
     set order [lsort -integer -index 0 [lsort -integer -index 1 $order]]
     set n [llength $xs]
-    set r [expr {$n > 2000 ? 2 : 3}]
+    # (the dots as large as their number and the plot's size allow: a
+    # figure a column wide had three solid blobs)
+    set r [expr {max(0.6, min(3.5, 0.25 * sqrt($aw * $ah / max(1, $n))))}]
     set cell 8
     array unset H $c,mapcell,*
     set sel [selected]
@@ -230,6 +274,23 @@ proc ::VMDance::Plots::draw_map {c} {
         $c create oval [expr {$px - $r}] [expr {$py - $r}] [expr {$px + $r}] [expr {$py + $r}] -fill $col -outline "" -tags point
         lappend H($c,mapcell,[expr {int($px / $cell)}],[expr {int($py / $cell)}]) [list $px $py $i]
     }
+    # each cluster's representative: ringed, with its number while they are few
+    if {[S mp_reps]} {
+        set k [K]
+        for {set cl 0} {$cl < $k} {incr cl} {
+            set i [lindex [::VMDance::Results::get representatives] $cl]
+            if {$i eq "" || $i < 0} continue
+            set px [::VMDance::Plot::X $c [lindex $xs $i]]; set py [::VMDance::Plot::Y $c [lindex $ys $i]]
+            set rr [expr {max(4.0, $r + 3.0)}]
+            $c create oval [expr {$px - $rr}] [expr {$py - $rr}] [expr {$px + $rr}] [expr {$py + $rr}] -fill [ccol $cl 0] \
+                -outline [expr {[on $cl] ? "#111111" : "white"}] -width 1.5 -tags rep
+            $c create oval [expr {$px - $rr - 1.5}] [expr {$py - $rr - 1.5}] [expr {$px + $rr + 1.5}] [expr {$py + $rr + 1.5}] -outline #20242c -tags rep
+            if {$k <= 30} {
+                $c create text [expr {$px + $rr + 4}] $py -text $cl -anchor w -font MdvBold -fill #20242c -tags rep
+            }
+        }
+    }
+    if {$note ne ""} { ::VMDance::Plot::note $c $note }
     _legend $c $items [list [lindex [::VMDance::Plot::area $c] 0] [lindex [::VMDance::Plot::area $c] 2]]
     set H($c,map) 1
 }
@@ -350,20 +411,54 @@ proc ::VMDance::Plots::draw_profiles {c} {
         ::VMDance::Plot::empty $c "Nothing to draw" $why
         return
     }
+    # more than a dozen clusters' curves: in colour the selected ones, or
+    # the eight largest when none is; the others grey behind them (sixty
+    # thin lines in hues that come again could not be told apart)
+    set sel [selected]
+    set many [expr {$view ne "groups" && [llength $series] > 12}]
+    set lit {}
+    set note ""
+    if {$many} {
+        foreach s $series { if {[lindex $s 3] in $sel} { lappend lit [lindex $s 3] } }
+        if {[llength $lit]} {
+            set note "in colour: the selected cluster[expr {[llength $lit] == 1 ? "" : "s"}] of [llength $series]"
+        } else {
+            set by [lsort -integer -decreasing -index 1 [lmap s $series {list [lindex $s 3] [::VMDance::Results::size [lindex $s 3]]}]]
+            set lit [lmap p [lrange $by 0 7] {lindex $p 0}]
+            set note "in colour: the 8 largest clusters of [llength $series] (select others to colour them)"
+        }
+    }
     set items {}
-    foreach s [lrange $series 0 23] { lappend items [lindex $s 0] [expr {$view eq "groups" ? [lindex $s 1] : [ccol [lindex $s 3] 0]}] }
-    if {[llength $series] > 24} { lappend items "… [expr {[llength $series] - 24}] more" @none }
+    foreach s $series {
+        if {$many && [lindex $s 3] ni $lit} continue
+        if {[llength $items] >= 48} break
+        lappend items [lindex $s 0] [expr {$view eq "groups" ? [lindex $s 1] : [ccol [lindex $s 3] 0]}]
+    }
     set top 0.0
     foreach s $series { set top [expr {max($top, [::tcl::mathfunc::max {*}[lindex $s 2]])}] }
     if {$top <= 0} { set top 1.0 }
     set nr [llength $res]
     set ml [::VMDance::Plot::ml]
     set mt [_legend_margin $c $items $ml 18]
+    if {$note ne ""} { set mt [expr {max($mt, [::VMDance::Plot::note_margin]) + ([S plot_legend] && [llength $items] ? [::VMDance::Plot::rowh] : 0)}] }
     ::VMDance::Plot::setup $c -0.5 [expr {$nr - 0.5}] 0 [expr {$top * 1.08}] [list $ml $mt 18 [::VMDance::Plot::mb]]
-    # (ticks: residues' numbers at their positions, the chain when there are several)
+    # (ticks: residues' numbers at their positions, the chain when there are
+    # several; at round numbers, 50, 100 …, not at every 50th residue from
+    # the first, 1, 51, 101 …)
     set multi [expr {[llength [lsort -unique $chs]] > 1}]
     set labs [lmap r $res ch $chs {expr {$multi ? "$ch$r" : $r}}]
-    ::VMDance::Plot::axes $c "Residue" $ylab auto auto [dict merge [gridopt] [dict create xfmt [_catfmt $labs]]]
+    set xt auto
+    set whole 1
+    foreach r $res { if {![string is integer -strict $r]} { set whole 0; break } }
+    if {$whole && $nr > 1} {
+        set room [expr {max(2, int(([lindex [::VMDance::Plot::size $c] 0] - $ml - 18) / 55.0))}]
+        foreach step {1 2 5 10 20 25 50 100 200 250 500 1000 2000 5000} { if {$nr / double($step) <= $room} break }
+        set xt {}
+        set i 0
+        foreach r $res { if {$r % $step == 0} { lappend xt $i }; incr i }
+        if {[llength $xt] < 2} { set xt auto }
+    }
+    ::VMDance::Plot::axes $c "Residue" $ylab $xt auto [dict merge [gridopt] [dict create xfmt [_catfmt $labs] dense [expr {$xt ne "auto" && [llength $xt] > 40}]]]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
     # chain breaks: a dotted line between chains
     for {set i 1} {$i < $nr} {incr i} {
@@ -372,12 +467,19 @@ proc ::VMDance::Plots::draw_profiles {c} {
             $c create line $px $y0 $px $y1 -fill [theme muted] -dash {2 3} -tags grid
         }
     }
-    set w [lw]
-    set sel [selected]
-    # (the selected clusters drawn last and thicker; the others paler when some are)
-    set series [lsort -integer -index 0 [lmap s $series {list [expr {$view ne "groups" && [lindex $s 3] in $sel}] {*}$s}]]
+    # (the groups' curves, a few dark tones, a little heavier)
+    set w [expr {$view eq "groups" ? [lw] + 0.6 : [lw]}]
+    # (the selected clusters drawn last and thicker; the others paler when
+    # some are; the grey ones of many first)
+    set series [lsort -integer -index 0 [lmap s $series {
+        set cl [lindex $s 3]
+        set grey [expr {$many && $cl ni $lit}]
+        if {$grey} { lset s 1 #d3d7de }
+        list [expr {$grey ? -1 : ($view ne "groups" && $cl in $sel)}] {*}$s
+    }]]
     foreach s $series {
         lassign $s raised lab col cv cl
+        if {$raised < 0} { set raised 0 }
         # a line per run of residues of one chain whose numbers follow
         set pts {}
         set i 0
@@ -397,18 +499,49 @@ proc ::VMDance::Plots::draw_profiles {c} {
             $c create oval [expr {$px - 2}] [expr {$py - 2}] [expr {$px + 2}] [expr {$py + 2}] -fill $col -outline "" -tags series
         }
     }
+    if {$note ne ""} { ::VMDance::Plot::note $c $note }
     _legend $c $items [list $x0 $x1]
-    set H($c,profiles) [list $view $res $chs [lmap s $series {lrange $s 1 3}]]
+    set H($c,profiles) [list $view $res $chs [lmap s $series {lrange $s 1 4}]]
 }
-proc ::VMDance::Plots::hover_profiles {c x y} {
+# The residue (its index) and the curve nearest the pointer, within 12
+# pixels: {i series} ("" outside the plot; series "" when none is near).
+proc ::VMDance::Plots::_profile_at {c x y} {
     variable H
     if {![info exists H($c,profiles)] || ![::VMDance::Plot::inside $c $x $y]} { return "" }
     lassign $H($c,profiles) view res chs series
     set i [expr {int(round([::VMDance::Plot::invX $c $x]))}]
     if {$i < 0 || $i >= [llength $res]} { return "" }
-    set s "residue [lindex $res $i][expr {[llength [lsort -unique $chs]] > 1 ? " (chain [lindex $chs $i])" : ""}]:"
-    set l {}
-    foreach se $series { lassign $se lab col cv; lappend l [format "%s %.2f Å" $lab [lindex $cv $i]] }
-    append s " [join $l {, }]"
+    set best ""; set bd 12.0
+    foreach se $series {
+        set d [expr {abs([::VMDance::Plot::Y $c [lindex $se 2 $i]] - $y)}]
+        if {$d < $bd} { set bd $d; set best $se }
+    }
+    list $i $best
 }
-proc ::VMDance::Plots::click_profiles {c x y add} {}
+proc ::VMDance::Plots::hover_profiles {c x y} {
+    variable H
+    set at [_profile_at $c $x $y]
+    if {$at eq ""} { return "" }
+    lassign $at i near
+    lassign $H($c,profiles) view res chs series
+    set s "residue [lindex $res $i][expr {[llength [lsort -unique $chs]] > 1 ? " (chain [lindex $chs $i])" : ""}]:"
+    # (the curve under the pointer first; all of them while they are few)
+    if {$near ne ""} { append s [format " %s %.2f Å" [lindex $near 0] [lindex $near 2 $i]] }
+    if {[llength $series] <= 6} {
+        set l {}
+        foreach se $series { if {$se ne $near} { lappend l [format "%s %.2f Å" [lindex $se 0] [lindex $se 2 $i]] } }
+        if {[llength $l]} { append s "[expr {$near ne "" ? " ·" : ""}] [join $l {, }]" }
+    } elseif {$near eq ""} {
+        append s " [llength $series] curves (point at one)"
+    }
+    if {$near ne "" && $view ne "groups"} { append s " · click = select it" }
+    return $s
+}
+# A click on a cluster's curve selects the cluster.
+proc ::VMDance::Plots::click_profiles {c x y add} {
+    variable H
+    set at [_profile_at $c $x $y]
+    if {$at eq "" || [lindex $at 1] eq ""} return
+    if {[lindex $H($c,profiles) 0] eq "groups"} return
+    _click_cluster [lindex $at 1 3] $add
+}

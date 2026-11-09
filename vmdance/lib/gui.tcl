@@ -15,7 +15,7 @@ namespace eval ::VMDance::GUI {
     variable w .vmdance
     variable S
     array set S {
-        molid -1 molname "" sel "name CA" count "" fit 0 fitsel backbone
+        molid -1 molname "" sel "name CA" count "" fit 0 fitsel backbone fitnote ""
         framemode all first 0 last -1 step 1 nframes ""
         algorithm kmeans metric MSD unavailable ""
         busy 0 status "Ready." readout "" readout_shown "" progress 0 tab populations
@@ -29,23 +29,24 @@ namespace eval ::VMDance::GUI {
         v3d_colour 0 v3d_reps 0 v3d_overlay 0 v3d_picks 0 v3d_style NewCartoon v3d_sel "" v3d_top 10
         v3d_frames "" v3d_material Opaque v3d_mode top
         po_show count po_sort cluster po_noise 1
-        tl_view lanes tl_bar 0.5
+        tl_view lanes tl_bar 0.5 tl_windows 0
         tn_show probability tn_lag 1 tn_self 1 tn_cmap blues
         rs_show mean rs_unit clustered
         cp_show msd
         ds_show centroids ds_cmap blues
         td_labels 1 td_view tree
-        sl_sort 1 sl_mean 1
-        eb_show both eb_partition 1 eb_stability 1 eb_stab 0
-        mu_view clusters mu_show count mp_colour group pf_show groups
+        sl_sort 1 sl_mean 1 sl_kind centroid
+        eb_show both eb_partition 1 eb_stability 1 eb_stab 0 eq_note ""
+        mu_view clusters mu_show count mp_colour group mp_reps 1 pf_show groups
         gp_ranges "" gp_info "" mp_sample 500 mp_info "" pf_reference -1 pf_info ""
         sw_score ch sw_cmap blues
         mx_values 1
-        plot_grid 1 plot_legend 1 plot_cursor 1 plot_lw 1.4 plot_ccol muted
-        ui_font 12 ui_window compact ui_theme auto show_left 1 show_opts 0 show_toolbar 1
+        plot_grid 1 plot_legend 1 plot_cursor 1 plot_lw 1.4 plot_ccol muted plot_len a2 plot_time ""
+        ui_font 12 ui_window medium ui_theme auto show_left 1 show_opts 0 show_toolbar 1
         unlock_metrics 0 backend_mode auto backend_cli "" backend_lib ""
         out_dir "" out_prefix vmdance out_top 10 out_format dcd out_sel all
         fig_width 900 fig_height 560 fig_pdf 1 fig_png 1 fig_eps 0 fig_dpi 300 fig_text 12 fig_prefix vmdance fig_dir ""
+        fig_size screen fig_cursor 0 fig_mm ""
     }
     # (in a procedure: a loop variable of namespace eval would be a global's
     # when the user has one of that name)
@@ -91,8 +92,16 @@ namespace eval ::VMDance::GUI {
     variable parambox ""
     variable keybox ""
     variable count_after ""
+    # the window's sizes of Settings, in pixels at 12 pt (window_size: they
+    # follow the text size, never narrower than the panels need; large is
+    # tall enough for every left page too): no number is in their names
     variable window_sizes {compact {980 660} medium {1180 740} large {1380 880}}
-    variable window_names {compact "Compact (980 × 660)" medium "Medium (1180 × 740)" large "Large (1380 × 880)"}
+    variable window_names {compact "Compact" medium "Medium" large "Large"}
+    variable screen {}         ;# {width height} taken for the screen's (the tests try a laptop's)
+    variable swapped 0         ;# the left panel is hidden while the plot options are open (no room for both)
+    variable panels {}         ;# the left panel and the plot options as last arranged (_panels_room)
+    variable tables {}         ;# table -> {the column that fills, {column width ...}} (_table_fit)
+    variable tbicons {}        ;# toolbar button -> its icon (_toolbar_icons)
     variable press {}
     variable frame_names {all "All frames" range "Frames"}
     variable sel_presets {
@@ -102,11 +111,11 @@ namespace eval ::VMDance::GUI {
     }
     variable styles {NewCartoon Licorice Lines Tube Trace CPK VDW}
     variable hints {
-        populations "the frames in each cluster · click = select · shift-click = add or remove · double-click = go to its representative"
-        makeup      "each cluster's frames by group (Results ▸ Groups), or each group's by cluster · click = select · double-click = go to its representative"
-        map         "the frames on their first two principal components (Results ▸ Map) · click = go to that frame and select its cluster"
-        profiles    "residue by residue: each group's or cluster's fluctuations, or each cluster against the reference (Results ▸ Profiles)"
-        timeline    "the cluster of every frame · click = go to that frame · shift-click = also select its cluster"
+        populations "the frames in each cluster · click = select (shift: add) · double-click = its representative"
+        makeup      "each cluster's frames by group, or each group's by cluster · click = select · double-click = its representative"
+        map         "the frames on their first two principal components · click = that frame and its cluster"
+        profiles    "residue by residue: fluctuations, or each cluster against the reference · click a curve = its cluster"
+        timeline    "where the trajectory is, frame by frame · click = go to that frame · shift-click = also select its cluster"
         transitions "where the trajectory goes from each cluster · click a cell = select its clusters"
         residence   "how long the trajectory stays in each cluster · click = select · double-click = go to its representative"
         compactness "how tight each cluster is · click = select · double-click = go to its representative"
@@ -209,6 +218,7 @@ proc ::VMDance::GUI::show {} {
     pack $w.pw -side top -fill both -expand 1 -padx 6 -pady {2 2}
     _build_left
     _build_right
+    _tab_tips
     _build_opts
     bind $w.pw <ButtonRelease-1> {after idle ::VMDance::GUI::_clamp_sash}
     ::VMDance::Theme::apply $S(ui_theme)
@@ -254,66 +264,134 @@ proc ::VMDance::GUI::show {} {
     return $w
 }
 
+# The screen's size (screen: another taken for it).
+proc ::VMDance::GUI::_screen {} {
+    variable w; variable screen
+    if {[llength $screen] == 2} { return $screen }
+    list [winfo screenwidth $w] [winfo screenheight $w]
+}
 proc ::VMDance::GUI::_fit_screen {W H} {
-    variable w
-    set sw [winfo screenwidth $w]; set sh [winfo screenheight $w]
+    lassign [_screen] sw sh
     list [expr {min($W, max(400, $sw - 40))}] [expr {min($H, max(300, $sh - 100))}]
 }
-proc ::VMDance::GUI::_minsize {rw rh} {
+# The window's smallest size (min_size), as far as the screen has room.
+proc ::VMDance::GUI::_minsize {} {
     variable w
-    lassign [_fit_screen $rw $rh] rw rh
+    lassign [_fit_screen {*}[min_size]] rw rh
     wm minsize $w $rw $rh
     list $rw $rh
 }
 
-# Window size and text size (Settings). The window is never smaller than
-# its widgets need, so that nothing is cut off.
+# Window size and text size (Settings). The window opens at the size
+# chosen, never narrower than its panels need, and can be made as short as
+# a plot allows: the left pages scroll.
 proc ::VMDance::GUI::apply_appearance {{first 0}} {
-    variable w; variable S; variable window_sizes
+    variable w; variable S
     ::VMDance::Fonts::apply $S(ui_font)
     # (the look again at this size: the fields' padding and the check
     # boxes follow the text)
     if {!$first} { ::VMDance::Theme::apply }
+    if {$first} { _sash_stops }
+    _toolbar_icons
     _tree_columns
     set lh [font metrics MdvUISmall -linespace]
     $w.sb configure -height [expr {$lh + 8}]
-    $w.pw.right.rf configure -height [expr {$lh + 8}]
+    # (two lines under the plots: a hint or a readout too long for one
+    # goes on onto the second)
+    $w.pw.right.rf configure -height [expr {2 * $lh + 8}]
     _wraplengths
+    # (the plot options' rows laid out again: their widgets have the
+    # look's styles and the text's size only now)
+    variable optlaid ""
     _panes_arrange
-    lassign [_minsize {*}[needed_size]] rw rh
-    lassign [dict get $window_sizes $S(ui_window)] pw ph
-    lassign [_fit_screen [expr {max($pw, $rw)}] [expr {max($ph, $rh)}]] W H
+    _minsize
+    lassign [window_size $S(ui_window)] W H
     wm geometry $w ${W}x${H}
     update idletasks
+    _toolbar_fit
     _layout_panes
+    # (the molecule's name cut to the chooser's width of now)
+    refresh_molecules
     redraw_later
     return [list $W $H]
 }
 
-# The window size at which every widget gets its requested size.
-proc ::VMDance::GUI::needed_size {} {
+# The width the plots' pane needs: the same whichever tab shows its name
+# (only the selected one does: the window's width changed at every plot).
+proc ::VMDance::GUI::_right_width {} {
+    variable w; variable tabs
+    set nb $w.pw.right.nb
+    # (the names shown now, against the longest one)
+    set shown 0; set widest 0
+    foreach {key title} $tabs {
+        if {[$nb tab $nb.$key -image] eq ""} { return [winfo reqwidth $w.pw.right] }
+        incr shown [font measure MdvUI [$nb tab $nb.$key -text]]
+        set widest [expr {max($widest, [font measure MdvUI $title])}]
+    }
+    expr {[winfo reqwidth $w.pw.right] + max(0, $widest - $shown)}
+}
+# What the panes shown need: their widths, the dividers and the margins,
+# and the tallest's height.
+proc ::VMDance::GUI::_panes_need {} {
     variable w
     set panes [$w.pw panes]
     set last {}
     for {set i 0} {$i < 6} {incr i} {
         update idletasks
         _pages_fit
-        set now [list [winfo reqwidth $w.tb]]
+        set now {}
         foreach p $panes { lappend now [winfo reqwidth $p] [winfo reqheight $p] }
         if {$now eq $last} break
         set last $now
     }
-    set sash 8
-    set shown [expr {[winfo manager $w.tb] ne ""}]
     set pw 0; set ph 0
     foreach p $panes {
-        incr pw [winfo reqwidth $p]
+        incr pw [expr {$p eq "$w.pw.right" ? [_right_width] : [winfo reqwidth $p]}]
         set ph [expr {max($ph, [winfo reqheight $p])}]
     }
-    set width [expr {max($pw + $sash * max(0, [llength $panes] - 1) + 12, $shown ? [winfo reqwidth $w.tb] : 0)}]
-    set tb [expr {$shown ? [winfo reqheight $w.tb] : 0}]
-    set height [expr {$tb + $ph + [$w.sb cget -height] + 4}]
-    list $width $height
+    list [expr {$pw + 8 * max(0, [llength $panes] - 1) + 12}] $ph
+}
+
+# The window size at which every widget gets its requested size: every
+# left page whole, the toolbar on one row.
+proc ::VMDance::GUI::needed_size {} {
+    variable w
+    lassign [_panes_need] pw ph
+    set shown [expr {[winfo manager $w.tb] ne ""}]
+    set tb [expr {$shown ? [winfo reqheight $w.tb.r1] + 4 : 0}]
+    list [expr {max($pw, $shown ? [_toolbar_width] : 0)}] [expr {$tb + $ph + [$w.sb cget -height] + 4}]
+}
+
+# The smallest the window can be made: as wide as its panels need, and as
+# tall as the toolbar, the status line and a plot of 18 lines of text (and
+# the plot options, when shown) need. The left pages scroll.
+proc ::VMDance::GUI::min_size {} {
+    variable w; variable S
+    lassign [_panes_need] pw ph
+    set R $w.pw.right
+    set c $R.nb.$S(tab).c
+    set mh [expr {[winfo reqheight $R] - [winfo reqheight $c] + 18 * [font metrics MdvUI -linespace]}]
+    if {"$w.pw.opts" in [$w.pw panes]} { set mh [expr {max($mh, [winfo reqheight $w.pw.opts])}] }
+    set tb [expr {[winfo manager $w.tb] ne "" ? [winfo reqheight $w.tb] : 0}]
+    list $pw [expr {$tb + $mh + [$w.sb cget -height] + 4}]
+}
+
+# The size the window opens at for a choice of Settings: its size at
+# 12 pt with the text's, never narrower than its panels and the toolbar
+# need nor shorter than the smallest; medium (a new user's) and large,
+# tall enough for every left page too, so that none scrolls where the
+# screen has room; compact is the small one. As far as the screen has
+# room.
+proc ::VMDance::GUI::window_size {key} {
+    variable window_sizes
+    lassign [dict get $window_sizes $key] pw ph
+    set s [expr {$::VMDance::Fonts::size / 12.0}]
+    lassign [needed_size] nw nh
+    lassign [min_size] mw mh
+    set W [expr {max(round($pw * $s), $nw)}]
+    set H [expr {max(round($ph * $s), $mh)}]
+    if {$key ne "compact"} { set H [expr {max($H, $nh)}] }
+    _fit_screen $W $H
 }
 
 # (an error names what is wrong; nothing is changed)
@@ -355,7 +433,7 @@ proc ::VMDance::GUI::_clamp_sash {} {
     if {$n < 2} return
     set W [winfo width $w.pw]
     set sw 6
-    set reqs [lmap p $panes {winfo reqwidth $p}]
+    set reqs [lmap p $panes {expr {$p eq "$w.pw.right" ? [_right_width] : [winfo reqwidth $p]}}]
     for {set i 0} {$i < $n - 1} {incr i} {
         set lo [expr {[::tcl::mathop::+ {*}[lrange $reqs 0 $i]] + $i * $sw}]
         set hi [expr {$W - [::tcl::mathop::+ 0 {*}[lrange $reqs [expr {$i + 1}] end]] - ($n - 1 - $i) * $sw}]
@@ -363,6 +441,17 @@ proc ::VMDance::GUI::_clamp_sash {} {
         set q [expr {$hi < $lo ? $lo : min(max($p, $lo), $hi)}]
         if {$q != $p} { $w.pw sashpos $i $q }
     }
+}
+# A divider stops where a panel's widgets would be cut off: checked as it
+# is dragged, after ttk has moved it (it went on, and sprang back when let
+# go).
+proc ::VMDance::GUI::_sash_stops {} {
+    variable w
+    if {"MdvSash" in [bindtags $w.pw]} return
+    set tags [bindtags $w.pw]
+    set i [lsearch -exact $tags TPanedwindow]
+    bindtags $w.pw [linsert $tags [expr {$i + 1}] MdvSash]
+    bind MdvSash <B1-Motion> ::VMDance::GUI::_clamp_sash
 }
 
 proc ::VMDance::GUI::close_window {} {
@@ -432,6 +521,10 @@ proc ::VMDance::GUI::act {name} {
         groups         groups_set
         groups_file    groups_file_dialog
         groups_clear   groups_clear
+        groups_halves  {groups_blocks 2}
+        groups_blocks  groups_blocks_ask
+        radii          radii
+        renumber       renumber
         map            map
         profiles       profiles
         pick           pick
@@ -573,8 +666,13 @@ proc ::VMDance::GUI::_tb_sep {f name} {
 }
 
 proc ::VMDance::GUI::_build_toolbar {} {
-    variable w; variable tabs; variable modlabel
+    variable w; variable tabs; variable modlabel; variable tbicons
     set f [ttk::frame $w.tb -padding {6 4 6 0}]
+    # (two rows: the buttons are the toolbar's children, placed in the
+    # first, and the last of them in the second when the window is too
+    # narrow for one: _toolbar_fit)
+    ttk::frame $f.r1
+    ttk::frame $f.r2
     set k $modlabel
     _tb_toggle $f left panel_left Panel ::VMDance::GUI::S(show_left) "Show or hide the left panel ($k+Shift+L)"
     _tb_sep $f s0
@@ -618,8 +716,64 @@ proc ::VMDance::GUI::_build_toolbar {} {
     _tb_button $f settings settings Settings "Settings…: the backend, text and window size, theme" {::VMDance::GUI::act settings}
     _tb_button $f help   help    Help    "Quick guide" {::VMDance::GUI::act help}
     _tb_toggle $f opts panel_right Options ::VMDance::GUI::S(show_opts) "Show or hide the plot options ($k+Shift+O)"
-    pack $f.opts -side right
+    # the plot options' toggle first, at the right: it is the last to be
+    # cut off; then the others, as they were made
+    pack $f.r1 -side top -fill x
+    set items [lmap c [pack slaves $f] {expr {$c in [list $f.r1 $f.opts] ? [continue] : $c}}]
+    pack configure $f.opts -in $f.r1 -side right
+    foreach c $items { pack configure $c -in $f.r1 }
+    set tbicons {left panel_left open open save save export export figure figure cluster cluster elbow elbow cancel cancel
+                 colour colour reps reps goto goto render render settings settings help help opts panel_right}
+    foreach {key title} $tabs { lappend tbicons t_$key tab_$key }
+    bind $f <Configure> ::VMDance::GUI::_toolbar_fit
     _toolbar_visible
+}
+
+# The width the toolbar needs on one row.
+proc ::VMDance::GUI::_toolbar_width {} {
+    variable w
+    set n 14
+    foreach c [winfo children $w.tb] {
+        if {$c in [list $w.tb.r1 $w.tb.r2]} continue
+        incr n [expr {[winfo reqwidth $c] + ([winfo class $c] eq "TSeparator" ? 6 : ($c eq "$w.tb.prog" ? 5 : 2))}]
+    }
+    return $n
+}
+# The toolbar on one row where the window is wide enough for it; else the
+# 3D, Settings and Help buttons on a second row (they were cut off, and
+# the plot options' toggle with them).
+proc ::VMDance::GUI::_toolbar_fit {} {
+    variable w
+    set f $w.tb
+    if {![winfo exists $f.r2] || [winfo width $f] <= 1} return
+    set wrap [expr {[winfo width $f] < [_toolbar_width]}]
+    if {$wrap == ([winfo manager $f.r2] ne "")} return
+    set tail [list $f.colour $f.reps $f.goto $f.render $f.s5 $f.settings $f.help]
+    if {$wrap} {
+        pack forget $f.s4
+        pack $f.r2 -side top -fill x -pady {2 0}
+        foreach c $tail { pack configure $c -in $f.r2 }
+    } else {
+        pack $f.s4 -in $f.r1 -side left -fill y -padx 3 -pady 3
+        foreach c $tail { pack configure $c -in $f.r1 }
+        pack forget $f.r2
+    }
+}
+# The toolbar's icons at the text size: 24 pixels, 32 from 18 pt.
+proc ::VMDance::GUI::_toolbar_icons {} {
+    variable w; variable tbicons
+    set sz [expr {$::VMDance::Fonts::size >= 18 ? 32 : 24}]
+    foreach {name icon} $tbicons {
+        set b $w.tb.$name
+        if {![winfo exists $b] || [$b cget -image] eq ""} continue
+        set img [::VMDance::Icons::get $icon $sz]
+        if {$img eq "" || [lindex [$b cget -image] 0] eq $img} continue
+        if {[winfo class $b] eq "TButton"} {
+            $b configure -image [list $img disabled [::VMDance::Icons::dim $icon $sz]]
+        } else {
+            $b configure -image $img
+        }
+    }
 }
 
 proc ::VMDance::GUI::_toolbar_visible {} {
@@ -709,7 +863,9 @@ proc ::VMDance::GUI::_scroll_page {f} {
     $f.c configure -yscrollcommand [list $f.sb set]
     set p [ttk::frame $f.c.p -padding {6 6 6 4}]
     $f.c create window 0 0 -window $p -anchor nw -tags page
-    pack $f.c -side left -fill both -expand 1
+    # (the scroll bar's width is kept free while it is not shown: the
+    # panel, and the window, are as wide with it as without)
+    pack $f.c -side left -fill both -expand 1 -padx [list 0 [winfo reqwidth $f.sb]]
     bind $p <Configure> +::VMDance::GUI::_pages_fit_later
     bind $f.c <Configure> +::VMDance::GUI::_pages_fit_later
     return $p
@@ -735,18 +891,29 @@ proc ::VMDance::GUI::_pages_fit {} {
             $c configure -scrollregion [list 0 0 $iw $ih]
         }
         set need [expr {$ph > $ch + 1}]
+        set gap [expr {$need ? 0 : [list 0 [winfo reqwidth $f.sb]]}]
         if {$need && [winfo manager $f.sb] eq ""} {
+            pack configure $c -padx $gap
             pack $f.sb -side right -fill y -before $c
         } elseif {!$need && [winfo manager $f.sb] ne ""} {
             pack forget $f.sb
+            pack configure $c -padx $gap
             $c yview moveto 0
+        } elseif {[dict get [pack info $c] -padx] ne $gap} {
+            # (another look's scroll bar is of another width)
+            pack configure $c -padx $gap
         }
     }
 }
-# (a list, a table, a text or a field keeps the wheel for itself)
+# (a field keeps the wheel for itself, and a list, a table or a text that
+# has something to scroll: one that shows all it holds lets the page move)
 proc ::VMDance::GUI::_page_wheel {W d} {
     variable page
-    if {![winfo exists $W] || [winfo class $W] in {TCombobox TSpinbox Treeview Listbox Text}} return
+    if {![winfo exists $W] || [winfo class $W] in {TCombobox TSpinbox}} return
+    if {[winfo class $W] in {Treeview Listbox Text}} {
+        lassign [$W yview] y0 y1
+        if {$y0 > 0 || $y1 < 1} return
+    }
     foreach key [array names page] {
         set p $page($key)
         set c [winfo parent $p]
@@ -756,6 +923,113 @@ proc ::VMDance::GUI::_page_wheel {W d} {
         }
         return
     }
+}
+
+# A dialog (Export, Figures, Settings): its sections go in the frame
+# returned, which scrolls when the screen is too short for it, and its
+# buttons in $d.f.b, a row under it that stays. _dialog_ready sizes it,
+# once its widgets are made.
+proc ::VMDance::GUI::_dialog_body {d} {
+    set f [ttk::frame $d.f -padding 12]
+    pack $f -fill both -expand 1
+    ttk::frame $f.b
+    pack $f.b -side bottom -fill x -pady {12 0}
+    canvas $f.c -highlightthickness 0 -borderwidth 0 -yscrollincrement 16
+    ::VMDance::Theme::bg_widget $f.c
+    ttk::scrollbar $f.sb -orient vertical -command [list $f.c yview]
+    $f.c configure -yscrollcommand [list $f.sb set]
+    set p [ttk::frame $f.c.p]
+    $f.c create window 0 0 -window $p -anchor nw -tags page
+    pack $f.c -side left -fill both -expand 1
+    return $p
+}
+# ok: the button Return presses (a button with the focus, itself).
+proc ::VMDance::GUI::_dialog_ready {d ok} {
+    ::VMDance::Theme::style_tree $d
+    $ok configure -default active
+    bind $d <Return> [list ::VMDance::GUI::_dialog_return %W $ok]
+    bind $d <KP_Enter> [list ::VMDance::GUI::_dialog_return %W $ok]
+    foreach {ev n} {<MouseWheel> %D <Button-4> 1 <Button-5> -1} {
+        bind $d $ev [list ::VMDance::GUI::_dialog_wheel $d %W $n]
+    }
+    foreach c [list $d.f.c $d.f.c.p $d.f.b] { bind $c <Configure> [list ::VMDance::GUI::_dialog_fit_later $d] }
+    _dialog_fit $d
+}
+proc ::VMDance::GUI::_dialog_return {W ok} {
+    if {[winfo exists $W] && [winfo class $W] eq "TButton"} { $W invoke } elseif {[winfo exists $ok]} { $ok invoke }
+}
+proc ::VMDance::GUI::_dialog_fit_later {d} {
+    after cancel [list ::VMDance::GUI::_dialog_fit $d]
+    after idle [list ::VMDance::GUI::_dialog_fit $d]
+}
+# The body as large as its widgets ask, as far as the screen has room
+# for the dialog (100 pixels of it are left for a title bar and a panel);
+# its scroll bar when it shows less.
+proc ::VMDance::GUI::_dialog_fit {d} {
+    set f $d.f
+    if {![winfo exists $f.c.p]} return
+    set c $f.c; set p $c.p
+    update idletasks
+    set pw [winfo reqwidth $p]; set ph [winfo reqheight $p]
+    lassign [_screen] sw sh
+    set room [expr {max(120, $sh - 100 - [winfo reqheight $f.b] - 36)}]
+    set want [expr {min($ph, $room)}]
+    if {[$c cget -width] != $pw || [$c cget -height] != $want} { $c configure -width $pw -height $want }
+    set cw [winfo width $c]; set ch [winfo height $c]
+    if {![winfo ismapped $c] || $cw <= 1} { set cw $pw; set ch $want }
+    set iw [expr {max($pw, $cw)}]
+    if {[$c itemcget page -width] != $iw || [$c itemcget page -height] != $ph} {
+        $c itemconfigure page -width $iw -height $ph
+        $c configure -scrollregion [list 0 0 $iw $ph]
+    }
+    set need [expr {$ph > $ch + 1}]
+    if {$need && [winfo manager $f.sb] eq ""} {
+        pack $f.sb -side right -fill y -before $c -padx {4 0}
+    } elseif {!$need && [winfo manager $f.sb] ne ""} {
+        pack forget $f.sb
+        $c yview moveto 0
+    }
+}
+# (as the left pages: a field keeps the wheel, and a list with something
+# to scroll)
+proc ::VMDance::GUI::_dialog_wheel {d W n} {
+    if {![winfo exists $W] || ![winfo exists $d.f.c.p] || [winfo class $W] in {TCombobox TSpinbox}} return
+    if {[winfo class $W] in {Treeview Listbox Text}} {
+        lassign [$W yview] y0 y1
+        if {$y0 > 0 || $y1 < 1} return
+    }
+    if {[winfo reqheight $d.f.c.p] > [winfo height $d.f.c] + 1} {
+        $d.f.c yview scroll [expr {$n > 0 ? -3 : 3}] units
+    }
+}
+# A field that holds a path: it shows the path's end (the start of a long
+# one says little), and its tooltip the whole of it, before what says
+# what the field is for.
+proc ::VMDance::GUI::_path_field {e about} {
+    ::VMDance::Tip::add $e $about
+    set var [$e cget -textvariable]
+    set tr [list ::VMDance::GUI::_path_shown $e $about $var]
+    # (a bind script: "%" in a text would be substituted)
+    foreach ev {<Configure> <FocusOut>} { bind $e $ev [string map {% %%} $tr] }
+    # (set by Browse, or by a script: shown as it changes; a dialog made
+    # again adds the same trace: once is enough)
+    catch {trace remove variable $var write $tr}
+    trace add variable $var write $tr
+    {*}$tr
+}
+proc ::VMDance::GUI::_path_shown {e about var args} {
+    if {![winfo exists $e]} {
+        catch {trace remove variable $var write [list ::VMDance::GUI::_path_shown $e $about $var]}
+        return
+    }
+    set t [string trim [set $var]]
+    if {$t ne ""} { set t "$t\n" }
+    set ::VMDance::Tip::text($e) $t$about
+    # (not under the cursor of someone typing in it)
+    if {[focus -displayof $e] ne $e} { after idle [list ::VMDance::GUI::_path_end $e] }
+}
+proc ::VMDance::GUI::_path_end {e} {
+    if {[winfo exists $e] && [focus -displayof $e] ne $e} { $e xview moveto 1 }
 }
 
 # Tk on macOS can leave a pane undrawn after heavy drawing in the plots:
@@ -820,19 +1094,26 @@ proc ::VMDance::GUI::_combo_set {path var mapping cmd} {
 # A value -> label mapping of a list (the label is the value).
 proc ::VMDance::GUI::_same {l} { set out {}; foreach v $l { lappend out $v $v }; return $out }
 
-# Every -wraplength of the left panel from the text size (from the panel's
-# width, the texts would hold the panel as wide as it once was).
+# Every -wraplength of the left panel: the notes wrap at the panel's
+# width, the one its other widgets need (the pages measured with the notes
+# wrapped narrow: from the panel's width of now, the notes would hold it
+# as wide as it once was).
 proc ::VMDance::GUI::_wraplengths {} {
-    variable w
+    variable w; variable page
     if {![winfo exists $w.pw.left]} return
-    set wl [expr {max(260, 34 * [font measure MdvUI "0"])}]
-    foreach p [list $w.pw.left] {
-        if {![winfo exists $p]} continue
-        foreach c [_descendants $p] {
-            if {[winfo class $c] eq "TLabel" && [$c cget -wraplength] ne "" && [$c cget -wraplength] > 0} {
-                $c configure -wraplength $wl
-            }
-        }
+    set notes {}
+    foreach c [_descendants $w.pw.left] {
+        if {[winfo class $c] eq "TLabel" && [$c cget -wraplength] ne "" && [$c cget -wraplength] > 0} { lappend notes $c }
+    }
+    foreach c $notes { $c configure -wraplength 60 }
+    update idletasks
+    set wd 0
+    foreach key [array names page] { set wd [expr {max($wd, [winfo reqwidth $page($key)])}] }
+    # (a page's padding; a section's, and its border, around a note in
+    # one; and 4 pixels: a label asks for 2 more than its text)
+    foreach c $notes {
+        set in [expr {[winfo parent $c] in [lmap key [array names page] {set page($key)}] ? 16 : 32}]
+        $c configure -wraplength [expr {max(120, $wd - $in)}]
     }
 }
 proc ::VMDance::GUI::_descendants {p} {
@@ -870,13 +1151,13 @@ proc ::VMDance::GUI::_build_setup {P} {
     ttk::combobox $mf.mol -textvariable ${V}(molname) -state readonly -width 18 -postcommand ::VMDance::GUI::refresh_molecules
     set molcombo $mf.mol
     bind $mf.mol <<ComboboxSelected>> ::VMDance::GUI::_mol_chosen
-    ttk::button $mf.r -text "↻" -style Toolbutton -takefocus 0 -command {::VMDance::GUI::refresh_molecules; ::VMDance::GUI::_count_later}
+    ttk::button $mf.r -text "↻" -style Toolbutton -takefocus 0 -command {unset -nocomplain ::VMDance::GUI::fit_seen; ::VMDance::GUI::refresh_molecules; ::VMDance::GUI::_count_later}
     pack $mf.mol -side left -fill x -expand 1
     pack $mf.r -side left
     ::VMDance::Tip::add $mf.r "Read the molecules again (frames loaded into a molecule do not tell the window)"
     _row $I 0 "Molecule" $mf
     _sel_entry $I.s ${V}(sel) $sel_presets
-    _row $I 1 "Atoms" $I.s "The atoms whose coordinates are clustered, in VMD's selection language\n(the same atoms in every frame). Return clusters."
+    _row $I 1 "Atoms" $I.s "The atoms whose coordinates are clustered, in VMD's selection language\n(the same atoms in every frame). Press Return to cluster."
     ttk::label $I.c -textvariable ${V}(count) -style Muted.TLabel
     grid $I.c -row 2 -column 1 -sticky w
     set fr [ttk::frame $I.fr]
@@ -900,6 +1181,9 @@ proc ::VMDance::GUI::_build_setup {P} {
     pack $ff.sel -side left -fill x -expand 1 -padx {4 0}
     grid $ff -row 5 -column 0 -columnspan 2 -sticky ew -pady {2 0}
     ::VMDance::Tip::add $ff.on "Superpose every frame on the first clustered frame by these atoms before clustering\n(computed on the values: VMD's coordinates are not moved).\nOff: the coordinates as they are (an aligned trajectory)."
+    # (with a fit, its atoms; without one, whether the frames look superposed)
+    ttk::label $I.fn -textvariable ${V}(fitnote) -style Muted.TLabel -wraplength 300 -justify left
+    grid $I.fn -row 6 -column 0 -columnspan 2 -sticky w
     grid columnconfigure $I 1 -weight 1
 
     set A [_section $P.alg "Algorithm" -padding {6 4}]
@@ -981,6 +1265,16 @@ proc ::VMDance::GUI::_build_params {B a} {
         }
         incr r
     }
+    if {$a eq "equal"} {
+        # (the radius in the unit of RMSD cut-offs, and one proposed from the frames)
+        ttk::label $f.rn -textvariable ${V}(eq_note) -style Muted.TLabel -wraplength 280 -justify left
+        grid $f.rn -row $r -column 0 -columnspan 2 -sticky w
+        ttk::button $f.rs -text "Suggest a radius" -command {::VMDance::GUI::act radii}
+        grid $f.rs -row [incr r] -column 0 -columnspan 2 -sticky w -pady {2 0}
+        ::VMDance::Tip::add $f.rs "A radius from the frames themselves: the distance that a tenth of the pairs of 150 or so of them are within (and a range for Scans ▸ Elbow)"
+        trace add variable ${V}(p_equal_threshold) write ::VMDance::GUI::_eq_note
+        _eq_note
+    }
     grid columnconfigure $f 1 -weight 1
     return $f
 }
@@ -1047,6 +1341,18 @@ proc ::VMDance::GUI::_algorithm_changed {} {
     # (off while a job runs, as _busy left it: the algorithm can be chosen
     # meanwhile; eQUAL is scanned by radius)
     catch {$w.tb.elbow state [expr {[busy] ? "disabled" : "!disabled"}]}
+    # (the scan's box: the k of the algorithms that take one, eQUAL's
+    # radii; the stability is of K-means NANI's seedings)
+    if {[info exists page(scans)] && [winfo exists $page(scans).eb.r]} {
+        if {$a eq "equal"} {
+            grid remove $page(scans).eb.r
+            grid $page(scans).eb.q
+        } else {
+            grid remove $page(scans).eb.q
+            grid $page(scans).eb.r
+        }
+        $page(scans).eb.st state [expr {$a eq "kmeans" ? "!disabled" : "disabled"}]
+    }
     _metric_lock
     _params_sync
     _availability
@@ -1133,6 +1439,60 @@ proc ::VMDance::GUI::_fit_changed {} {
     variable w; variable S; variable page
     set e $page(setup).input.fit.sel
     if {[winfo exists $e]} { $e state [expr {$S(fit) ? "!disabled" : "disabled"}] }
+    # (a fit turned on whose atoms the molecule has not, "backbone" of a
+    # Cα model: on the clustered atoms, said; it was told at Cluster only)
+    set m $S(molid)
+    if {$S(fit) && $m >= 0 && [::VMDance::Mol::exists $m]} {
+        set t [string trim $S(fitsel)]
+        if {([catch {::VMDance::Mol::atoms $m $t} idx] || [llength $idx] < 3) &&
+            ![catch {::VMDance::Mol::atoms $m [string trim $S(sel)]} own] && [llength $own] >= 3} {
+            set S(fitsel) [string trim $S(sel)]
+            status "Fit: on the clustered atoms (\"$t\" matches fewer than 3 atoms of molecule $m)."
+        }
+    }
+    _fit_note
+}
+# Under the Fit box: with a fit, the atoms it is made on; without one, how
+# far a sample of the frames is from the first as they are and once fitted
+# (Coords::alignment), a warning when they do not look superposed. (The
+# numbers are kept for the molecule, atoms and frames they are of; ↻ reads
+# them again, after the coordinates were moved in VMD.)
+proc ::VMDance::GUI::_fit_note {} {
+    variable S; variable page; variable fit_seen
+    if {![info exists page(setup)]} return
+    set lab $page(setup).input.fn
+    if {![winfo exists $lab]} return
+    set note ""; set warn 0
+    set m $S(molid)
+    if {$m >= 0 && [::VMDance::Mol::exists $m] && ![busy]} {
+        if {$S(fit)} {
+            set t [string trim $S(fitsel)]
+            if {[catch {::VMDance::Mol::atoms $m $t} idx]} {
+                set note "Fit: invalid selection."; set warn 1
+            } elseif {[llength $idx] < 3} {
+                set note "Fit: \"$t\" matches [llength $idx] atom[expr {[llength $idx] == 1 ? "" : "s"}] of this molecule; a fit needs 3."; set warn 1
+            } else {
+                set note "Fitted on [llength $idx] atoms (on values: VMD's coordinates are not moved)."
+            }
+        } else {
+            lassign [_frame_range] first last
+            set key [list $m [string trim $S(sel)] $first $last [string trim $S(step)] [molinfo $m get numframes]]
+            if {![info exists fit_seen] || [lindex $fit_seen 0] ne $key} {
+                set d ""
+                catch {
+                    set t [string trim $S(sel)]
+                    if {[::VMDance::Mol::dynamic $t] eq ""} {
+                        set d [::VMDance::Coords::alignment $m [::VMDance::Mol::atoms $m $t] [::VMDance::Mol::frames $m $first $last [string trim $S(step)]]]
+                    }
+                }
+                set fit_seen [list $key $d]
+            }
+            set d [lindex $fit_seen 1]
+            if {$d ne ""} { lassign [::VMDance::alignment_words $d window] note warn }
+        }
+    }
+    set S(fitnote) $note
+    $lab configure -foreground [expr {$warn ? "#a3483b" : ""}]
 }
 
 proc ::VMDance::GUI::_frames_changed {} {
@@ -1175,6 +1535,7 @@ proc ::VMDance::GUI::_count {} {
     } else {
         set S(nframes) "[llength $fl] of $nf frame[expr {$nf == 1 ? "" : "s"}]"
     }
+    _fit_note
 }
 proc ::VMDance::GUI::_frame_range {} {
     variable S
@@ -1199,6 +1560,7 @@ proc ::VMDance::GUI::_build_results {P} {
     menu $rf.m.m -tearoff 0
     $rf.m.m add command -label "Rename this run…" -command ::VMDance::GUI::rename_run
     $rf.m.m add command -label "Delete this run" -command ::VMDance::GUI::delete_run
+    $rf.m.m add command -label "Number its clusters by size (a new run)" -command {::VMDance::GUI::act renumber}
     $rf.m.m add separator
     $rf.m.m add command -label "Clear every run…" -command {::VMDance::GUI::act clear}
     pack $rf.l -side left -padx {0 6}
@@ -1207,19 +1569,24 @@ proc ::VMDance::GUI::_build_results {P} {
     ::VMDance::Tip::add $rf.c "Every clustering is kept (the last 25): choose one to see it again, with its settings"
     ttk::label $P.sum -textvariable ${V}(summary) -style Read.TLabel -wraplength 290 -justify left
     pack $P.sum -side top -fill x -pady {4 4}
+    ::VMDance::Tip::add $P.sum "The two scores compare clusterings of the same frames, another k or another algorithm:\nCalinski–Harabasz, how far apart the clusters are for how tight (higher: better);\nDavies–Bouldin, how much each overlaps its nearest (lower: better).\nNeither has a good or a bad value of its own: Scans ▸ Elbow shows them at every k."
 
     set T [ttk::frame $P.tf]
     pack $T -side top -fill both -expand 1 -pady {2 0}
     set tree [ttk::treeview $T.t -columns {cluster frames pct msd spread rep} -show headings -selectmode extended -height 12]
-    foreach {c t} {cluster Cluster frames Frames pct "%" msd MSD spread "To rep." rep "Rep."} {
+    foreach {c t} {cluster Cluster frames Frames pct "%" msd "MSD (Å²)" spread "To rep. (Å²)" rep "Rep."} {
         $tree heading $c -text $t -command [list ::VMDance::GUI::sort_by $c]
         $tree column $c -anchor e -stretch [expr {$c eq "cluster"}]
     }
-    ::VMDance::Tip::add $tree "MSD: the mean square deviation within the cluster (the backend's, MDANCE's: over its pairs of frames, Å²);\nto rep.: the mean RMSD² of its frames from its representative (Å²: from half the MSD to all of it, with the metric MSD).\nClick a heading to sort; right-click for more."
+    ::VMDance::Tip::add $tree "MSD: how spread the cluster is, MDANCE's mean square deviation over every pair of its frames (Å²).\nTo rep.: how far its frames are from its representative on average (RMSD², Å²: from half the MSD to all of it, with the metric MSD).\nRep.: the VMD frame that represents it. (Plot options ▸ Distances as: lengths, in Å.)\nClick a heading to sort; right-click for more."
     ttk::scrollbar $T.s -orient vertical -command [list $tree yview]
     $tree configure -yscrollcommand [list $T.s set]
     pack $T.s -side right -fill y
     pack $tree -side left -fill both -expand 1
+    # (as tall as its rows, 5 to 12, and its columns as wide as their
+    # values: _tree_columns, here and again when the results change)
+    ::VMDance::Results::listen ::VMDance::GUI::_tables_changed
+    bind $tree <Destroy> {::VMDance::Results::unlisten ::VMDance::GUI::_tables_changed}
     bind $tree <<TreeviewSelect>> ::VMDance::GUI::_on_select
     # (a double-click on a heading sorts: it does not act on the selected row)
     bind $tree <Double-1> {if {[%W identify region %x %y] eq "cell"} {::VMDance::GUI::act goto}}
@@ -1243,56 +1610,163 @@ proc ::VMDance::GUI::_build_results {P} {
     # this run's groups of frames, its map and its profiles
     set G [_section $P.gp "Groups, map and profiles" -padding {6 4}]
     pack ${G}_sec -side top -fill x -pady {8 0}
+    # (the box the whole row, so that it shows its own example; its buttons under it)
     ttk::entry $G.r -textvariable ${V}(gp_ranges) -width 18
-    ttk::button $G.set -text "Set" -command {::VMDance::GUI::act groups}
-    grid [ttk::label $G.lr -text "Groups"] $G.r $G.set -row 0 -sticky w -padx {0 4} -pady 1
-    grid configure $G.r -sticky ew
-    ::VMDance::Tip::add $G.r "Each frame's group (the method, replica or condition it came from): names and VMD frames, as original 0-63 moderate 64-127 (a name with spaces in braces); Return sets them"
+    grid [ttk::label $G.lr -text "Groups"] $G.r -row 0 -sticky w -padx {0 4} -pady 1
+    grid configure $G.r -sticky ew -columnspan 2
+    ::VMDance::Tip::add $G.r "Which part of the frames each came from (a half of the trajectory, a replica, a condition, a method), to compare them: names and VMD frames, as  first 0-2999 second 3000-6000  (a name with spaces in braces); Return sets them"
     bind $G.r <Return> {::VMDance::GUI::act groups}
     set gb [ttk::frame $G.bt]
-    ttk::button $gb.file -text "From a file…" -command {::VMDance::GUI::act groups_file}
-    ttk::button $gb.clear -text "Clear" -command {::VMDance::GUI::act groups_clear}
-    pack $gb.file $gb.clear -side left -padx {0 6}
+    ttk::button $gb.set -text "Set" -command {::VMDance::GUI::act groups}
+    ttk::button $gb.half -text "Halves" -command {::VMDance::GUI::act groups_halves}
+    ttk::button $gb.blocks -text "Blocks…" -command {::VMDance::GUI::act groups_blocks}
+    pack $gb.set $gb.half $gb.blocks -side left -padx {0 6}
     grid $gb -row 1 -column 1 -columnspan 2 -sticky w -pady 1
-    ::VMDance::Tip::add $gb.file "A file of frame,group lines (VMD frames; # comments)"
+    set gc [ttk::frame $G.bt2]
+    ttk::button $gc.file -text "From a file…" -command {::VMDance::GUI::act groups_file}
+    ttk::button $gc.clear -text "Clear" -command {::VMDance::GUI::act groups_clear}
+    pack $gc.file $gc.clear -side left -padx {0 6}
+    grid $gc -row 2 -column 1 -columnspan 2 -sticky w -pady 1
+    ::VMDance::Tip::add $gb.set "Give the frames the groups typed above"
+    ::VMDance::Tip::add $gb.half "The first and the second half of the clustered frames as two groups: does each half visit the same clusters?"
+    ::VMDance::Tip::add $gb.blocks "The clustered frames cut in a number of blocks, a group each"
+    ::VMDance::Tip::add $gc.file "A file of frame,group lines (VMD frames; # comments)"
     ttk::label $G.info -textvariable ${V}(gp_info) -style Read.TLabel -wraplength 270 -justify left
-    grid $G.info -row 2 -column 0 -columnspan 3 -sticky w
+    grid $G.info -row 3 -column 0 -columnspan 3 -sticky w
     set mf [ttk::frame $G.mf]
     ttk::button $mf.go -text "Map" -command {::VMDance::GUI::act map}
     ttk::label $mf.l -text "axes from"
     ttk::spinbox $mf.n -from 2 -to 5000 -increment 100 -width 5 -textvariable ${V}(mp_sample)
     ttk::label $mf.f -text "frames"
     pack $mf.go $mf.l $mf.n $mf.f -side left -padx {0 4}
-    grid $mf -row 3 -column 0 -columnspan 3 -sticky w -pady {4 1}
+    grid $mf -row 4 -column 0 -columnspan 3 -sticky w -pady {4 1}
     ::VMDance::Tip::add $mf.n [lindex [lindex $::VMDance::Algo::map_params 0] 5]
     set pf [ttk::frame $G.pf]
     ttk::button $pf.go -text "Profiles" -command {::VMDance::GUI::act profiles}
-    ttk::label $pf.l -text "against cluster"
-    ttk::spinbox $pf.n -from -1 -to 9999 -increment 1 -width 5 -textvariable ${V}(pf_reference)
+    # (the reference cluster by name: "the largest", not -1)
+    ttk::label $pf.l -text "against"
+    ttk::combobox $pf.n -state readonly -width 14 -postcommand [list ::VMDance::GUI::_ref_values $pf.n]
+    bind $pf.n <<ComboboxSelected>> [list ::VMDance::GUI::_ref_chosen $pf.n]
+    trace add variable ${V}(pf_reference) write [list ::VMDance::GUI::_ref_sync $pf.n]
+    _ref_sync $pf.n
     pack $pf.go $pf.l $pf.n -side left -padx {0 4}
-    grid $pf -row 4 -column 0 -columnspan 3 -sticky w -pady 1
+    grid $pf -row 5 -column 0 -columnspan 3 -sticky w -pady 1
     ::VMDance::Tip::add $pf.n [lindex [lindex $::VMDance::Algo::profiles_params 0] 5]
     ttk::label $G.mi -textvariable ${V}(mp_info) -style Read.TLabel -wraplength 270 -justify left
-    grid $G.mi -row 5 -column 0 -columnspan 3 -sticky w
+    grid $G.mi -row 6 -column 0 -columnspan 3 -sticky w
     grid columnconfigure $G 1 -weight 1
     _tree_columns
 }
 
-# The tables' columns as wide as their headings and values at the text
-# size of now.
+# The tables' columns as wide as their headings and their widest values
+# at the text size of now (column, heading, values a table can hold: its
+# own rows' are measured too), and the clusters' table as tall as its rows
+# (5 to 12).
 proc ::VMDance::GUI::_tree_columns {} {
-    variable tree; variable swtree
-    set m {apply {{a b} {expr {max([font measure MdvUI $a], [font measure MdvUI $b]) + 12}}}}
+    variable tree; variable swtree; variable prtree
     if {$tree ne "" && [winfo exists $tree]} {
-        foreach {c h t} {cluster Cluster 000 frames Frames 00000 pct "%" 100.0 msd MSD 0.00000 spread "To rep." 0.00000 rep "Rep." 00000} {
-            set wd [{*}$m $h $t]
-            $tree column $c -width $wd -minwidth [expr {int($wd * 0.8)}]
-        }
+        $tree configure -height [expr {min(12, max(5, [llength [$tree children {}]]))}]
+        # (the headings as they are: the two distances' say their unit)
+        _table_fit $tree cluster [list cluster Cluster 000 frames Frames 00000 pct "%" 100.0 msd [$tree heading msd -text] 0.0000 \
+            spread [$tree heading spread -text] 0.0000 rep "Rep." 00000]
     }
     if {$swtree ne "" && [winfo exists $swtree]} {
-        foreach {c h t} {alg Algorithm DIVINE k k 00 kact Found 00 metric Metric MSD seed Seeding StratAll ch CH 0000 db DB 0.000} {
-            $swtree column $c -width [expr {[{*}$m $h $t] - 2}] -minwidth 20
+        set algs [lmap a [::VMDance::Algo::with_k] {::VMDance::Algo::label $a}]
+        _table_fit $swtree alg [list alg Algorithm $algs k k 00 kact Found 00 metric Metric MSD seed Seeding StratAll ch CH 000.0 db DB 0.000]
+    }
+    if {$prtree ne "" && [winfo exists $prtree]} {
+        # (its holder is made here: the table is in its section's grid)
+        set h [winfo parent $prtree].tvh
+        if {![winfo exists $h]} {
+            frame $h -borderwidth 0 -highlightthickness 0
+            set at [grid info $prtree]
+            grid forget $prtree
+            grid $h {*}[dict remove $at -in]
+            pack $prtree -in $h -fill both -expand 1
+            raise $prtree $h
         }
+        _table_fit $prtree method [list method Method [lmap {key label kind} $::VMDance::prime_rows {set label}] frame Frame 00000]
+    }
+}
+# A table's columns (spec: column, heading, values), and its holder as
+# large as they ask: the table fills the holder, and the column `fill`
+# takes what the others leave (_table_fill). The panel is asked for the
+# columns' widths as they are set here, never as they grew with it: a
+# table kept the width it once had as the width it asked for (the PRIME
+# table's held the left panel as wide as it had once been).
+proc ::VMDance::GUI::_table_fit {tv fill spec} {
+    variable tables
+    set items [$tv children {}]
+    set cols {}
+    foreach {c h vals} $spec {
+        # (of its rows' values, the longest are measured: those within two
+        # characters of the longest, since the one of most characters is
+        # not always the widest, "StratAll" and "CompSim")
+        set most 0
+        foreach it $items { set most [expr {max($most, [string length [$tv set $it $c]])}] }
+        set wd 0
+        set seen {}
+        foreach it $items {
+            set v [$tv set $it $c]
+            if {[string length $v] < $most - 2 || [dict exists $seen $v] || [dict size $seen] >= 60} continue
+            dict set seen $v 1
+            set wd [expr {max($wd, [font measure MdvUI $v])}]
+        }
+        foreach v $vals { set wd [expr {max($wd, [font measure MdvUI $v])}] }
+        set wd [expr {max($wd, [font measure MdvUI $h]) + 12}]
+        $tv column $c -width $wd -minwidth [expr {int($wd * 0.8)}] -stretch 0
+        lappend cols $c $wd
+    }
+    # (a table not placed yet, as its page is made: when the window is)
+    if {[winfo manager $tv] ne "pack"} return
+    # (asked of the table again: one that is shown keeps what it asked
+    # for before its columns were set)
+    $tv configure -height [$tv cget -height]
+    set h [dict get [pack info $tv] -in]
+    set wd [winfo reqwidth $tv]
+    # (and its border: what it asks for beyond its columns)
+    dict set tables $tv [list $fill $cols [expr {$wd - [::tcl::mathop::+ {*}[dict values $cols]]}]]
+    foreach c [pack slaves $h] { if {[winfo class $c] eq "TScrollbar"} { incr wd [winfo reqwidth $c] } }
+    pack propagate $h 0
+    $h configure -width $wd -height [winfo reqheight $tv]
+    bind $tv <Configure> [list ::VMDance::GUI::_table_fill $tv]
+    _table_fill $tv
+}
+# The column of a table that fills takes the width the others leave.
+proc ::VMDance::GUI::_table_fill {tv} {
+    variable tables
+    if {![winfo exists $tv] || ![dict exists $tables $tv] || ![winfo ismapped $tv]} return
+    lassign [dict get $tables $tv] fill cols border
+    set room [expr {[winfo width $tv] - $border}]
+    foreach {c x} $cols { if {$c ne $fill} { incr room -[$tv column $c -width] } }
+    set wd [expr {max([dict get $cols $fill], $room)}]
+    if {[$tv column $fill -width] != $wd} { $tv column $fill -width $wd }
+}
+# The results changed: the tables again, once the window has filled them
+# (it is told after this), and the panel when they ask for another width.
+proc ::VMDance::GUI::_tables_changed {what} {
+    if {$what ni {analysis sweep extras}} return
+    after cancel ::VMDance::GUI::_tables_fit
+    after idle ::VMDance::GUI::_tables_fit
+}
+proc ::VMDance::GUI::_tables_fit {} {
+    variable w
+    if {![winfo exists $w.pw.left]} return
+    set left [winfo reqwidth $w.pw.left]
+    set was [_tables_width]
+    _tree_columns
+    # (a table that asks for another width: the notes first, which wrap
+    # at the panel's and would hold it as wide as the table had made it)
+    if {[_tables_width] ne $was} { _wraplengths }
+    update idletasks
+    _pages_fit
+    if {[winfo reqwidth $w.pw.left] != $left && [winfo ismapped $w]} { _panes }
+}
+# The widths the tables' holders ask for.
+proc ::VMDance::GUI::_tables_width {} {
+    variable tree; variable swtree; variable prtree
+    lmap tv [list $tree $swtree $prtree] {
+        expr {$tv ne "" && [winfo exists $tv] && [winfo manager $tv] eq "pack" ? [winfo reqwidth [dict get [pack info $tv] -in]] : 0}
     }
 }
 
@@ -1321,9 +1795,11 @@ proc ::VMDance::GUI::_build_scans {P} {
     ttk::entry $q.b -width 5 -textvariable ${V}(eb_rto)
     ttk::label $q.e -text "every"
     ttk::entry $q.c -width 5 -textvariable ${V}(eb_rby)
-    pack $q.l $q.a $q.t $q.b $q.e $q.c -side left -padx {0 4}
+    ttk::button $q.s -text "Suggest" -command {::VMDance::GUI::act radii}
+    pack $q.l $q.a $q.t $q.b $q.e $q.c $q.s -side left -padx {0 4}
     grid $q -row 1 -column 0 -sticky w -pady {4 0}
     ::VMDance::Tip::add $q.l "eQUAL is given no k: with eQUAL in Setup, the scan runs it at these radii (MDANCE's MSD, Å²)"
+    ::VMDance::Tip::add $q.s "A range of radii from the frames themselves: the distances between 150 or so of them, from the 2% nearest pairs to the median (Setup's atoms and frames)"
     ttk::label $E.note -text "The algorithm and parameters of Setup, at every k (eQUAL: at every radius). Elbow plot: hover a value for the clusters' shares; double-click to make it the clustering." \
         -style Muted.TLabel -wraplength 280 -justify left
     grid $E.note -row 2 -column 0 -sticky w -pady {2 0}
@@ -1436,6 +1912,14 @@ proc ::VMDance::GUI::_grid_metrics {} {
         if {$S(unlock_metrics)} { $mf.m_$m state !disabled } else { set S(gr_met_$m) 0; $mf.m_$m state disabled }
     }
     if {!$S(unlock_metrics)} { set S(gr_met_MSD) 1 }
+    # (locked: a line in place of ten greyed boxes of indices' short names)
+    if {$S(unlock_metrics)} {
+        $page(scans).gr.ml configure -text "Metrics"
+        grid $mf
+    } else {
+        $page(scans).gr.ml configure -text "Metric: MSD (Settings unlock the others)"
+        grid remove $mf
+    }
     _grid_count
 }
 
@@ -1526,6 +2010,9 @@ proc ::VMDance::GUI::_pick_sync {} {
     if {![winfo exists $K]} return
     $K.p state [expr {$S(pk_method) in {medoid outlier} ? "disabled" : "!disabled"}]
     $K.b state [expr {$S(pk_method) eq "repsample" ? "!disabled" : "disabled"}]
+    # (the most diverse are a percentage of the frames: "How many 10"
+    # picked 192 of them)
+    catch {$K.l1 configure -text [expr {$S(pk_method) eq "diversity" ? "% of the frames" : "How many"}]}
 }
 
 #---------------------------------------------------------------------------
@@ -1549,7 +2036,7 @@ proc ::VMDance::GUI::_build_3d {P} {
     ttk::spinbox $tf.n -from 1 -to 1000 -increment 1 -width 4 -textvariable ${V}(v3d_top) -command ::VMDance::GUI::draw_changed
     ttk::label $tf.l -text "nearest frames"
     pack $tf.r $tf.n $tf.l -side left -padx {0 3}
-    ::VMDance::Tip::add $tf "Each selected cluster's frames nearest its representative (the first is the representative)"
+    foreach wd [list $tf $tf.r $tf.n $tf.l] { ::VMDance::Tip::add $wd "Each selected cluster's frames nearest its representative, overlaid (the first is the representative)" }
     bind $tf.n <Return> ::VMDance::GUI::draw_changed
     grid $tf -row 3 -column 0 -columnspan 2 -sticky w -padx {18 0}
     set ff [ttk::frame $O.fr]
@@ -1666,11 +2153,15 @@ proc ::VMDance::GUI::_build_right {} {
     }
     bind $nb <<NotebookTabChanged>> ::VMDance::GUI::_tab_changed
     ttk::frame $R.rf
-    # (the readout shown is cut to the line's width, ending in "…")
-    ttk::label $R.rf.readout -textvariable ::VMDance::GUI::S(readout_shown) -style Read.TLabel -padding {6 0}
+    # (two lines, kept for it whatever it says: the readout shown goes on
+    # onto the second, and is cut to it, ending in "…")
+    ttk::label $R.rf.readout -textvariable ::VMDance::GUI::S(readout_shown) -style Read.TLabel -padding {6 0} \
+        -anchor nw -justify left
     pack $R.rf.readout -side left -fill both -expand 1
     pack propagate $R.rf 0
-    pack $R.rf -side top -fill x
+    # (placed before the plots: in a window too short for both, the plot
+    # is the one made shorter)
+    pack $R.rf -side bottom -fill x -before $nb
     trace add variable ::VMDance::GUI::S(readout) write ::VMDance::GUI::_readout
     bind $R.rf <Configure> ::VMDance::GUI::_readout
     _readout
@@ -1680,7 +2171,25 @@ proc ::VMDance::GUI::_readout {args} {
     set l $w.pw.right.rf.readout
     if {![winfo exists $l]} { set S(readout_shown) $S(readout); return }
     set room [expr {[winfo width $w.pw.right.rf] - 14}]
-    set S(readout_shown) [expr {$room > 40 ? [::VMDance::Plot::elide MdvUISmall $room $S(readout)] : $S(readout)}]
+    if {$room <= 40} { set S(readout_shown) $S(readout); return }
+    set S(readout_shown) [_two_lines MdvUISmall $room $S(readout)]
+}
+# A text on two lines of a width at most: the first ends at its last word
+# that fits, the second is cut, ending in "…".
+proc ::VMDance::GUI::_two_lines {font room text} {
+    if {[string first \n $text] >= 0 || [font measure $font $text] <= $room} {
+        return [join [lmap l [lrange [split $text \n] 0 1] {::VMDance::Plot::elide $font $room $l}] \n]
+    }
+    set at -1
+    set i 0
+    while {[set i [string first " " $text $i]] >= 0} {
+        if {[font measure $font [string range $text 0 [expr {$i - 1}]]] > $room} break
+        set at $i
+        incr i
+    }
+    # (a first word longer than the line: cut as one line)
+    if {$at < 0} { return [::VMDance::Plot::elide $font $room $text] }
+    return "[string range $text 0 [expr {$at - 1}]]\n[::VMDance::Plot::elide $font $room [string trimleft [string range $text $at end]]]"
 }
 
 # Only the selected plot tab shows its name; the others show their icon.
@@ -1712,6 +2221,28 @@ proc ::VMDance::GUI::_hint {key} {
     dict get $hints $key
 }
 
+# The plots' tabs show an icon alone, but for the one in front: each says
+# its name and what it shows when the pointer rests on it.
+proc ::VMDance::GUI::_tab_tips {} {
+    variable w; variable tab_tip ""
+    set nb $w.pw.right.nb
+    bind $nb <Motion> {::VMDance::GUI::_tab_tip %W %x %y}
+    bind $nb <Leave> {::VMDance::Tip::_hide; set ::VMDance::GUI::tab_tip ""}
+    bind $nb <ButtonPress> {+::VMDance::Tip::_hide}
+}
+proc ::VMDance::GUI::_tab_tip {nb x y} {
+    variable tab_tip; variable tabs; variable hints
+    set i ""
+    catch {set i [$nb index @$x,$y]}
+    if {$i eq $tab_tip} return
+    set tab_tip $i
+    ::VMDance::Tip::_hide
+    if {$i eq ""} return
+    set key [lindex [dict keys $tabs] $i]
+    set ::VMDance::Tip::text($nb) "[dict get $tabs $key]: [string trim [lindex [split [dict get $hints $key] ·] 0]]"
+    ::VMDance::Tip::_arm $nb [expr {[winfo rootx $nb] + $x + 4}] [expr {[winfo rooty $nb] + $y + 22}]
+}
+
 # Option row above each plot (without the Plot options panel).
 proc ::VMDance::GUI::_build_tab_opts {key o} {
     set V ::VMDance::GUI::S
@@ -1732,13 +2263,18 @@ proc ::VMDance::GUI::_build_tab_opts {key o} {
         }
         timeline {
             ttk::label $o.l1 -text "Show"
-            _combo $o.s ${V}(tl_view) {lanes "The cluster of every frame" msd "Distance to its representative"}
-            pack $o.l1 $o.s -side left -padx {0 6}
+            _combo $o.s ${V}(tl_view) {lanes "The cluster of every frame" shares "Each cluster's share, window by window" cumulative "Each cluster's share so far" msd "Distance to its representative"}
+            ttk::label $o.l2 -text "A frame:"
+            ttk::entry $o.t -width 7 -textvariable ${V}(plot_time)
+            foreach ev {<Return> <FocusOut>} { bind $o.t $ev [list ::VMDance::GUI::_opt_entry plot_time] }
+            ::VMDance::Tip::add $o.t "The time between two frames of the molecule, with its unit (0.1 ns, 2 ps):\nthe Timeline and the Residence then read in time. Empty: frames."
+            pack $o.l1 $o.s $o.l2 $o.t -side left -padx {0 6}
         }
         map {
             ttk::label $o.l1 -text "Colour by"
             _combo $o.s ${V}(mp_colour) {group "Group" cluster "Cluster"}
-            pack $o.l1 $o.s -side left -padx {0 6}
+            ttk::checkbutton $o.r -text "Representatives" -variable ${V}(mp_reps) -command ::VMDance::GUI::redraw
+            pack $o.l1 $o.s $o.r -side left -padx {0 6}
         }
         profiles {
             ttk::label $o.l1 -text "Show"
@@ -1753,7 +2289,7 @@ proc ::VMDance::GUI::_build_tab_opts {key o} {
         }
         residence {
             ttk::label $o.l1 -text "Show"
-            _combo $o.s ${V}(rs_show) {mean "Mean stay (whisker: the longest)" visits "Visits"}
+            _combo $o.s ${V}(rs_show) {mean "Mean stay (and the longest)" visits "Visits"}
             pack $o.l1 $o.s -side left -padx {0 6}
         }
         compactness {
@@ -1773,13 +2309,15 @@ proc ::VMDance::GUI::_build_tab_opts {key o} {
             pack $o.l1 $o.v $o.l -side left -padx {0 6}
         }
         silhouette {
+            ttk::label $o.l1 -text "From"
+            _combo $o.k ${V}(sl_kind) {centroid "The clusters' mean structures" pairs "Every frame (squared distances)"}
             ttk::checkbutton $o.s -text "Sorted" -variable ${V}(sl_sort) -command ::VMDance::GUI::redraw
             ttk::checkbutton $o.m -text "Mean" -variable ${V}(sl_mean) -command ::VMDance::GUI::redraw
-            pack $o.s $o.m -side left -padx {0 6}
+            pack $o.l1 $o.k $o.s $o.m -side left -padx {0 6}
         }
         elbow {
             ttk::label $o.l1 -text "Scores"
-            _combo $o.s ${V}(eb_show) {both "Both" ch "Calinski–Harabasz" db "Davies–Bouldin"}
+            _combo $o.s ${V}(eb_show) {both "Both scores" ch "Calinski–Harabasz" db "Davies–Bouldin" explained "Variance explained"}
             pack $o.l1 $o.s -side left -padx {0 6}
         }
         sweep {
@@ -1797,20 +2335,60 @@ proc ::VMDance::GUI::_build_tab_opts {key o} {
 proc ::VMDance::GUI::refresh_molecules {} {
     variable S; variable molcombo
     set ch [::VMDance::Mol::choices]
-    set vals [dict values $ch]
-    if {$molcombo ne "" && [winfo exists $molcombo]} { $molcombo configure -values $vals }
+    set full $ch
+    # (a long name is cut in its middle, to the chooser's width: its
+    # number and its frames stay, and the tooltip has the whole of it)
+    set have [expr {$molcombo ne "" && [winfo exists $molcombo]}]
+    if {$have} {
+        set room [expr {max([winfo width $molcombo], [winfo reqwidth $molcombo]) - 2 * [font measure MdvUI 0] - 14}]
+        dict for {m label} $ch { dict set ch $m [_elide_middle MdvUI $room $label] }
+        $molcombo configure -values [dict values $ch]
+    }
     if {$S(molid) >= 0 && ![dict exists $ch $S(molid)]} { set S(molid) -1 }
     if {$S(molid) < 0 && [dict size $ch]} {
         set top [molinfo top]
         set S(molid) [expr {[dict exists $ch $top] ? $top : [lindex [dict keys $ch] 0]}]
     }
-    set S(molname) [expr {$S(molid) >= 0 ? [dict get $ch $S(molid)] : ""}]
+    set name ""
+    if {$S(molid) >= 0} { set name [dict get $ch $S(molid)] }
+    set S(molname) $name
+    if {$have} {
+        set tip "The molecule whose frames are clustered"
+        if {$S(molid) >= 0} { set tip "[dict get $full $S(molid)]\n$tip" }
+        if {![info exists ::VMDance::Tip::text($molcombo)]} { ::VMDance::Tip::add $molcombo $tip }
+        set ::VMDance::Tip::text($molcombo) $tip
+    }
+}
+# A molecule's line ("3: name (100 frames)") no wider than room: the
+# middle of a name too long for it left out ("…"), its start, its end and
+# what follows it kept.
+proc ::VMDance::GUI::_elide_middle {font room text} {
+    if {[font measure $font $text] <= $room} { return $text }
+    if {![regexp {^(\d+: )(.*)( \(\d+ frames?\))$} $text -> head name tail]} { return [::VMDance::Plot::elide $font $room $text] }
+    set n [string length $name]
+    for {set keep [expr {$n - 1}]} {$keep > 1} {incr keep -1} {
+        set a [expr {($keep + 1) / 2}]
+        set cut "[string range $name 0 [expr {$a - 1}]]…[string range $name [expr {$n - ($keep - $a)}] end]"
+        if {[font measure $font $head$cut$tail] <= $room} { return $head$cut$tail }
+    }
+    return "$head…$tail"
 }
 
+# (a range of frames is of the molecule it was typed for: another molecule
+# starts from all its frames again)
 proc ::VMDance::GUI::_mol_chosen {} {
     variable S
+    set before $S(molid)
     set S(molid) [lindex [split $S(molname) :] 0]
-    status "Molecule $S(molid): [molinfo $S(molid) get numatoms] atoms, [molinfo $S(molid) get numframes] frames."
+    set msg "Molecule $S(molid): [molinfo $S(molid) get numatoms] atoms, [molinfo $S(molid) get numframes] frames."
+    if {$S(molid) ne $before && $S(framemode) eq "range"} {
+        append msg " Frames: all of them again (the range $S(first) to $S(last) was molecule $before's)."
+        set S(framemode) all
+        set S(first) 0
+        set S(last) -1
+        _frames_changed
+    }
+    status $msg
     _count_later
 }
 
@@ -1866,7 +2444,7 @@ proc ::VMDance::GUI::request {} {
 proc ::VMDance::GUI::_error {msg {parent ""}} {
     variable w
     if {$parent eq ""} { set parent $w }
-    tk_messageBox -parent $parent -icon error -title VMDance -message $msg
+    tk_messageBox -parent $parent -icon error -title VMDance -message [_fields $msg]
 }
 
 # Start a job: kind, the checked request, what the status says, and what
@@ -2046,8 +2624,108 @@ proc ::VMDance::GUI::groups_set {} {
     if {[string trim $S(gp_ranges)] eq ""} { _error "Give each group a name and its frames: original 0-63 moderate 64-127"; return }
     if {[catch {::VMDance::Results::groups_from ranges [string trim $S(gp_ranges)] [::VMDance::Results::frames]} g] ||
         [catch {::VMDance::Results::set_groups [::VMDance::Results::keep_colours $g]} g]} { _error "No groups:\n$g"; return }
+    variable gp_set [string trim $S(gp_ranges)]
     status "Groups: [join [::VMDance::Results::group_names] {, }]."
     show_tab makeup
+}
+# The clustered frames in n blocks, a group each (Halves: 2).
+proc ::VMDance::GUI::groups_blocks {n} {
+    variable S
+    if {[busy]} return
+    if {![::VMDance::Results::has_data]} { _error "Cluster first: the groups are given to the clustered frames."; return }
+    if {[catch {::VMDance::block_ranges $n} r]} { _error "No groups:\n$r"; return }
+    set S(gp_ranges) $r
+    groups_set
+}
+proc ::VMDance::GUI::groups_blocks_ask {} {
+    if {[busy]} return
+    if {![::VMDance::Results::has_data]} { _error "Cluster first: the groups are given to the clustered frames."; return }
+    set n [_ask "Blocks of frames" "Cut the clustered frames in how many blocks?" 3]
+    if {$n ne ""} { groups_blocks [string trim $n] }
+}
+# The profiles' reference cluster, by name: the chooser's values, what it
+# shows of S(pf_reference) (-1: the largest), and a choice of it.
+proc ::VMDance::GUI::_ref_values {cb} {
+    set v [list "the largest"]
+    if {[::VMDance::Results::has_data]} {
+        for {set c 0} {$c < min(1000, [::VMDance::Results::nclusters])} {incr c} { lappend v "cluster $c" }
+    }
+    $cb configure -values $v
+}
+proc ::VMDance::GUI::_ref_sync {cb args} {
+    variable S
+    if {![winfo exists $cb]} {
+        trace remove variable ::VMDance::GUI::S(pf_reference) write [list ::VMDance::GUI::_ref_sync $cb]
+        return
+    }
+    $cb set [expr {[::VMDance::whole $S(pf_reference)] ? "cluster $S(pf_reference)" : "the largest"}]
+}
+proc ::VMDance::GUI::_ref_chosen {cb} {
+    variable S
+    set v [$cb get]
+    set S(pf_reference) [expr {[regexp {^cluster ([0-9]+)$} $v -> c] ? $c : -1}]
+}
+# Under eQUAL's Radius: the RMSD it stands for (the radius is MDANCE's
+# MSD, half the RMSD² of two frames).
+proc ::VMDance::GUI::_eq_note {args} {
+    variable S
+    set r [string trim $S(p_equal_threshold)]
+    if {[string is double -strict $r] && ![regexp -nocase {nan|inf} $r] && $r > 0} {
+        set S(eq_note) [format "A frame joins a cluster when it is within %.3g Å (RMSD) of its seed: √(2 × radius)." [expr {sqrt(2.0 * $r)}]]
+    } else {
+        set S(eq_note) "No radius yet. It is MDANCE's MSD (Å²): half the RMSD² of two frames."
+    }
+}
+# A radius for eQUAL, and a range of them for the scan, from the distances
+# between a sample of Setup's frames (vmdance radii).
+proc ::VMDance::GUI::radii {} {
+    variable S
+    if {[busy]} return
+    if {$S(molid) < 0} { _error "Load a molecule first."; return }
+    if {[catch {::VMDance::radii_request [input_request]} q]} { _error "No radii:\n$q"; return }
+    _start radii $q "The distances between a sample of the frames" [list apply {{r} {
+        upvar #0 ::VMDance::GUI::S S
+        set pc [dict get $r percentiles]
+        set S(eb_rfrom) [dict get $r from]; set S(eb_rto) [dict get $r to]; set S(eb_rby) [dict get $r by]
+        set said ""
+        if {[string trim $S(p_equal_threshold)] eq ""} {
+            set S(p_equal_threshold) [dict get $pc 10]
+            set said " Setup's Radius: [dict get $pc 10] (a tenth of the pairs)."
+        }
+        ::VMDance::GUI::status [format "Radii from %d frames: scan %s to %s every %s (half the pairs are within %s Å², %.3g Å RMSD).%s" \
+            [dict get $r sample] [dict get $r from] [dict get $r to] [dict get $r by] [dict get $pc 50] [expr {sqrt(2.0 * [dict get $pc 50])}] $said]
+    }}]
+}
+# The current clustering with its clusters numbered by size, as a new run.
+proc ::VMDance::GUI::renumber {} {
+    if {[busy] || ![::VMDance::Results::has_data]} return
+    if {[catch {::VMDance::_api_renumber} err]} { status "[string toupper [regsub {^vmdance renumber: } $err {}] 0 0]."; return }
+    status "The clusters numbered by size, the largest 0, as run $::VMDance::Results::current (the run before keeps the backend's numbers)."
+}
+# A message of the core's with the window's names for what it names: the
+# core says the command's options ("-sel", "-last", "-percentage"), which
+# the window calls Atoms, Frames and "Seeds from %"; a line under the
+# message says which field each is. (The message itself is left as it is.)
+proc ::VMDance::GUI::_fields {msg} {
+    set names {
+        -sel "Atoms" -fit "the Fit box" -first "the first of Frames" -last "the last of Frames" -step "Every" -mol "Molecule"
+        -k "Clusters (k)" -metric "Metric" -algorithm "Algorithm"
+    }
+    # (the algorithms' parameters by their labels in Setup, the algorithm's of now first)
+    set cur [set ::VMDance::GUI::S(algorithm)]
+    foreach a [concat [list $cur] [::VMDance::Algo::all]] {
+        foreach p [::VMDance::Algo::params $a] {
+            if {![dict exists $names -[lindex $p 0]]} { dict set names -[lindex $p 0] "\"[lindex $p 4]\"" }
+        }
+    }
+    set said {}
+    foreach {all opt} [regexp -all -inline {(?:^|[\s(,:;"])(-[a-z][a-z-]*[a-z]|-k)(?=$|[\s),.:;"])} $msg] {
+        if {[dict exists $names $opt] && $opt ni [dict keys $said]} { dict set said $opt [dict get $names $opt] }
+    }
+    if {![dict size $said]} { return $msg }
+    set l {}
+    dict for {opt name} $said { lappend l "$opt is $name" }
+    return "$msg\n\nIn the window: [join $l {; }]."
 }
 proc ::VMDance::GUI::groups_file_dialog {} {
     variable w
@@ -2070,9 +2748,16 @@ proc ::VMDance::GUI::_groups_info {} {
     set gi [expr {[::VMDance::Results::has_data] ? [::VMDance::groups_info] : {}}]
     if {![dict size $gi]} {
         set S(gp_info) [expr {[::VMDance::Results::has_data] ? "No groups for this clustering." : ""}]
+        # (the ranges set for another run's frames, left in the box beside
+        # "No groups": taken out, unless they were edited since)
+        variable gp_set
+        if {[info exists gp_set] && [string trim $S(gp_ranges)] eq $gp_set} { set S(gp_ranges) ""; unset gp_set }
     } else {
         set S(gp_info) [join [lmap nm [dict get $gi names] n [dict get $gi sizes] {string cat "$nm: $n"}] ", "]
         if {[dict get $gi none]} { append S(gp_info) ", [dict get $gi none] in none" }
+        # (and how unlike their shares of the clusters are, in a number)
+        set words [::VMDance::groups_words]
+        if {$words ne ""} { append S(gp_info) ". [string toupper $words 0 0]." }
     }
     set parts {}
     set m [expr {[::VMDance::Results::has_data] ? [::VMDance::Results::extra map] : {}}]
@@ -2167,6 +2852,13 @@ proc ::VMDance::GUI::_job_done {kind then st result} {
         cancelled {
             # (the backend stopped from outside says how)
             if {$result ne ""} { status "Cancelled: $result; what was there is kept." } else { status "Cancelled; what was there is kept." }
+            # (an elbow scan's values scanned before the cancel: kept as the scan)
+            set p $::VMDance::Job::partial
+            if {$kind eq "elbow" && [dict size $p] && ![catch {::VMDance::Results::set_elbow $p}]} {
+                set xs [lmap r [dict get $p records] {::VMDance::Results::scan_x $r}]
+                status "Cancelled: the [llength $xs] values scanned before, [lindex $xs 0] to [lindex $xs end], are kept as the scan."
+                show_tab elbow
+            }
         }
         error {
             status "Failed; what was there is kept."
@@ -2354,8 +3046,16 @@ proc ::VMDance::GUI::_sync_setup {} {
     set S(fit) [expr {[dict get $q fit] ne ""}]
     if {$S(fit)} { set S(fitsel) [dict get $q fit] }
     set S(step) [dict get $q step]
-    if {[dict get $q first] == 0 && [dict get $q last] == -1} {
+    # (a run of every frame is "All frames", its last written -1 or as the
+    # number a scan's or a session's record holds: a range left in Setup
+    # was kept for the next molecule chosen, and clustered part of it)
+    set m [dict get $q mol]
+    set whole [expr {[dict get $q last] == -1
+        || ([::VMDance::Mol::exists $m] && [dict get $q last] == [molinfo $m get numframes] - 1)}]
+    if {[dict get $q first] == 0 && $whole} {
         set S(framemode) all
+        set S(first) 0
+        set S(last) -1
     } else {
         set S(framemode) range
         set S(first) [dict get $q first]
@@ -2427,6 +3127,8 @@ proc ::VMDance::GUI::switch_run {id} {
     variable S
     if {[busy]} { set S(run_menu) $::VMDance::Results::current; return }
     ::VMDance::Results::run_switch $id
+    # (the status line was the run's before, and read as this one's)
+    status "Run $id: [::VMDance::_summary]."
 }
 proc ::VMDance::GUI::rename_run {} {
     if {[busy] || ![::VMDance::Results::has_data]} return
@@ -2508,8 +3210,17 @@ proc ::VMDance::GUI::populate_tree {} {
     set col [dict get {cluster 0 frames 1 pct 2 msd 3 spread 4 rep 5} $S(sortcol)]
     set keyed [lmap r $rows {list [lindex $r 0] [expr {[lindex $r $col] eq "" ? -1e300 : [lindex $r $col]}] $r}]
     set rows [lmap p [lsort -real -index 1 [expr {$S(sortdir) > 0 ? "-increasing" : "-decreasing"}] $keyed] {lindex $p 2}]
+    # (the two distances with their unit: squared, or as lengths: Plot
+    # options ▸ Distances as)
+    set roots [::VMDance::Plots::_roots]
+    set was [$tree heading msd -text]
+    $tree heading msd -text [expr {$roots ? "√MSD (Å)" : "MSD (Å²)"}]
+    $tree heading spread -text [expr {$roots ? "To rep. (Å)" : "To rep. (Å²)"}]
+    # (other headings: the columns as wide as they are now)
+    if {$was ne [$tree heading msd -text]} { after idle ::VMDance::GUI::_tables_fit }
     foreach r $rows {
         lassign $r c n pct msd spread rep
+        set msd [::VMDance::Plots::_len $msd]; set spread [::VMDance::Plots::_len $spread]
         $tree insert {} end -id c$c -tags c$c -values [list $c $n $pct \
             [expr {$msd eq "" ? "n/a" : [format %.4g $msd]}] [expr {$spread eq "" ? "n/a" : [format %.4g $spread]}] \
             [expr {$rep < 0 ? "–" : $rep}]]
@@ -2526,13 +3237,18 @@ proc ::VMDance::GUI::_summary {} {
     set q [dict get $a request]
     set nf [llength [dict get $a frames]]
     set k [dict get $a nclusters]
-    set s "[::VMDance::Algo::label [dict get $q algorithm]][expr {[dict get $q k] ne "" ? ", k [dict get $q k]" : ""}] of $nf frames × [dict get $a natoms] atoms: $k cluster[expr {$k == 1 ? "" : "s"}]"
+    set fit [expr {[dict get $q fit] ne "" ? ", fitted on [dict get $q fit]" : ", not fitted"}]
+    set s "[::VMDance::Algo::label [dict get $q algorithm]][expr {[dict get $q k] ne "" ? ", k [dict get $q k]" : ""}] of $nf frames × [dict get $a natoms] atoms$fit: $k cluster[expr {$k == 1 ? "" : "s"}][::VMDance::_empties]"
     set n [::VMDance::Results::noise]
     if {$n} { append s ", $n noise frame[expr {$n == 1 ? "" : "s"}]" }
     # (the only text of a run opened from a session, or switched to)
     set why [::VMDance::_fewer]
     if {$why ne ""} { append s " — $why" }
-    append s ". Calinski–Harabasz [::VMDance::Plots::_sc [dict get $a ch]] (higher: better), Davies–Bouldin [::VMDance::Plots::_sc [dict get $a db]] (lower: better)."
+    if {[dict get $a ch] eq "" && [dict get $a db] eq "" && $k - [llength [::VMDance::Results::empty_clusters]] < 2} {
+        append s ". No scores: they compare clusters, and need two with frames."
+    } else {
+        append s ". Calinski–Harabasz [::VMDance::Plots::_sc [dict get $a ch]] (higher: better), Davies–Bouldin [::VMDance::Plots::_sc [dict get $a db]] (lower: better)."
+    }
     set S(summary) $s
 }
 
@@ -2550,7 +3266,7 @@ proc ::VMDance::GUI::_details {} {
     set c [lindex $sel 0]
     # (the command refuses while a job runs; the window only reads)
     if {[catch {::VMDance::cluster_info $c} d]} { set S(detail) ""; return }
-    set S(detail) [format "Cluster %d: %d frames (%s%%), representative frame %s; mean silhouette %s; %d visit%s, %s clustered frames on average, the longest %d." \
+    set S(detail) [format "Cluster %d: %d frames (%s%%), representative frame %s; mean silhouette %s; entered %d time%s, staying %s clustered frames on average, %d at most." \
         $c [dict get $d frames] [dict get $d percent] [dict get $d representative] \
         [expr {[dict get $d silhouette] eq "" ? "n/a" : [dict get $d silhouette]}] [dict get $d visits] \
         [expr {[dict get $d visits] == 1 ? "" : "s"}] [dict get $d mean_residence] [dict get $d longest_residence]]
@@ -2628,6 +3344,9 @@ proc ::VMDance::GUI::_elbow_info {} {
     set at "k = [lindex $ks 0] to [lindex $ks end]"
     if {[::VMDance::Results::by_radius $e]} { set ks [dict get $q radii]; set at "radius [lindex $ks 0] to [lindex $ks end]" }
     set S(eb_info) "Last scan: [::VMDance::Algo::label [dict get $q algorithm]] at $at ([llength $ks] values), in [dict get $e seconds] s."
+    # (what it points to, each criterion its own: they need not agree)
+    set words [::VMDance::_elbow_words $e]
+    if {$words ne ""} { append S(eb_info) " [string toupper $words 0 0]." }
 }
 
 # What a sweep found, for the status line.
@@ -2766,6 +3485,13 @@ proc ::VMDance::GUI::redraw {} {
     if {[info exists redraw_idle]} { after cancel $redraw_idle }
     incr redraws
     _colours_check
+    # (the table shows its distances as the plots do)
+    variable len_seen
+    if {![info exists len_seen] || $len_seen ne $::VMDance::GUI::S(plot_len)} {
+        set first [expr {![info exists len_seen]}]
+        set len_seen $::VMDance::GUI::S(plot_len)
+        if {!$first} { populate_tree }
+    }
     set key [_current_tab]
     set c $w.pw.right.nb.$key.c
     # (the Tree's leaf labels: of the tree, not of its heights)
@@ -2920,7 +3646,16 @@ proc ::VMDance::GUI::_draw_status {} {
         } elseif {$S(v3d_overlay) && $S(v3d_mode) eq "top" && ![llength [::VMDance::Results::selected]]} {
             lappend parts "the overlay shows the selected clusters: select one (the table or a plot)"
         } else {
-            lappend parts "drawn in molecule $m's representations of the plugin"
+            set what {}
+            if {$S(v3d_colour)} { lappend what "the structure in its frame's cluster's colour" }
+            if {$S(v3d_reps)} { lappend what "every cluster's representative" }
+            if {$S(v3d_overlay)} {
+                set sel [::VMDance::Results::selected]
+                lappend what [expr {$S(v3d_mode) eq "frames" ? "the frames typed, overlaid" :
+                    "cluster[expr {[llength $sel] == 1 ? "" : "s"}] [join $sel {, }]: the [string trim $S(v3d_top)] frames nearest [expr {[llength $sel] == 1 ? "its representative" : "each representative"}], overlaid"}]
+                if {$S(v3d_reps)} { lappend what "(untick the representatives to see the overlay alone)" }
+            }
+            lappend parts "[join $what {; }] — in representations of the plugin's own, on molecule $m"
         }
     }
     if {$S(v3d_picks)} {
@@ -3002,8 +3737,11 @@ proc ::VMDance::GUI::settings_dialog {} {
     toplevel $d
     wm title $d "VMDance settings"
     wm transient $d $w
-    set f [ttk::frame $d.f -padding 12]
-    pack $f -fill both -expand 1
+    # (the sections scroll when the screen is too short for them at this
+    # text size; OK and Cancel stay under them)
+    set f [_dialog_body $d]
+    # (the notes wrap at a width that follows the text, within the screen)
+    set wl [expr {min(47 * [font measure MdvUI 0], [lindex [_screen] 0] - 140)}]
     set B [_section $f.bk "Backend (CPP-MDANCE)" -padding {8 6}]
     pack ${B}_sec -side top -fill x
     _combo $B.mode ::VMDance::GUI::E(mode) {auto "The program if found, else the library" cli "The program (mdance-cli)" library "The library (in VMD)"} {::VMDance::GUI::_settings_backend}
@@ -3020,7 +3758,12 @@ proc ::VMDance::GUI::settings_dialog {} {
     pack $lf.e -side left -fill x -expand 1
     pack $lf.b -side left
     _row $B 2 "Library" $lf "mdance_tcl[info sharedlibextension] (empty: MDANCE_LIB, the plugin's folder, a CPP-MDANCE build beside the plugin)"
-    ttk::label $B.st -style Muted.TLabel -wraplength 420 -justify left
+    # (a path shows its end, and its tooltip the whole of it; Return tries it)
+    foreach e [list $cf.e $lf.e] {
+        _path_field $e $::VMDance::Tip::text([winfo parent $e])
+        bind $e <Return> {::VMDance::GUI::_settings_backend; break}
+    }
+    ttk::label $B.st -style Muted.TLabel -wraplength $wl -justify left
     grid $B.st -row 3 -column 0 -columnspan 2 -sticky w -pady {4 0}
     ttk::button $B.det -text "Detect again" -command ::VMDance::GUI::_settings_backend
     grid $B.det -row 4 -column 0 -columnspan 2 -sticky w -pady {4 0}
@@ -3030,7 +3773,7 @@ proc ::VMDance::GUI::settings_dialog {} {
     ttk::checkbutton $C.unlock -text "Unlock the metrics (MSD only otherwise)" -variable ::VMDance::GUI::E(unlock)
     grid $C.unlock -row 0 -column 0 -sticky w
     ttk::label $C.n -text "The mean square deviation is the metric of Cartesian coordinates. The other ten indices are binary or extended similarities, for fingerprint-like data." \
-        -style Muted.TLabel -wraplength 420 -justify left
+        -style Muted.TLabel -wraplength $wl -justify left
     grid $C.n -row 1 -column 0 -sticky w
     set A [_section $f.app "Appearance" -padding {8 6}]
     pack ${A}_sec -side top -fill x -pady {10 0}
@@ -3040,7 +3783,7 @@ proc ::VMDance::GUI::settings_dialog {} {
     set wn {}
     foreach {k v} $window_names { lappend wn $k $v }
     _combo $A.win ::VMDance::GUI::E(win) $wn {#}
-    _row $A 1 "Window" $A.win
+    _row $A 1 "Window" $A.win "The size the window opens at, which follows the text size. Compact: as narrow as its panels allow, the longer left pages scroll. Large: tall enough for every page, where the screen has room. It can be made smaller: down to what a plot needs."
     set tn {}
     foreach k [::VMDance::Theme::available] { lappend tn $k [::VMDance::Theme::label $k] }
     _combo $A.th ::VMDance::GUI::E(theme) $tn {#}
@@ -3049,17 +3792,17 @@ proc ::VMDance::GUI::settings_dialog {} {
     set X [_section $f.prog "Programs" -padding {8 6}]
     pack ${X}_sec -side top -fill x -pady {10 0}
     set gs [::VMDance::Figures::ghostscript]
-    ttk::label $X.gs -text [expr {$gs eq "" ? "Ghostscript: not found (figures: EPS only)" : "Ghostscript: $gs (figures in PDF and PNG)"}] -style Muted.TLabel
+    ttk::label $X.gs -text [expr {$gs eq "" ? "Ghostscript: not found (figures: EPS only)" : "Ghostscript: $gs (figures in PDF and PNG)"}] -style Muted.TLabel \
+        -wraplength $wl -justify left
     grid $X.gs -row 0 -column 0 -sticky w
-    set b [ttk::frame $f.b]
-    pack $b -side top -fill x -pady {12 0}
+    set b $d.f.b
     ttk::button $b.ok -text "OK" -command ::VMDance::GUI::_settings_apply
     ttk::button $b.cancel -text "Cancel" -command ::VMDance::GUI::_settings_cancel
     pack $b.cancel $b.ok -side right -padx {6 0}
-    ::VMDance::Theme::style_tree $d
     bind $d <Escape> ::VMDance::GUI::_settings_cancel
     wm protocol $d WM_DELETE_WINDOW ::VMDance::GUI::_settings_cancel
     _settings_status
+    _dialog_ready $d $b.ok
 }
 # (a backend tried in the dialog was never applied: Cancel has nothing to
 # put back, even while a job runs)
@@ -3085,20 +3828,32 @@ proc ::VMDance::GUI::_settings_backend {} {
 # status).
 proc ::VMDance::GUI::_settings_status {{err ""} {s ""}} {
     variable w
-    set l $w.settings.f.bk.st
+    set l $w.settings.f.c.p.bk.st
     if {![winfo exists $l]} return
-    if {$err ne ""} { $l configure -text "Not usable: $err"; return }
+    if {$err ne ""} { _settings_says $l "Not usable: $err"; return }
     set now [::VMDance::Backend::status]
     if {$s eq ""} { set s $now }
     if {[dict get $s error] ne ""} {
-        $l configure -text "No backend: [dict get $s error]"
+        _settings_says $l "No backend: [dict get $s error]"
         return
     }
     lassign [dict get $s using] kind path
     set t "[expr {[dict get $s using] eq [dict get $now using] ? "In use" : "On OK"}]: the [expr {$kind eq "cli" ? "program" : "library"}] $path\nAlgorithms: [join [lmap a [dict get $s algorithms] {::VMDance::Algo::label $a}] {, }]"
     # (a program slow to start: its algorithms are not known)
     if {[dict get $s note] ne ""} { append t "\n[dict get $s note]." }
-    $l configure -text $t
+    _settings_says $l $t
+}
+# The backend's line: wrapped at the notes' width, or at its longest word
+# when that is wider (a path, which is then on a line of its own, whole:
+# it was cut in the middle of a folder's name), within the screen.
+proc ::VMDance::GUI::_settings_says {l text} {
+    set wl [expr {47 * [font measure MdvUI 0]}]
+    foreach word [split $text " \n"] { set wl [expr {max($wl, [font measure MdvUISmall $word] + 2)}] }
+    set wl [expr {min($wl, [lindex [_screen] 0] - 140)}]
+    $l configure -text $text
+    # (and the dialog's other notes with it)
+    set p [winfo parent [winfo parent $l]]
+    foreach n [list $l $p.cl.n $p.prog.gs] { if {[winfo exists $n]} { $n configure -wraplength $wl } }
 }
 # OK: everything is checked before anything is kept, so that a mistake
 # leaves the settings as they were (a job running refuses the backend's
@@ -3133,14 +3888,20 @@ proc ::VMDance::GUI::help {} {
     foreach {tag txt} {
         h "What it does\n"
         {} "VMDance clusters the frames of a trajectory with MDANCE's algorithms (KMeans NANI, DIVINE, HELM, eQUAL, run by CPP-MDANCE), and shows the clusters: how many frames each holds, when the trajectory visits it, how it moves between them, how tight and how far apart they are, their representative structures. PRIME predicts the native-like frame; the extended similarity (iSIM) measures each cluster; frames can be picked without clustering.\n"
+        h "First\n"
+        {} "Load a trajectory in VMD (a structure, then its frames). The molecule appears in Setup with its atoms and frames.\n"
         h "Cluster\n"
-        {} "Setup: the molecule, the atoms (the same in every frame; Cα atoms by default), the frames and every n-th; optionally a fit to the first frame. Choose the algorithm and its parameters, and press Cluster. The clustering runs in the background; Cancel stops it and keeps what was there (with the library, VMD waits until each clustering ends, and Cancel acts then). Every clustering is kept as a run (Results ▸ Run).\n"
+        {} "Setup: the molecule, the atoms (the same in every frame; Cα atoms by default), the frames and every n-th; optionally a fit to the first frame — the note under it says whether the frames look superposed already. Choose the algorithm and its parameters, and press Cluster. The clustering runs in the background; Cancel stops it and keeps what was there (with the library, VMD waits until each clustering ends, and Cancel acts then). Every clustering is kept as a run (Results ▸ Run).\n"
         h "Explore\n"
         {} "Results: the table of clusters (frames, share, the mean square deviation within, from the representative, the representative's frame); click a heading to sort. Selecting clusters there or in a plot shows them on top everywhere, and the 3D tab can overlay their frames. Double-click a cluster to go to its representative.\n"
         h "Plots\n"
-        {} "Populations: frames per cluster. Timeline: the cluster of every frame. Transitions: from one cluster to the next. Residence: how long the trajectory stays. Compactness: how tight each cluster is. Distances: between the clusters. Tree: how they join (HELM's merges, or average linkage). Silhouette: how well each frame sits in its cluster. Elbow and Sweep: the scans' scores. The Plot options panel (toolbar, right) holds every setting of a plot.\n"
-        h "Scans and tools\n"
-        {} "Scans ▸ Elbow clusters at every k of a range with the Setup's algorithm; Scans ▸ Sweep runs every combination of algorithms, k, metrics and seedings; double-click one to make it the clustering. Tools ▸ PRIME, Similarity, Pick frames.\n"
+        {} "Populations: frames per cluster. Make-up: each cluster's frames by group. Timeline: where the trajectory is, frame by frame, or each cluster's share along it. Transitions: from one cluster to the next. Residence: how long the trajectory stays. Compactness: how tight each cluster is. Distances: between the clusters. Tree: how they join (HELM's merges, or average linkage). Silhouette: how well each frame sits in its cluster. Map: the frames on their two main directions of motion. Profiles: residue by residue, what moves and what differs. Elbow and Sweep: the scans' scores. A tab says its name when the pointer rests on it. The Plot options panel (toolbar, right) holds every setting of a plot: the time between two frames (the axes then read in ns), distances in Å or Å².\n"
+        h "How many clusters\n"
+        {} "Scans ▸ Elbow clusters at every k of a range with the Setup's algorithm (eQUAL: at every radius; Suggest proposes them). The Elbow plot rings where the scores point: Davies–Bouldin's lowest value and its sharpest dip (MDANCE's two criteria), Calinski–Harabasz's highest. With Stability, each k is clustered from four seedings: a k whose clusters they agree on (near 1) is reproducible. The criteria need not agree: the Map shows whether the frames gather in groups at all. Double-click a k to make it the clustering. Scans ▸ Sweep runs every combination of algorithms, k, metrics and seedings.\n"
+        h "Compare parts of the frames\n"
+        {} "Results ▸ Groups: say where the frames came from — Halves, Blocks, or names and frames typed (first 0-2999 second 3000-6000), for replicas, conditions or methods. Make-up then shows each cluster's frames by group, and the line under the box how unlike the groups are; Map and Profiles colour by them.\n"
+        h "Tools\n"
+        {} "Tools ▸ PRIME, Similarity, Pick frames.\n"
         h "3D\n"
         {} "The 3D tab colours the structure by the cluster of VMD's current frame (it follows the trajectory), draws every representative, or overlays the selected clusters' frames nearest their representative, in the clusters' colours — representations of the plugin's own.\n"
         h "Files\n"
@@ -3219,6 +3980,7 @@ proc ::VMDance::GUI::_state_ok {k v} {
         mp_sample { return [expr {[::VMDance::whole $v] && $v >= 2 && $v <= 5000}] }
         pf_reference { return [expr {$v eq "-1" || ([::VMDance::whole $v] && $v <= 999999)}] }
         eb_info - mp_info - pf_info { return 0 }
+        plot_time { return [::VMDance::Plots::time_ok $v] }
     }
     foreach spec [concat {*}[dict values $optspec] $optall] {
         lassign $spec kind key label a b

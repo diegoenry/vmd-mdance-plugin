@@ -118,8 +118,15 @@ docs/internals.rst describe it.
   2026-11-09 (after the review round; every text-mode suite through
   tests/strict.tcl), with f9adb24 (DIVINE): reference 61 (2 skips), h1 71,
   groups 118, gui 220, the others unchanged (1390 in 22 suites); with
-  f1d3d87, reference 33 (3 skips). End to end: `DISPLAY=:9 sh
-  tests/e2e/run_e2e.sh` (42, 15, 21, 10). Profiles:
+  f1d3d87, reference 33 (3 skips). Since the review of the window's use
+  (2026-11-09) also `tests/test_ux.tcl` (55, the real backend) and the
+  windowed `tests/test_ux_gui.tcl` (68) and `tests/test_ux_layout.tcl`
+  (72; `grep -E "FAIL|RESULT" tests/out/ux_gui.log`, `ux_layout.log`), the
+  others unchanged: 1585 in 25 suites. End to end: `DISPLAY=:9 sh
+  tests/e2e/run_e2e.sh` (42, 15, 21, 10). `~/.vmdrc` loads this folder's
+  plugin before any `-e` script: a copy or a worktree of the repository
+  is tested only with `vmd -startup <a vmdrc without those lines>`.
+  Profiles:
   `tests/profile/profile_{core,gui}.tcl` (reports in tests/out/profile).
 - Screenshots: `import -window [wm frame .vmdance] f.png` (ImageMagick)
   on display :9.
@@ -548,6 +555,46 @@ docs/internals.rst describe it.
   .obj), the `*Interactive` ones open a window that waits for a person. The
   3D figure takes snapshot and the `*Internal` ray tracers only
   (Figures::renderers).
+- A `ttk::style map` of a Treeview's `-background` (or `-foreground`)
+  with an entry for every state (`{} colour`) wins over the rows' tags
+  since Tk 8.6.9: the tables' row colours (the sweep's best rows, a
+  cluster's tint, PRIME's prediction) were set and never drawn. The map
+  names `selected` (and `disabled`) only (Theme, the Mdv Treeview).
+- A scan's record and a session's request hold the last frame as a number
+  where a clustering from Setup holds -1: Setup, which follows the run
+  shown, took that for a range (`_sync_setup`), and kept the range for the
+  next molecule chosen, which was then clustered in part. A run of every
+  frame is "All frames" whichever way its last is written, and choosing
+  another molecule puts a range back to all frames (`_mol_chosen`).
+- A plot's raster (the Timeline's lanes, the matrices) is a photo image,
+  which Tk's `postscript` writes a pixel a point: 72 dots an inch whatever
+  `-dpi`. What must be sharp in a small figure is drawn as shapes when the
+  canvas is a figure's (`Plots::_figure`: not mapped), finer than its
+  pixels. And a run of frames drawn "a pixel wide at least" fills a lane
+  wherever its cluster has one frame: with more frames than columns, a
+  column is shaded by the share of its frames (five tones).
+- K-means puts a frame in the cluster of the nearest mean: its silhouette
+  from the clusters' mean structures (`silhouette`, the simplified one) is
+  never below 0. The one from every frame (`silhouette_pairs`) is exact at
+  the same cost for squared distances: the mean squared distance from a
+  frame to a cluster's frames is its squared distance from their mean plus
+  their spread (test_ux checks it against every pair; scikit-learn's
+  `silhouette_samples(metric="sqeuclidean")` gives the same to 5e-7).
+- A note on a plot (what a mark means, what was left out) goes above its
+  area (`Plot::note`, the top margin `note_margin` high at least), never
+  on the data: the Silhouette's "mean", the heights' "circled" and the
+  Elbow's stability values were drawn over what they described.
+- A message of the core's names the command's options; the window adds a
+  line saying which field each is (`GUI::_fields`) and leaves the message
+  as it is: tests and scripts match its text.
+- Tk draws rotated text unhinted: the ring of "Å" in a vertical axis
+  title is a faint dot at 11 pt, or none. Not a clipping (the text's box
+  holds it), and right in a figure (PostScript).
+- VMD reinstalled while a VMD runs (its binary replaced on an NFS folder)
+  crashes that VMD at its next `dlopen` or symbol lookup (`_dl_map_object`
+  in the core's trace, the executable a `.nfs…` name): a suite that "crashed"
+  with no result was that, once (2026-11-09). Run it again before looking
+  for a cause in the plugin.
 
 ## State
 
@@ -594,6 +641,26 @@ HELM's merges' heights (`measures merge_msd`; the Tree's heights view),
 figures' `-text`. Three plots (Make-up, Map, Profiles: plots_groups.tcl),
 and the Results page's "Groups, map and profiles". Kept by
 tests/test_groups.tcl (118, the real backend).
+
+The window's use reviewed (branch ux-review-2026-11, 2026-11-09; the
+review, its pictures and the harness that drove the window are beside the
+repository, ../VMDance-review-2026-11-09): whether the frames look
+superposed (`alignment`; a note under Setup's Fit box, a note of the
+command's; the fit stays off by default); the Timeline's shading, its
+shares by window and so far (`timeline`); the Silhouette's second kind
+(`silhouette -kind pairs`); the Elbow's strip for the stability, its rings
+and words for what a scan suggests (`elbow suggest`: Davies–Bouldin's
+lowest value and sharpest dip, MDANCE's two criteria; Calinski–Harabasz's
+highest; the values the seedings agree on) and the variance explained
+(`Results::explained`, from CH); the groups by blocks and how unlike they
+are (`groups -blocks`, `groups compare`: the Jensen–Shannon divergence);
+the clusters numbered by size as a new run (`renumber`); a range for
+eQUAL's radius from the frames (`radii`); the plots' time per frame and
+distances as lengths (`plot_time`, `plot_len`); figures sized for a column
+or a slide, in mm (`figures -size`, `-width 85mm`); structures as the
+models of a PDB; a cancelled elbow scan's values kept (`Job::partial`);
+`help`. Kept by tests/test_ux.tcl (the command; the real backend) and
+tests/test_ux_gui.tcl and test_ux_layout.tcl (the window).
 
 The repository is the code only. The papers and the decks are kept beside
 it, in folders git ignores (`manuscripts/`, `presentation/`), each its own

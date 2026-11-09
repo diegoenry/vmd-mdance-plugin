@@ -48,7 +48,8 @@ colours. *Cluster colours ▸ VMD's* in the plot options draws the plots, the
 table and the key in VMD's colours, read from VMD as they are drawn (VMD
 tells no one of **Graphics ▸ Colors**: they follow it when the window has
 the focus again). The key lists the plots' tone and the VMD colour of each
-cluster.
+cluster. There are 29 colours: cluster 29 has cluster 0's again, in the 3D
+window as it is, in the plots lighter (cluster 58's darker).
 
 **Write the clusters to the user field** (``vmdance userfield``) puts
 every clustered frame's cluster in the atoms' user field (-1: noise and the

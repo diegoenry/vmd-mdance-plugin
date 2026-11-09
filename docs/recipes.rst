@@ -38,14 +38,18 @@ in the same shares:
 
 .. code-block:: tcl
 
-   set n [molinfo $m get numframes]
-   set b [expr {$n / 4}]
-   vmdance groups -ranges [list q1 0-[expr {$b - 1}] q2 $b-[expr {2 * $b - 1}] \
-       q3 [expr {2 * $b}]-[expr {3 * $b - 1}] q4 [expr {3 * $b}]-[expr {$n - 1}]]
-   vmdance makeup -by group
+   vmdance groups -blocks 4           ;# part1 … part4, as equal as can be (2: first, second)
+   vmdance makeup -by group           ;# each block's frames by cluster
+   vmdance groups compare             ;# how unlike the blocks are, two by two
+   vmdance timeline -windows 20       ;# each cluster's frames in 20 windows; first_seen
 
 Shares that drift from block to block, or a cluster absent from the first
-blocks, say the populations have not settled.
+blocks, say the populations have not settled. ``groups compare`` puts it
+in numbers: for every two blocks, the Jensen–Shannon divergence of their
+shares of the clusters (0: the same; 0.69: no cluster in common) and the
+cluster whose share differs most. ``timeline`` gives the clusters' frames
+window by window, and the frame each cluster is first seen at: a cluster
+first seen late is one the frames before it never reached.
 
 Many trajectories, the same analysis
 ------------------------------------
@@ -97,14 +101,22 @@ display: ``Xvfb :1 &`` and ``DISPLAY=:1 vmd -dispdev win``):
 
 .. code-block:: tcl
 
-   # a column of a paper: 3.3 in (240 points) wide at 600 dpi, 9-point text
-   # (a figure is 240 to 6000 points each way)
-   vmdance figures figs -plots {populations makeup} -width 240 -height 240 \
-       -formats {pdf png} -dpi 600 -text 9
-   # a slide: larger text
-   vmdance figures figs -plots {elbow map} -width 900 -height 560 -text 16 -prefix slide
-   # a plot as one of its views (the plot options' names)
+   # a column of a paper: 85 mm wide, 8-point text, at 600 dpi
+   vmdance figures figs -plots {populations makeup} -size column -formats {pdf png} -dpi 600
+   # the same column, another height (a length: points, or with mm, cm or in)
+   vmdance figures figs -plots {timeline} -size column -height 60mm -prefix low
+   # both columns (178 mm, 9-point text); a 16:9 slide (10 in wide, 16-point text)
+   vmdance figures figs -plots {elbow} -size two-columns -prefix full
+   vmdance figures figs -plots {elbow map} -size slide -prefix slide
+   # a plot as one of its views, in ns and Å (the plot options' names)
    vmdance figures figs -plots {tree} -options {td_view heights}
+   vmdance figures figs -plots {timeline} -options {tl_view shares plot_time "0.1 ns"}
+   vmdance figures figs -plots {compactness distances} -options {plot_len a}
+
+A figure is 160 to 6000 points (56 mm at least) each way, its text 6 to 36
+points. The red line at VMD's current frame is left out (``-cursor 1``
+draws it), and a plot that has nothing but a message to show gets no
+figure.
 
 The 3D view goes with ``vmdance figures figs -3d 1`` (VMD's renderer).
 
@@ -137,7 +149,7 @@ structure by the current frame's cluster and draws every representative.
 The representatives as structures
 ---------------------------------
 
-One PDB per cluster's representative, or each cluster's frames as a
+The representatives in one PDB, a model each, or each cluster's frames as a
 trajectory of its own, of any selection (the protein with its ligand, say):
 
 .. code-block:: tcl
@@ -145,7 +157,9 @@ trajectory of its own, of any selection (the protein with its ligand, say):
    vmdance export out -prefix c -items {representatives trajectories} -format pdb -sel "protein or resname LIG"
 
 The frames are VMD's as loaded: the fit, when the clustering had one, is
-not applied to them.
+not applied to them. In a PDB each frame is a model (``MODEL`` …
+``ENDMDL``), and a ``REMARK`` before it names its cluster and frame; VMD
+reads the file back as frames (:doc:`files`).
 
 The program or the library
 --------------------------

@@ -8,3 +8,6 @@ __pycache__/
 manuscripts/
 presentation/
 paper/
+
+# the tools' own folder (worktrees of helpers)
+.claude/

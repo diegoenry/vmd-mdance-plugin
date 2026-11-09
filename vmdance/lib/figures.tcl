@@ -11,6 +11,25 @@
 namespace eval ::VMDance::Figures {
     variable gs ""
     variable formats {eps pdf png}
+    variable skipped {}        ;# the plots the last call made no figure of: {plot why ...}
+    # sizes for where a figure goes: {width height text}, in points (72 an
+    # inch): a journal's column (85 mm), its two columns (178 mm), a 16:9
+    # slide (10 in wide); "screen": as figures were before, for a look
+    variable sizes {
+        column      {241 181 8}
+        two-columns {504 284 9}
+        slide       {720 405 16}
+        screen      {900 560 12}
+    }
+}
+
+# A length as whole points: a number of points ("241", "241pt"), or with
+# a unit, mm, cm or in ("85mm", "8.5cm", "3.35in").
+proc ::VMDance::Figures::points {what v} {
+    if {![regexp {^([0-9]+\.?[0-9]*|\.[0-9]+)(pt|mm|cm|in)?$} [string trim $v] -> n u] || [regexp {^0[0-9]} $n]} {
+        error "$what must be a number of points, or one with a unit, mm, cm or in (85mm, 8.5cm, 3.35in) (got \"$v\")"
+    }
+    expr {int(round($n * [dict get {"" 1.0 pt 1.0 mm 2.834645669 cm 28.34645669 in 72.0} $u]))}
 }
 
 # Ghostscript executable, or "" when none is found.
@@ -74,8 +93,10 @@ proc ::VMDance::Figures::_check {fmts W H dpi {gs 1}} {
         error "Ghostscript is needed for PDF and PNG output (EPS works without it)"
     }
     # (decimal numbers: expr reads 0700 as octal)
+    # (160 points: 56 mm, under a journal's column; the plots' margins
+    # leave little to draw in below it)
     foreach v [list $W $H] {
-        if {![regexp {^[1-9][0-9]{0,4}$} $v] || $v < 240 || $v > 6000} { error "a figure is 240 to 6000 points wide and high (got $W × $H)" }
+        if {![regexp {^[1-9][0-9]{0,4}$} $v] || $v < 160 || $v > 6000} { error "a figure is 160 to 6000 points (56 mm to 2.1 m) wide and high (got $W × $H points)" }
     }
     if {![regexp {^[1-9][0-9]{0,3}$} $dpi] || $dpi < 50 || $dpi > 1200} { error "the resolution must be 50 to 1200 dpi (got \"$dpi\")" }
 }
@@ -96,6 +117,14 @@ proc ::VMDance::Figures::export_plot {key base fmts W H {dpi 300} {cursor 1}} {
     ::VMDance::Fonts::plot_reference 1
     try {
         set c [render_plot $key $W $H $cursor]
+        # (a plot that has only a message to show, "No similarity yet": no
+        # figure of the message; the caller says which and why)
+        if {[info exists ::VMDance::Plot::G($c,empty)]} {
+            set why [string trim [join $::VMDance::Plot::G($c,empty) ": "] ": "]
+            destroy $c
+            ::VMDance::Plots::release_image $c
+            return -code error -errorcode {VMDANCE NOFIGURE} $why
+        }
         # the plugin's fonts as PostScript's Helvetica: Tk would name the
         # font it found (on X11 a font Ghostscript may not have)
         array unset ::VMDance::Figures::fontmap
@@ -215,18 +244,30 @@ proc ::VMDance::Figures::render_3d {file {renderer snapshot} {white 1}} {
     return $file
 }
 
-# The command: figures dir ?-plots {...}? ?-formats {pdf png}? ?-width w?
-# ?-height h? ?-dpi d? ?-prefix p? ?-cursor 0|1? ?-3d 0|1? ?-renderer r?
-# ?-text points? (the plots' text size: 12, the figures' own, by default;
-# larger for a slide or a small figure)
+# The command: figures dir ?-plots {...}? ?-formats {pdf png}? ?-size
+# column|two-columns|slide|screen? ?-width w? ?-height h? ?-dpi d? ?-prefix
+# p? ?-cursor 0|1? ?-3d 0|1? ?-renderer r? ?-text points? A size sets the
+# width, the height and the text for where the figure goes (Figures::sizes:
+# a journal's column, 85 mm with 8-point text; its two columns; a slide);
+# -width, -height (points, or with a unit: 85mm, 8.5cm, 3.35in) and -text
+# (the plots' text size, 6 to 36 points) change what it set. Without any:
+# 900 × 560 points with 12-point text, a figure for the screen. -cursor 1:
+# with the line at VMD's current frame.
 proc ::VMDance::Figures::api {dir args} {
+    variable sizes
     set what "vmdance figures"
     # (by default the plots that have something to draw)
     set have [lmap p [dict keys $::VMDance::GUI::tabs] {expr {[::VMDance::Plots::has_data $p] ? $p : [continue]}}]
-    set o [::VMDance::_opts $what [dict create -plots $have -formats {pdf png} \
-        -width 900 -height 560 -dpi 300 -prefix vmdance -cursor 1 -3d 0 -renderer auto -options {} -text 12] $args]
+    set o [::VMDance::_opts $what [dict create -plots $have -formats {pdf png} -size screen \
+        -width "" -height "" -dpi 300 -prefix vmdance -cursor 0 -3d 0 -renderer auto -options {} -text ""] $args]
+    if {![dict exists $sizes [dict get $o -size]]} { error "$what: -size must be one of [join [dict keys $sizes] {, }] (got \"[dict get $o -size]\")" }
+    lassign [dict get $sizes [dict get $o -size]] sw sh st
+    foreach {k v} [list -width $sw -height $sh] {
+        if {[dict get $o $k] eq ""} { dict set o $k $v } elseif {[catch {points "$what: $k" [dict get $o $k]} pts]} { error $pts } else { dict set o $k $pts }
+    }
+    if {[dict get $o -text] eq ""} { dict set o -text $st }
     set ts [dict get $o -text]
-    if {![regexp {^[1-9][0-9]?$} $ts] || $ts < 8 || $ts > 24} { error "$what: -text must be a whole number of points from 8 to 24 (got \"$ts\")" }
+    if {![regexp {^[1-9][0-9]?$} $ts] || $ts < 6 || $ts > 36} { error "$what: -text must be a whole number of points from 6 to 36 (got \"$ts\")" }
     # (the plots, the 3D view or both: -plots {} -3d 1 is the 3D view alone,
     # as the window renders it)
     set d3 [::VMDance::_bool "$what: -3d" [dict get $o -3d]]
@@ -269,11 +310,20 @@ proc ::VMDance::Figures::api {dir args} {
     dict for {k v} $po { dict set saved $k $::VMDance::GUI::S($k); set ::VMDance::GUI::S($k) $v }
     set ref $::VMDance::Fonts::reference
     set ::VMDance::Fonts::reference $ts
+    variable skipped {}
     try {
         foreach p [dict get $o -plots] {
             if {[catch {export_plot $p [file join $dir ${prefix}_$p] [dict get $o -formats] [dict get $o -width] [dict get $o -height] \
-                    [dict get $o -dpi] $cur} files]} { error "$what: $p: $files" }
+                    [dict get $o -dpi] $cur} files eo]} {
+                # (nothing to draw in this plot as it is set: left out, said)
+                if {[dict get $eo -errorcode] eq {VMDANCE NOFIGURE}} { lappend skipped $p $files; continue }
+                error "$what: $p: $files"
+            }
             lappend out {*}$files
+        }
+        if {[llength $skipped]} {
+            if {![llength $out] && !$d3} { error "$what: nothing to draw: [join [lmap {p why} $skipped {string cat "$p ($why)"}] {; }]" }
+            puts "VMDance) figures: no figure of [join [lmap {p why} $skipped {string cat "$p ($why)"}] {; }]"
         }
     } on error {msg opts} {
         ::VMDance::Export::_unmake $made

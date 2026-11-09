@@ -447,3 +447,65 @@ proc ::VMDance::Coords::rows {c} {
     each $c i r { lappend out $r }
     return $out
 }
+
+#---------------------------------------------------------------------------
+# Whether the frames look superposed
+#---------------------------------------------------------------------------
+
+# How far the frames are from the first, as they are and once fitted on
+# it: {as_is fitted frames atoms}, the mean RMSD (Å) of the atoms idx
+# (their indices; 300 of them at most, evenly taken) at frames (the first
+# and 20 others at most, evenly taken) from the first, as VMD has them and
+# after each is fitted on the first by those atoms. A trajectory that was
+# not aligned is far from its first frame as it is, and near it fitted.
+# (On values: VMD's coordinates and frame are not moved.)
+proc ::VMDance::Coords::alignment {m idx frames} {
+    if {[llength $idx] < 3} { error "fewer than 3 atoms" }
+    if {[llength $frames] < 2} { error "fewer than 2 frames" }
+    set idx [_evenly $idx 300]
+    set fl [concat [lrange $frames 0 0] [_evenly [lrange $frames 1 end] 20]]
+    set text [::VMDance::Mol::index_text $idx]
+    set ref [::VMDance::Mol::sel $m $text [lindex $fl 0]]
+    set cur [::VMDance::Mol::sel $m $text [lindex $fl 0]]
+    try {
+        set r0 [$ref get {x y z}]
+        set na [llength $r0]
+        # (coordinates that are not numbers, or atoms all at one place: no
+        # fit is asked of VMD, whose answer for them is not numbers either)
+        if {[regexp -nocase {nan|inf} $r0] || [regexp -nocase {nan|inf} [measure rgyr $ref]] || [measure rgyr $ref] < 1e-6} {
+            error "the first frame's coordinates cannot be fitted on"
+        }
+        set sa 0.0; set sf 0.0; set n 0
+        foreach f [lrange $fl 1 end] {
+            $cur frame $f
+            set xyz [$cur get {x y z}]
+            if {[regexp -nocase {nan|inf} $xyz] || [regexp -nocase {nan|inf} [measure rgyr $cur]] || [measure rgyr $cur] < 1e-6} {
+                error "frame $f's coordinates cannot be fitted"
+            }
+            set qa 0.0
+            foreach a $xyz b $r0 { set v [veclength [vecsub $a $b]]; set qa [expr {$qa + $v * $v}] }
+            set M [measure fit $cur $ref]
+            set qf 0.0
+            foreach a $xyz b $r0 { set v [veclength [vecsub [coordtrans $M $a] $b]]; set qf [expr {$qf + $v * $v}] }
+            set sa [expr {$sa + sqrt($qa / $na)}]; set sf [expr {$sf + sqrt($qf / $na)}]
+            incr n
+        }
+    } finally {
+        ::VMDance::Mol::free $ref $cur
+    }
+    dict create as_is [format %.4g [expr {$sa / $n}]] fitted [format %.4g [expr {$sf / $n}]] frames [expr {$n + 1}] atoms $na
+}
+# n of a list's elements at most, evenly taken (all of fewer).
+proc ::VMDance::Coords::_evenly {l n} {
+    set m [llength $l]
+    if {$m <= $n} { return $l }
+    set out {}
+    for {set i 0} {$i < $n} {incr i} { lappend out [lindex $l [expr {int($i * double($m) / $n)}]] }
+    return $out
+}
+# Whether frames that far from the first, as they are and fitted, look
+# superposed: not when a fit halves the distance and takes an ångström
+# off it.
+proc ::VMDance::Coords::superposed {as_is fitted} {
+    expr {!($as_is >= 2.0 * $fitted && $as_is - $fitted >= 1.0)}
+}

@@ -39,7 +39,9 @@ A clustering
        its starting labels (``Measure::helm_tree`` numbers the merges as
        scipy does, for the tree, the command and the export)
    * - ``measures``
-     - ``frame_msd silhouette`` (per frame), ``rep_msd centroid_msd``
+     - ``frame_msd silhouette silhouette_pairs`` (per frame; the silhouette
+       from the mean structures, and from every frame: a run made before
+       has no ``silhouette_pairs``), ``rep_msd centroid_msd``
        (k × k; ``{}``, not measured, above ``Measure::maxk``, 300 clusters)
    * - ``extras``
      - ``prime``, ``similarity``: what was asked of it (``Results::attach``)
@@ -66,8 +68,17 @@ What is read from it (``Results``)
      - one cluster
    * - ``frame_index f``, ``row_of f``, ``cluster_at f``
      - VMD frames and rows
-   * - ``table``, ``top c n``, ``residence``, ``transitions lag``, ``tree``
+   * - ``table``, ``top c n``, ``residence``, ``transitions lag``, ``tree``,
+       ``silhouette kind``, ``empty_clusters``
      - what the plots and exports read
+   * - ``elbow_suggest e``, ``explained record``
+     - what a scan points to (Davies–Bouldin's lowest value and sharpest
+       dip, Calinski–Harabasz's highest, the stable values), and the share
+       of the variance a record's clusters explain
+   * - ``renumbered a``
+     - a clustering with its clusters numbered by size: the labels, every
+       list and matrix with a row a cluster, and the per-cluster parts of
+       its extras, together
    * - ``selected``, ``set_selection cs ?set|add|toggle?``
      - the selection
    * - ``run_list``, ``run_switch``, ``run_label``, ``run_delete``, ``run_data``, ``set_runs``, ``clear_all``
@@ -92,7 +103,9 @@ value; ``Job::start kind req progress done`` runs it in a coroutine and
 calls ``done status value`` (``ok``, ``cancelled`` or ``error``; the value
 of a cancelled job is why the backend was stopped from outside, or empty);
 ``Job::cancel`` stops it. The kinds: ``cluster elbow sweep adopt import
-prime similarity pick``. ``Job::_call`` runs the backend once — the program
+prime similarity map profiles radii pick``. An elbow scan cancelled after
+two values keeps them in ``Job::partial``, a scan of its own, for its
+caller to keep (the window does). ``Job::_call`` runs the backend once — the program
 through ``Backend::start`` (``open |``, a fileevent that reads 16 KB at a
 time and pauses while more waits, the coroutine resumed when its processes
 have ended: a blocking ``close`` would wait for one that closed its output
@@ -116,7 +129,15 @@ while the molecule is unchanged (else from the file), and
 saying how far it is: Cancel stops it), then each pair of clusters once
 (for 300 clusters or fewer); ``Measure::scores`` scores HELM's clustered
 frames in two more, when it trims (a scan's every k in the same two, each
-cluster that several k have once). A frame's
+cluster that several k have once). The silhouette from every frame is
+made in the same second pass: a frame's mean squared distance from a
+cluster's frames is its squared distance from their mean structure plus
+their spread, which the first pass keeps. From the labels alone,
+``Measure::shares`` and ``first_seen`` count the clusters' frames window by
+window, and ``Measure::divergence`` compares the groups' shares of the
+clusters. ``Coords::alignment`` measures a sample of frames against the
+first, as they are and fitted (on values), and ``Coords::superposed`` is
+the rule. A frame's
 fingerprint (``Coords::_print``) is the selection's centre, radius of
 gyration, weighted centre and RMSD from the first frame (and the fit's):
 a result, a scan and the picks keep the digest of their frames'
@@ -201,7 +222,8 @@ and the clusters an earlier export of trajectories left that it deletes
 ``write_frames`` writes a DCD itself
 (each frame's unit cell, as ``dcdplugin``) and a PDB with VMD's
 ``writepdb``, frame by frame, each checked whole (``_whole``: its last
-``END``).
+``END``), then put between ``MODEL`` and ``ENDMDL`` under its ``REMARK``
+(``_pdb``: several frames, or frames with notes, are models).
 
 Where the time goes
 -------------------

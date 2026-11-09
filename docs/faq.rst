@@ -6,6 +6,10 @@ set ``MDANCE_CLI`` to its ``mdance-cli``, in ``~/.vmdrc`` (``set
 env(MDANCE_CLI) …``) or with **Settings ▸ Backend** (scripts use it too;
 in one, ``vmdance backend -mode cli -cli path``).
 
+**VMD has no Extensions menu.** VMD 2's main window has none: the plugin
+is under **Analysis ▸ VMDance** there (**Extensions ▸ Analysis ▸ VMDance**
+in VMD 1.9). ``vmdance`` in VMD's console opens it in either.
+
 **DIVINE is not offered.** Your CPP-MDANCE was built without it (a tree
 before its PR #52 of 1 October 2026, or ``BUILD_DIVINE`` off); the note
 under the algorithm says so. A program rebuilt
@@ -26,12 +30,70 @@ clusters, or seed with k-means++.
 **Should I fit the frames?** MDANCE clusters coordinates as they are: a
 trajectory aligned on the atoms that matter (the backbone, say) clusters
 shapes. If yours is not aligned, tick *Fit to the first frame*: otherwise
-frames also separate by where the molecule drifted.
+frames also separate by where the molecule drifted. The fit is off unless
+ticked; a run's summary and name say whether it was fitted.
 
-**Which k?** Scan it: **Scans ▸ Elbow**. Look for a knee in
-Calinski–Harabasz, a low Davies–Bouldin, and clusters' shares that are not
-one large cluster and crumbs (hover the plot). Then look at the clusters:
-their Compactness, Silhouette and Timeline.
+**Is my trajectory aligned?** Setup says. With the fit off, the note under
+*Fit to the first frame* gives how far a sample of the frames is from the
+first, as they are and once fitted, and warns (in a red-brown tone) when
+they do not look superposed: when a fit halves that distance and takes an
+ångström off it. ``vmdance alignment`` returns the same numbers, and the
+command notes it when it clusters such frames unfitted. A flexible
+molecule can be far from its first frame both ways (the tau peptide: 4.15
+Å as it is, 3.96 Å fitted): that is its motion, and no warning. Frames
+that were not aligned, clustered as they are, give clusters of where the
+molecule is, not of its shape.
+
+**Which k?** Scan it: **Scans ▸ Elbow**, with *Stability* ticked. The
+Elbow plot rings where the scores point — Davies–Bouldin's lowest value
+and its sharpest dip (MDANCE's two criteria), Calinski–Harabasz's highest
+— and the Scans box says them, with the k the four seedings agree on.
+They need not agree: the lowest value is the best-separated partition,
+often the coarsest; the dip is where the score bends; the stability says
+up to which k the clusters are the same whatever the seeding
+(:doc:`tutorial` reads a scan where the three differ). Then look: at the
+clusters' shares (hover the plot: not one large cluster and crumbs), at
+the Map (do the frames gather in groups at all?), and at the clusters,
+their Compactness, Silhouette and Timeline. Report which reading you took.
+
+**Å or Å²?** The distances are squared as they are measured: the RMSD²
+between two structures, and MDANCE's MSD of a cluster (Å²). **Plot options
+▸ All plots ▸ Distances as ▸ Lengths** shows their square roots, in Å, in
+the plots and the table of clusters: RMSD and √MSD, the unit RMSD cut-offs
+are given in. The exported tables keep the values as measured, and their
+columns' names say which they are. eQUAL's radius stays MDANCE's MSD (Å²:
+half the RMSD² of a frame and its seed); Setup writes the RMSD it stands
+for, √(2 × radius), under the field.
+
+**Can the plots read in ns?** Give the time between two frames of the
+molecule: **Plot options ▸ All plots ▸ Time per frame** (``0.1 ns``, ``2
+ps``; the Timeline's option row has the field too). The Timeline and the
+Residence then read in time. The transitions' lag stays in clustered
+frames.
+
+**Which silhouette?** The one from the clusters' mean structures is the
+default: cheap, and never below zero for
+k-means, so that it cannot flag a frame on a border there. The one from
+every frame, of the squared distances, is the classic silhouette (**Plot
+options ▸ Silhouette ▸ From**; ``vmdance silhouette -kind pairs``): it can
+be below zero, and it is the number scikit-learn gives with
+``metric="sqeuclidean"`` (its default metric, ``euclidean``, gives
+another). On the tau peptide at k 3 they are 0.25 and 0.27, with 537
+frames below zero by the second. Say which one you report.
+
+**Has my run converged?** **Results ▸ Groups ▸ Halves** makes the two
+halves of the clustered frames two groups: the Make-up plot shows each
+cluster by half, and the line under the box how unlike the halves are (the
+Jensen–Shannon divergence of their shares of the clusters: 0, the same;
+0.69, no cluster in common). The Timeline's *Each cluster's share so far*
+draws the populations along the run: lines that have settled say they
+have.
+
+**The clusters are not numbered by size.** They have the backend's
+numbers, which are MDANCE's: every label is the one MDANCE gives. The
+Populations plot can order them largest first; **Results ▸ Run ▾ ▸ Number
+its clusters by size** (``vmdance renumber``) makes a new run numbered
+from the largest, and leaves the original as it was.
 
 **A cluster has a large MSD and few frames.** It is often a bin of
 outliers, not a state: Compactness ▸ MSD against size shows it; eQUAL at a

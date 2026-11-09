@@ -15,13 +15,15 @@ proc ::VMDance::Tip::add {w msg} {
     bind $w <ButtonPress> +::VMDance::Tip::_hide
 }
 
-proc ::VMDance::Tip::_arm {w} {
+# (x y: where on the screen, for a part of a widget, a notebook's tab;
+# else under the widget)
+proc ::VMDance::Tip::_arm {w {x ""} {y ""}} {
     variable after
     after cancel $after
-    set after [after 600 [list ::VMDance::Tip::_show $w]]
+    set after [after 600 [list ::VMDance::Tip::_show $w $x $y]]
 }
 
-proc ::VMDance::Tip::_show {w} {
+proc ::VMDance::Tip::_show {w {px ""} {py ""}} {
     variable text
     if {![winfo exists $w]} return
     set t .vmdance_tip
@@ -34,6 +36,7 @@ proc ::VMDance::Tip::_show {w} {
     pack $t.l
     set x [expr {[winfo rootx $w] + 8}]
     set y [expr {[winfo rooty $w] + [winfo height $w] + 4}]
+    if {$px ne ""} { set x $px; set y $py }
     wm geometry $t +$x+$y
 }
 

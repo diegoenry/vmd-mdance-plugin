@@ -69,6 +69,10 @@ proc ::VMDance::Plots::_ccol {c dim} {
         return [expr {$vmd ? [vmd_colour $::VMDance::Viz::noise_id] : $::VMDance::Viz::noise_hex}]
     }
     set col [expr {$vmd ? [vmd_colour [::VMDance::Viz::colour_id $c]] : [::VMDance::Viz::colour_hex $c]}]
+    # (past the 29 colours they come again: lighter the second time,
+    # darker the third, so that clusters 0, 29 and 58 are not one blue)
+    set round [expr {$c / [llength $::VMDance::Viz::ids]}]
+    if {$round} { set col [_again $col $round] }
     set sel [selected]
     if {$dim && [llength $sel] && $c ni $sel} { return [::VMDance::Cmap::tint $col 0.5] }
     return $col
@@ -100,6 +104,47 @@ proc ::VMDance::Plots::_image {c w h} {
     $img put $bg -to 0 0 $w $h
     return $img
 }
+
+# The time between two frames of the molecule, from the plot option "Time
+# per frame" ("0.1 ns", "2 ps"): {value unit}; {} when none is given (the
+# axes are then in frames).
+proc ::VMDance::Plots::time_ok {v} {
+    expr {$v eq "" || ([regexp {^([0-9]+\.?[0-9]*|\.[0-9]+) ?(fs|ps|ns|µs|us|ms|s)$} $v -> n] && ![regexp {^0[0-9]} $n] && $n > 0 && $n < 1e9)}
+}
+proc ::VMDance::Plots::_time {} {
+    set v [string trim [S plot_time]]
+    if {$v eq "" || ![time_ok $v]} { return {} }
+    regexp {^([0-9.]+) ?(.*)$} $v -> n u
+    list $n [expr {$u eq "us" ? "µs" : $u}]
+}
+# The axis of the frames: {title format}: "Frame" and the frames' numbers,
+# or "Time (ns)" and each frame's time.
+proc ::VMDance::Plots::_frame_axis {} {
+    set t [_time]
+    if {![llength $t]} { return [list "Frame" ""] }
+    lassign $t n u
+    list "Time ($u)" [list apply {{n v} { ::VMDance::Plot::fmt [expr {round($v * $n * 1e6) / 1e6}] }} $n]
+}
+# The axes of a plot along the frames: Plot::axes with the frames' title
+# and format (opts: its options).
+proc ::VMDance::Plots::_frame_axes {c ylab yticks opts} {
+    lassign [_frame_axis] title fmt
+    if {$fmt ne ""} { dict set opts xfmt $fmt }
+    ::VMDance::Plot::axes $c $title $ylab auto $yticks $opts
+}
+# A frame as said in a readout: "frame 1200", with its time when the time
+# per frame is given ("frame 1200 (120 ns)").
+proc ::VMDance::Plots::_frame_words {f} {
+    set t [_time]
+    if {![llength $t]} { return "frame $f" }
+    lassign $t n u
+    return "frame $f ([::VMDance::Plot::fmt [expr {round($f * $n * 1e6) / 1e6}]] $u)"
+}
+# A squared distance (Å²) as the plots show it: itself, or its square root
+# (Å) when the plot option "Distances as" asks for lengths; and that unit.
+proc ::VMDance::Plots::_len {v} { expr {$v eq "" ? "" : ([S plot_len] eq "a" ? sqrt($v) : $v)} }
+proc ::VMDance::Plots::_lenu {} { expr {[S plot_len] eq "a" ? "Å" : "Å²"} }
+proc ::VMDance::Plots::_roots {} { expr {[S plot_len] eq "a"} }
 
 # Whether a plot draws scans rather than the clustering.
 proc ::VMDance::Plots::needs {key} {
@@ -141,6 +186,7 @@ proc ::VMDance::Plots::_draw {key c} {
     variable H
     $c delete all
     array unset H $c,*
+    unset -nocomplain ::VMDance::Plot::G($c,empty)
     switch -- [needs $key] {
         elbow {
             if {![dict size $::VMDance::Results::elbow]} {
@@ -204,16 +250,17 @@ proc ::VMDance::Plots::_catfmt {labels} {
 # Bars of the clusters (populations, compactness, residence)
 #---------------------------------------------------------------------------
 
-# Vertical bars: items {cluster value ?whisker?}, the y axis label.
+# Vertical bars: items {cluster value ?note?}, the y axis label. A bar's
+# value is written above it (fmt), with its note when both have room
+# ("2.2 · longest 20"), alone when only it has.
 proc ::VMDance::Plots::_bars {c items ylab {fmt ""} {ymin 0}} {
     variable H
     set n [llength $items]
     if {!$n} { ::VMDance::Plot::empty $c "Nothing to draw"; return }
     set top 0
     foreach it $items {
-        lassign $it cl v wh
+        lassign $it cl v
         if {$v ne "" && $v > $top} { set top $v }
-        if {$wh ne "" && $wh > $top} { set top $wh }
     }
     if {$top <= $ymin} { set top [expr {$ymin + 1}] }
     set labels [lmap it $items {clabel [lindex $it 0]}]
@@ -221,13 +268,13 @@ proc ::VMDance::Plots::_bars {c items ylab {fmt ""} {ymin 0}} {
     ::VMDance::Plot::setup $c -0.5 [expr {$n - 0.5}] $ymin [expr {$top * 1.12}] [list $ml 18 18 [::VMDance::Plot::mb]]
     set xt {}
     for {set i 0} {$i < $n} {incr i} { lappend xt $i }
-    ::VMDance::Plot::axes $c "Cluster" $ylab $xt auto [dict merge [gridopt] [dict create xfmt [_catfmt $labels]]]
+    ::VMDance::Plot::axes $c "Cluster" $ylab $xt auto [dict merge [gridopt] [dict create xfmt [_catfmt $labels] dense [expr {$n > 40}]]]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
     set bw [expr {max(2.0, 0.72 * ($x1 - $x0) / $n)}]
     set i 0
     set hit {}
     foreach it $items {
-        lassign $it cl v wh
+        lassign $it cl v note
         set cx [::VMDance::Plot::X $c $i]
         set xa [expr {$cx - $bw / 2.0}]; set xb [expr {$cx + $bw / 2.0}]
         if {$v ne ""} {
@@ -235,14 +282,13 @@ proc ::VMDance::Plots::_bars {c items ylab {fmt ""} {ymin 0}} {
             set sel [expr {$cl >= 0 && [on $cl]}]
             $c create rectangle $xa $yt $xb [::VMDance::Plot::Y $c $ymin] -fill [ccol $cl] \
                 -outline [expr {$sel ? "#111111" : ""}] -width [expr {$sel ? 2 : 1}] -tags bar
-            if {$wh ne "" && $wh > $v} {
-                set yw [::VMDance::Plot::Y $c $wh]
-                $c create line $cx $yt $cx $yw -fill [theme text] -tags bar
-                $c create line [expr {$cx - $bw / 5.0}] $yw [expr {$cx + $bw / 5.0}] $yw -fill [theme text] -tags bar
-            }
-            if {$fmt ne "" && $bw >= [font measure MdvSmall [format $fmt $v]] + 2} {
-                set yl [expr {$wh ne "" && $wh > $v ? [::VMDance::Plot::Y $c $wh] : $yt}]
-                $c create text $cx [expr {$yl - 3}] -text [format $fmt $v] -anchor s -font MdvSmall -fill [theme text] -tags label
+            if {$fmt ne ""} {
+                set txt [format $fmt $v]
+                foreach t [expr {$note ne "" ? [list "$txt · $note" $txt] : [list $txt]}] {
+                    if {$bw < [font measure MdvSmall $t] + 2} continue
+                    $c create text $cx [expr {$yt - 3}] -text $t -anchor s -font MdvSmall -fill [theme text] -tags label
+                    break
+                }
             }
         }
         lappend hit [list $xa $xb $cl]
@@ -316,16 +362,31 @@ proc ::VMDance::Plots::dclick_populations {c x y} {
 #---------------------------------------------------------------------------
 
 proc ::VMDance::Plots::draw_timeline {c} {
-    if {[S tl_view] eq "msd"} { _timeline_msd $c } else { _timeline_lanes $c }
+    switch -- [S tl_view] {
+        msd { _timeline_msd $c }
+        shares { _timeline_shares $c }
+        cumulative { _timeline_cumulative $c }
+        default { _timeline_lanes $c }
+    }
 }
 
+# Whether canvas c is a figure's (drawn off screen): what the window draws
+# as an image, a pixel a column, is then drawn as shapes finer than its
+# pixels, so that a small figure is sharp at any resolution (an image is
+# written at 72 dots an inch: a lane 164 pixels wide for 6001 frames).
+proc ::VMDance::Plots::_figure {c} { expr {![winfo ismapped $c]} }
+
 # One lane per cluster (noise at the bottom), a bar where the trajectory
-# is in it.
+# is in it. With more frames than columns to draw them in, a column of a
+# lane is shaded by the share of its frames that are in the cluster (five
+# tones: a bar a run, a pixel wide at least, filled every lane wherever
+# its cluster had one frame, and a trajectory that changes cluster every
+# other frame looked as if it were in all of them all the time).
 proc ::VMDance::Plots::_timeline_lanes {c} {
     variable H
     set k [K]
     set fr [::VMDance::Results::frames]
-    set labels [::VMDance::Results::labels]
+    set n [llength $fr]
     set noise [expr {[::VMDance::Results::noise] > 0}]
     set lanes [expr {$k + $noise}]
     set lanelabels {}
@@ -334,71 +395,307 @@ proc ::VMDance::Plots::_timeline_lanes {c} {
     set step [dict get [::VMDance::Results::request] step]
     set xmax [expr {[lindex $fr end] + $step}]
     set ml [expr {max([::VMDance::Plot::ml], [font measure MdvSmall noise] + 22)}]
-    ::VMDance::Plot::setup $c [lindex $fr 0] $xmax -0.5 [expr {$lanes - 0.5}] [list $ml 14 18 [::VMDance::Plot::mb]]
+    set mb [::VMDance::Plot::mb]
+    # (the area's width first: whether the lanes are shaded, which is said
+    # in a note above them)
+    ::VMDance::Plot::setup $c [lindex $fr 0] $xmax -0.5 [expr {$lanes - 0.5}] [list $ml 14 18 $mb]
+    lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    set iw [expr {max(1, int($x1 - $x0))}]
+    set fig [_figure $c]
+    set cols [expr {$fig ? min($n, 4 * $iw) : $iw}]
+    set dense [expr {$n > $cols}]
+    if {$dense} {
+        ::VMDance::Plot::setup $c [lindex $fr 0] $xmax -0.5 [expr {$lanes - 0.5}] [list $ml [expr {max(14, [::VMDance::Plot::note_margin])}] 18 $mb]
+    }
     set yt {}
     for {set i 0} {$i < $lanes} {incr i} { lappend yt $i }
-    ::VMDance::Plot::axes $c "Frame" "Cluster" auto $yt [dict merge [gridopt] [dict create yfmt [_catfmt $lanelabels]]]
+    _frame_axes $c "Cluster" $yt [dict merge [gridopt] [dict create yfmt [_catfmt $lanelabels]]]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
-    set iw [expr {max(1, int($x1 - $x0))}]; set ih [expr {max(1, int($y1 - $y0))}]
-    set img [_image $c $iw $ih]
+    set ih [expr {max(1, int($y1 - $y0))}]
     set band [expr {double($ih) / $lanes}]
     set th [S tl_bar]
     if {![string is double -strict $th] || [regexp -nocase {nan|inf} $th] || $th <= 0 || $th > 1} { set th 0.5 }
     set bh [expr {max(2.0, $band * $th)}]
-    set span [expr {double($xmax - [lindex $fr 0])}]
-    # every run of frames in one cluster: a bar across its pixel columns
-    set f0 [lindex $fr 0]
-    foreach r [::VMDance::Results::residence] {
-        lassign $r l s n
-        set fa [lindex $fr $s]
-        set fb [expr {[lindex $fr [expr {$s + $n - 1}]] + $step}]
-        set pa [expr {int(($fa - $f0) / $span * $iw)}]
-        set pb [expr {max($pa + 1, int(($fb - $f0) / $span * $iw))}]
-        set lane [expr {$l < 0 ? 0 : $l + $noise}]
-        set yc [expr {$ih - ($lane + 0.5) * $band}]
-        set ya [expr {int($yc - $bh / 2.0)}]; set yb [expr {max($ya + 2, int($yc + $bh / 2.0))}]
-        $img put [ccol $l] -to [expr {min($pa, $iw - 1)}] $ya [expr {min($pb, $iw)}] $yb
+    set img ""
+    if {!$fig} { set img [_image $c $iw $ih] }
+    if {!$dense && !$fig} {
+        # every run of frames in one cluster: a bar across its pixel columns
+        set span [expr {double($xmax - [lindex $fr 0])}]
+        set f0 [lindex $fr 0]
+        foreach r [::VMDance::Results::residence] {
+            lassign $r l s len
+            set fa [lindex $fr $s]
+            set fb [expr {[lindex $fr [expr {$s + $len - 1}]] + $step}]
+            set pa [expr {int(($fa - $f0) / $span * $iw)}]
+            set pb [expr {max($pa + 1, int(($fb - $f0) / $span * $iw))}]
+            set lane [expr {$l < 0 ? 0 : $l + $noise}]
+            set yc [expr {$ih - ($lane + 0.5) * $band}]
+            set ya [expr {int($yc - $bh / 2.0)}]; set yb [expr {max($ya + 2, int($yc + $bh / 2.0))}]
+            $img put [ccol $l] -to [expr {min($pa, $iw - 1)}] $ya [expr {min($pb, $iw)}] $yb
+        }
+    } else {
+        # the frames of each lane in each column (column j holds the rows
+        # from ceil(j n / cols) to the next column's first, less one)
+        foreach r [::VMDance::Results::residence] {
+            lassign $r l s len
+            set lane [expr {$l < 0 ? 0 : $l + $noise}]
+            set e [expr {$s + $len - 1}]
+            set ja [expr {$s * $cols / $n}]; set jb [expr {$e * $cols / $n}]
+            if {$ja == $jb} {
+                incr cnt($lane,$ja) $len
+            } else {
+                for {set j $ja} {$j <= $jb} {incr j} {
+                    set a [expr {max($s, ($j * $n + $cols - 1) / $cols)}]
+                    set b [expr {min($e, (($j + 1) * $n + $cols - 1) / $cols - 1)}]
+                    if {$b >= $a} { incr cnt($lane,$j) [expr {$b - $a + 1}] }
+                }
+            }
+        }
+        set Q 5
+        set cw [expr {double($iw) / $cols}]
+        for {set lane 0} {$lane < $lanes} {incr lane} {
+            set l [expr {$lane - $noise}]
+            set base [ccol $l]
+            set tones {}
+            for {set q 1} {$q <= $Q} {incr q} { lappend tones [::VMDance::Cmap::tint $base [expr {0.8 * ($Q - $q) / ($Q - 1.0)}]] }
+            set yc [expr {$ih - ($lane + 0.5) * $band}]
+            set ya [expr {int($yc - $bh / 2.0)}]; set yb [expr {max($ya + 2, int($yc + $bh / 2.0))}]
+            set prev 0; set start 0
+            for {set j 0} {$j <= $cols} {incr j} {
+                set lvl 0
+                if {$j < $cols && [info exists cnt($lane,$j)]} {
+                    set tot [expr {(($j + 1) * $n + $cols - 1) / $cols - ($j * $n + $cols - 1) / $cols}]
+                    set lvl [expr {min($Q, max(1, int(ceil($Q * double($cnt($lane,$j)) / max(1, $tot)))))}]
+                }
+                if {$lvl == $prev} continue
+                if {$prev} {
+                    set col [lindex $tones [expr {$prev - 1}]]
+                    if {$fig} {
+                        $c create rectangle [expr {$x0 + $start * $cw}] [expr {$y0 + $ya}] [expr {$x0 + $j * $cw}] [expr {$y0 + $yb}] \
+                            -fill $col -outline "" -tags raster
+                    } else {
+                        $img put $col -to $start $ya $j $yb
+                    }
+                }
+                set prev $lvl; set start $j
+            }
+        }
+        if {$dense} { ::VMDance::Plot::note $c "the darker, the larger the share of the frames there that are in the cluster" }
     }
-    $c create image $x0 $y0 -image $img -anchor nw -tags raster
+    if {!$fig} { $c create image $x0 $y0 -image $img -anchor nw -tags raster }
     $c raise axis
     _frame_cursor $c
     set H($c,tl) lanes
+    set H($c,tldense) [expr {$dense ? [list $cols $n] : ""}]
 }
 
-# Every frame's RMSD² from its representative, coloured by its cluster.
+# The number of windows of the shares view: the plot option's, else about
+# 120, of 10 frames at least.
+proc ::VMDance::Plots::_tl_windows {n} {
+    set w [S tl_windows]
+    if {[::VMDance::whole $w] && $w >= 1} { return [expr {max(1, min($n, $w))}] }
+    expr {max(1, int(ceil($n / double(max(10, int(ceil($n / 120.0)))))))}
+}
+proc ::VMDance::Plots::_tl_shares {} {
+    set nb [_tl_windows [::VMDance::Results::nframes]]
+    ::VMDance::Results::memo_last plot_shares $nb {
+        ::VMDance::Measure::shares [::VMDance::Results::labels] [K] $nb
+    }
+}
+# The legend's items of the clusters (24 at most) and of noise.
+proc ::VMDance::Plots::_cluster_items {} {
+    set items {}
+    for {set cl 0} {$cl < min([K], 24)} {incr cl} { lappend items "cluster $cl" [ccol $cl 0] }
+    if {[K] > 24} { lappend items "… [expr {[K] - 24}] more" @none }
+    if {[::VMDance::Results::noise]} { lappend items noise [ccol -1] }
+    return $items
+}
+
+# The clusters' shares of the frames, window by window: stacked, a column
+# a window (where the trajectory is when; lanes of a long trajectory that
+# changes cluster often do not say it).
+proc ::VMDance::Plots::_timeline_shares {c} {
+    variable H
+    set k [K]
+    set fr [::VMDance::Results::frames]
+    set n [llength $fr]
+    set step [dict get [::VMDance::Results::request] step]
+    set xmax [expr {[lindex $fr end] + $step}]
+    set W [_tl_shares]
+    set items [_cluster_items]
+    set ml [::VMDance::Plot::ml]
+    set mt [expr {max([_legend_margin $c $items $ml 18], [::VMDance::Plot::note_margin])}]
+    if {[S plot_legend] && [llength $items]} { incr mt [::VMDance::Plot::rowh] }
+    ::VMDance::Plot::setup $c [lindex $fr 0] $xmax 0 100 [list $ml $mt 18 [::VMDance::Plot::mb]]
+    _frame_axes $c "Share of the window's frames (%)" auto [gridopt]
+    lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    foreach w $W {
+        lassign $w a b cnt nz
+        set tot [expr {$b - $a + 1}]
+        set xa [::VMDance::Plot::X $c [lindex $fr $a]]
+        set xb [::VMDance::Plot::X $c [expr {[lindex $fr $b] + $step}]]
+        set acc 0
+        set cl 0
+        foreach v [concat $cnt $nz] {
+            if {$v > 0} {
+                set ya [::VMDance::Plot::Y $c [expr {100.0 * $acc / $tot}]]
+                set yb [::VMDance::Plot::Y $c [expr {100.0 * ($acc + $v) / $tot}]]
+                $c create rectangle $xa $yb $xb $ya -fill [ccol [expr {$cl < $k ? $cl : -1}]] -outline "" -tags bar
+                incr acc $v
+            }
+            incr cl
+        }
+    }
+    $c raise axis
+    set per [expr {[lindex $W 0 1] - [lindex $W 0 0] + 1}]
+    ::VMDance::Plot::note $c "[llength $W] window[expr {[llength $W] == 1 ? "" : "s"}] of $per frame[expr {$per == 1 ? "" : "s"}]"
+    _legend $c $items [list $x0 $x1]
+    _frame_cursor $c
+    set H($c,tl) shares
+}
+
+# The clusters' shares of the frames so far, along the trajectory: lines
+# that have settled say that the populations have; the frame by which
+# every cluster has been seen is marked. (The 40 largest clusters, and
+# the selected ones, of more.)
+proc ::VMDance::Plots::_timeline_cumulative {c} {
+    variable H
+    set k [K]
+    set fr [::VMDance::Results::frames]
+    set n [llength $fr]
+    set labels [::VMDance::Results::labels]
+    set step [dict get [::VMDance::Results::request] step]
+    set xmax [expr {[lindex $fr end] + $step}]
+    set sel [selected]
+    set which {}
+    set by [lsort -integer -decreasing -index 1 [lmap cl [lsearch -all -not -exact [::VMDance::Results::sizes] 0] {list $cl [::VMDance::Results::size $cl]}]]
+    foreach p [lrange $by 0 39] { lappend which [lindex $p 0] }
+    foreach s $sel { if {$s ni $which && [::VMDance::Results::size $s]} { lappend which $s } }
+    set C [::VMDance::Results::memo plot_cumulative {
+        # the counts so far at 400 rows at most, and where each cluster is first seen
+        set every [expr {max(1, $n / 400)}]
+        set cnt [lrepeat $k 0]
+        set rows {}; set at {}
+        set i 0
+        foreach l $labels {
+            if {$l >= 0} { lset cnt $l [expr {[lindex $cnt $l] + 1}] }
+            incr i
+            if {$i % $every == 0 || $i == $n} { lappend at $i; lappend rows $cnt }
+        }
+        list $at $rows [::VMDance::Measure::first_seen $labels $k]
+    }]
+    lassign $C at rows first
+    set top 0.0
+    foreach row $rows i $at { foreach cl $which { set top [expr {max($top, 100.0 * [lindex $row $cl] / $i)}] } }
+    if {$top <= 0} { set top 1.0 }
+    set items {}
+    foreach cl [lrange [lsort -integer $which] 0 23] { lappend items "cluster $cl" [ccol $cl 0] }
+    if {[llength $which] > 24} { lappend items "… [expr {[llength $which] - 24}] more" @none }
+    set ml [::VMDance::Plot::ml]
+    set mt [expr {max([_legend_margin $c $items $ml 18], [::VMDance::Plot::note_margin])}]
+    if {[S plot_legend] && [llength $items]} { incr mt [::VMDance::Plot::rowh] }
+    ::VMDance::Plot::setup $c [lindex $fr 0] $xmax 0 [expr {min(100.0, $top * 1.08)}] [list $ml $mt 18 [::VMDance::Plot::mb]]
+    _frame_axes $c "Share of the frames so far (%)" auto [gridopt]
+    lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    set w [lw]
+    foreach cl [lsort -integer -index 0 [lmap cl $which {list [expr {$cl in $sel}] $cl}]] {
+        lassign $cl raised cl
+        set pts {}
+        foreach row $rows i $at {
+            lappend pts [::VMDance::Plot::X $c [expr {[lindex $fr [expr {$i - 1}]] + $step}]] [::VMDance::Plot::Y $c [expr {100.0 * [lindex $row $cl] / $i}]]
+        }
+        if {[llength $pts] >= 4} { $c create line {*}$pts -fill [ccol $cl] -width [expr {$raised ? $w + 1.2 : $w + 0.2}] -tags series }
+    }
+    # the frame by which every cluster with frames has been seen
+    set last [::tcl::mathfunc::max -1 {*}$first]
+    set notes {}
+    if {$last >= 0} {
+        set f [lindex $fr $last]
+        set px [::VMDance::Plot::X $c $f]
+        $c create line $px $y0 $px $y1 -fill [theme muted] -dash {2 3} -tags mark
+        lappend notes "dotted: every cluster seen by frame $f"
+    }
+    if {[llength $which] < [llength $by]} { lappend notes "the [llength $which] largest of [llength $by] clusters" }
+    if {[llength $notes]} { ::VMDance::Plot::note $c [join $notes "; "] }
+    _legend $c $items [list $x0 $x1]
+    _frame_cursor $c
+    set H($c,tl) cumulative
+}
+
+# Every frame's RMSD² from its representative, coloured by its cluster: a
+# line through few frames (400 at most); a dot a frame through more, and
+# their running median (a line through thousands of frames that change
+# cluster every other one was a scribble).
 proc ::VMDance::Plots::_timeline_msd {c} {
     variable H
     set fr [::VMDance::Results::frames]
     set fm [::VMDance::Results::measure frame_msd]
     set labels [::VMDance::Results::labels]
+    if {[_roots]} { set fm [lmap v $fm {_len $v}] }
     set vals [lmap v $fm {expr {$v eq "" ? [continue] : $v}}]
     set ymax [expr {[llength $vals] ? [::tcl::mathfunc::max {*}$vals] : 1.0}]
     if {$ymax <= 0} { set ymax 1.0 }
-    ::VMDance::Plot::setup $c [lindex $fr 0] [lindex $fr end] 0 [expr {$ymax * 1.08}] \
-        [list [::VMDance::Plot::ml] 14 18 [::VMDance::Plot::mb]]
-    ::VMDance::Plot::axes $c "Frame" "RMSD² from its representative (Å²)" auto auto [gridopt]
-    set w [lw]
-    # one line per run of a cluster (joined to the next frame)
-    set pts {}; set prev ""
     set n [llength $fr]
-    for {set i 0} {$i < $n} {incr i} {
-        set l [lindex $labels $i]; set v [lindex $fm $i]
-        if {$l ne $prev && [llength $pts] >= 2} {
-            if {[llength $pts] >= 4} { $c create line {*}$pts -fill [ccol $prev] -width $w -tags series }
-            set pts [lrange $pts end-1 end]
-            if {$v eq ""} { set pts {} }
+    set dots [expr {$n > 400}]
+    ::VMDance::Plot::setup $c [lindex $fr 0] [lindex $fr end] 0 [expr {$ymax * 1.08}] \
+        [list [::VMDance::Plot::ml] [expr {$dots ? max(14, [::VMDance::Plot::note_margin]) : 14}] 18 [::VMDance::Plot::mb]]
+    _frame_axes $c [expr {[_roots] ? "RMSD from its representative (Å)" : "RMSD² from its representative (Å²)"}] auto [gridopt]
+    lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    set w [lw]
+    if {!$dots} {
+        # one line per run of a cluster (joined to the next frame)
+        set pts {}; set prev ""
+        for {set i 0} {$i < $n} {incr i} {
+            set l [lindex $labels $i]; set v [lindex $fm $i]
+            if {$l ne $prev && [llength $pts] >= 2} {
+                if {[llength $pts] >= 4} { $c create line {*}$pts -fill [ccol $prev] -width $w -tags series }
+                set pts [lrange $pts end-1 end]
+                if {$v eq ""} { set pts {} }
+            }
+            if {$v eq ""} { set pts {}; set prev $l; continue }
+            lappend pts [::VMDance::Plot::X $c [lindex $fr $i]] [::VMDance::Plot::Y $c $v]
+            set prev $l
         }
-        if {$v eq ""} { set pts {}; set prev $l; continue }
-        lappend pts [::VMDance::Plot::X $c [lindex $fr $i]] [::VMDance::Plot::Y $c $v]
-        set prev $l
-    }
-    if {[llength $pts] >= 4} { $c create line {*}$pts -fill [ccol $prev] -width $w -tags series }
-    if {$n <= 200} {
-        foreach f $fr v $fm l $labels {
+        if {[llength $pts] >= 4} { $c create line {*}$pts -fill [ccol $prev] -width $w -tags series }
+        if {$n <= 200} {
+            foreach f $fr v $fm l $labels {
+                if {$v eq ""} continue
+                set x [::VMDance::Plot::X $c $f]; set y [::VMDance::Plot::Y $c $v]
+                $c create oval [expr {$x - 2}] [expr {$y - 2}] [expr {$x + 2}] [expr {$y + 2}] -fill [ccol $l] -outline "" -tags series
+            }
+        }
+    } else {
+        # a dot a frame (200 000 at most, evenly): shapes in a figure of
+        # 20 000 frames or fewer, else an image
+        set every [expr {max(1, $n / 200000)}]
+        set vector [expr {[_figure $c] && $n <= 20000}]
+        set iw [expr {max(1, int($x1 - $x0))}]; set ih [expr {max(1, int($y1 - $y0))}]
+        if {!$vector} { set img [_image $c $iw $ih] }
+        for {set i 0} {$i < $n} {incr i $every} {
+            set v [lindex $fm $i]
             if {$v eq ""} continue
-            set x [::VMDance::Plot::X $c $f]; set y [::VMDance::Plot::Y $c $v]
-            $c create oval [expr {$x - 2}] [expr {$y - 2}] [expr {$x + 2}] [expr {$y + 2}] -fill [ccol $l] -outline "" -tags series
+            set x [::VMDance::Plot::X $c [lindex $fr $i]]; set y [::VMDance::Plot::Y $c $v]
+            if {$vector} {
+                $c create rectangle [expr {$x - 0.6}] [expr {$y - 0.6}] [expr {$x + 0.6}] [expr {$y + 0.6}] -fill [ccol [lindex $labels $i]] -outline "" -tags series
+            } else {
+                set px [expr {max(0, min($iw - 2, int($x - $x0)))}]; set py [expr {max(0, min($ih - 2, int($y - $y0)))}]
+                $img put [ccol [lindex $labels $i]] -to $px $py [expr {$px + 2}] [expr {$py + 2}]
+            }
         }
+        if {!$vector} { $c create image $x0 $y0 -image $img -anchor nw -tags raster }
+        # the running median, at 160 places
+        set win [expr {max(5, $n / 80)}]
+        set pts {}
+        for {set j 0} {$j < 160} {incr j} {
+            set mid [expr {int(($j + 0.5) * $n / 160.0)}]
+            set a [expr {max(0, $mid - $win / 2)}]; set b [expr {min($n - 1, $mid + $win / 2)}]
+            set m [_median [lmap v [lrange $fm $a $b] {expr {$v eq "" ? [continue] : $v}}]]
+            if {$m eq ""} continue
+            lappend pts [::VMDance::Plot::X $c [lindex $fr $mid]] [::VMDance::Plot::Y $c $m]
+        }
+        if {[llength $pts] >= 4} { $c create line {*}$pts -fill #20242c -width [expr {$w + 0.8}] -tags series }
+        $c raise axis
+        ::VMDance::Plot::note $c "a dot a frame, in its cluster's colour; line: the median of $win frames around"
     }
     _frame_cursor $c
     set H($c,tl) msd
@@ -429,15 +726,50 @@ proc ::VMDance::Plots::_row_at {c x} {
     if {$H($c,tl) eq "msd" && $k + 1 < [llength $fr] && [lindex $fr $k+1] - $f < $f - [lindex $fr $k]} { incr k }
     return $k
 }
+# The clusters of rows a to b in words, largest first (five at most): as
+# counts, or as shares of them.
+proc ::VMDance::Plots::_mix_words {a b {percent 0}} {
+    array set n {}
+    foreach l [lrange [::VMDance::Results::labels] $a $b] { incr n($l) }
+    set tot [expr {$b - $a + 1}]
+    set l {}
+    foreach cl [lrange [lsort -integer -decreasing -index 1 [lmap cl [array names n] {list $cl $n($cl)}]] 0 4] {
+        lassign $cl cl v
+        lappend l "[expr {$cl < 0 ? "noise" : "cluster $cl"}] [expr {$percent ? [format %.0f%% [expr {100.0 * $v / $tot}]] : $v}]"
+    }
+    if {[array size n] > 5} { lappend l "…" }
+    join $l ", "
+}
 proc ::VMDance::Plots::hover_timeline {c x y} {
     variable H
     if {![info exists H($c,tl)] || ![::VMDance::Plot::inside $c $x $y]} { return "" }
+    set fr [::VMDance::Results::frames]
     set i [_row_at $c $x]
-    set f [lindex [::VMDance::Results::frames] $i]
+    set f [lindex $fr $i]
+    switch -- $H($c,tl) {
+        shares {
+            foreach w [_tl_shares] {
+                lassign $w a b
+                if {$i >= $a && $i <= $b} { return "frames [lindex $fr $a] to [lindex $fr $b]: [_mix_words $a $b 1]" }
+            }
+            return ""
+        }
+        cumulative { return "up to frame $f: [_mix_words 0 $i 1]" }
+        lanes {
+            if {$H($c,tldense) ne ""} {
+                # (the frames of the column under the pointer)
+                lassign $H($c,tldense) cols n
+                lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+                set j [expr {max(0, min($cols - 1, int(($x - $x0) * $cols / double(max(1, $x1 - $x0)))))}]
+                set a [expr {($j * $n + $cols - 1) / $cols}]; set b [expr {(($j + 1) * $n + $cols - 1) / $cols - 1}]
+                if {$b > $a} { return "frames [lindex $fr $a] to [lindex $fr $b]: [_mix_words $a $b]" }
+            }
+        }
+    }
     set l [lindex [::VMDance::Results::labels] $i]
     set m [lindex [::VMDance::Results::measure frame_msd] $i]
-    set s "frame $f: [expr {$l < 0 ? "noise" : "cluster $l"}]"
-    if {$m ne ""} { append s [format ", RMSD² %.3g Å² from its representative (frame %s)" $m [::VMDance::Results::rep_frame $l]] }
+    set s "[_frame_words $f]: [expr {$l < 0 ? "noise" : "cluster $l"}]"
+    if {$m ne ""} { append s [format ", %s %.3g %s from its representative (frame %s)" [expr {[_roots] ? "RMSD" : "RMSD²"}] [_len $m] [_lenu] [::VMDance::Results::rep_frame $l]] }
     return $s
 }
 proc ::VMDance::Plots::click_timeline {c x y add} {
@@ -493,13 +825,13 @@ proc ::VMDance::Plots::_matrix {c M xlab ylab title fmt cmap lo hi {skipdiag 0}}
     $c create text [expr {$x0 + $side / 2.0}] [expr {$y0 + $side + 16 + $lh}] -text $xlab -anchor n -font MdvText -fill [theme text] -tags axis
     $c create text [expr {max(14, 2 + [::VMDance::Plot::lh MdvText] / 2.0)}] [expr {$y0 + $side / 2.0}] -text $ylab -angle 90 -font MdvText -fill [theme text] -tags axis
     # the values, when they fit
-    if {[S mx_values] && $fmt ne "" && $cs >= [font measure MdvSmall [format $fmt $hi]] + 6 && $cs >= $lh + 2} {
+    if {[S mx_values] && $fmt ne "" && $cs >= [font measure MdvSmall [_cellfmt $fmt $hi]] + 6 && $cs >= $lh + 2} {
         for {set i 0} {$i < $k} {incr i} {
             for {set j 0} {$j < $k} {incr j} {
                 set v [lindex $M $i $j]
                 if {$v eq "" || ($skipdiag && $i == $j)} continue
                 set t [expr {($v - $lo) / double($hi - $lo)}]
-                $c create text [expr {$x0 + ($j + 0.5) * $cs}] [expr {$y0 + ($i + 0.5) * $cs}] -text [format $fmt $v] \
+                $c create text [expr {$x0 + ($j + 0.5) * $cs}] [expr {$y0 + ($i + 0.5) * $cs}] -text [_cellfmt $fmt $v] \
                     -font MdvSmall -fill [expr {[_dark [::VMDance::Cmap::at $cmap $t]] ? "white" : "#222222"}] -tags label
             }
         }
@@ -512,6 +844,13 @@ proc ::VMDance::Plots::_matrix {c M xlab ylab title fmt cmap lo hi {skipdiag 0}}
     ::VMDance::Plot::colorbar_titled $c $x0 6 [lmap t {0 1 2 3 4 5 6 7 8 9 10} {::VMDance::Cmap::at $cmap [expr {$t / 10.0}]}] \
         [::VMDance::Plot::fmt $lo] [::VMDance::Plot::fmt $hi] $title
     set H($c,mx) [list $k $x0 $y0 $cs $M]
+}
+# A cell's value as written: fmt's, and a whole number where %g would
+# write an exponent ("1.2e+02" for 120).
+proc ::VMDance::Plots::_cellfmt {fmt v} {
+    set t [format $fmt $v]
+    if {[string first e $t] >= 0 && abs($v) >= 1} { set t [format %.0f $v] }
+    return $t
 }
 proc ::VMDance::Plots::_dark {col} {
     scan $col "#%2x%2x%2x" r g b
@@ -585,7 +924,12 @@ proc ::VMDance::Plots::draw_transitions {c} {
     }
     if {$hi == 0} { set hi 1 }
     set t [expr {$counts ? "Transitions" : "Probability"}]
-    _matrix $c $M "To cluster" "From cluster" [list "$t (lag $lag)" $t] [expr {$counts ? "%d" : "%.2f"}] [S tn_cmap] 0 $hi $skip
+    # (frames that go into no cluster are in no column: a row of
+    # probabilities then sums to less than 1, said)
+    set lost [::tcl::mathop::+ 0 {*}[lindex [_transitions] 3]]
+    set long "$t (lag $lag)"
+    if {$lost} { set long "$t (lag $lag; $lost into noise: no column)" }
+    _matrix $c $M "To cluster" "From cluster" [list $long "$t (lag $lag)" $t] [expr {$counts ? "%d" : "%.2f"}] [S tn_cmap] 0 $hi $skip
 }
 proc ::VMDance::Plots::hover_transitions {c x y} {
     lassign [_cell $c $x $y] i j
@@ -611,10 +955,14 @@ proc ::VMDance::Plots::draw_distances {c} {
     } else {
         set M [::VMDance::Results::measure centroid_msd]
         set title {"RMSD² between mean structures (Å²)" "RMSD² (Å²)"}
+        if {[_roots]} {
+            set M [lmap row $M {lmap v $row {_len $v}}]
+            set title {"RMSD between mean structures (Å)" "RMSD (Å)"}
+        }
     }
     set hi 0
     foreach row $M { foreach v $row { if {$v ne "" && $v > $hi} { set hi $v } } }
-    _matrix $c $M "Cluster" "Cluster" $title "%.2g" [S ds_cmap] 0 $hi
+    _matrix $c $M "Cluster" "Cluster" $title "%.3g" [S ds_cmap] 0 $hi
 }
 proc ::VMDance::Plots::hover_distances {c x y} {
     lassign [_cell $c $x $y] i j
@@ -622,7 +970,7 @@ proc ::VMDance::Plots::hover_distances {c x y} {
     set C [lindex [::VMDance::Results::measure centroid_msd] $i $j]
     set R [lindex [::VMDance::Results::measure rep_msd] $i $j]
     set s "clusters $i and $j"
-    if {$C ne ""} { append s [format ": mean structures %.3g Å² (RMSD²)" $C] }
+    if {$C ne ""} { append s [format ": mean structures %.3g %s (%s)" [_len $C] [_lenu] [expr {[_roots] ? "RMSD" : "RMSD²"}]] }
     if {$R ne ""} { append s [format ", representatives (frames %s, %s) %.3g Å (RMSD)" [::VMDance::Results::rep_frame $i] [::VMDance::Results::rep_frame $j] [expr {sqrt($R)}]] }
     return $s
 }
@@ -640,8 +988,16 @@ proc ::VMDance::Plots::draw_residence {c} {
     if {[S rs_show] eq "visits"} {
         _bars $c [lmap r $st {list [lindex $r 0] [lindex $r 1]}] "Visits (runs of frames)" "%.0f"
     } else {
-        set ylab [expr {$vmd || $step == 1 ? "Residence (frames)" : "Residence (clustered frames, × $step)"}]
-        _bars $c [lmap r $st {list [lindex $r 0] [expr {$f * [lindex $r 2]}] [expr {$f * [lindex $r 4]}]}] $ylab "%.1f"
+        # (the longest stay beside the mean, in the label: as a whisker it
+        # set the scale, the bars at its foot, and the mean was read at its end)
+        set ylab [expr {$vmd || $step == 1 ? "Mean stay (frames)" : "Mean stay (clustered frames, × $step)"}]
+        # (as a time, when the time per frame is given)
+        set t [_time]
+        if {[llength $t]} {
+            set f [expr {$step * [lindex $t 0]}]
+            set ylab "Mean stay ([lindex $t 1])"
+        }
+        _bars $c [lmap r $st {list [lindex $r 0] [expr {$f * [lindex $r 2]}] "longest [::VMDance::Plot::fmt [expr {round($f * [lindex $r 4] * 1e6) / 1e6}]]"}] $ylab "%.3g"
     }
 }
 proc ::VMDance::Plots::hover_residence {c x y} {
@@ -659,7 +1015,8 @@ proc ::VMDance::Plots::draw_compactness {c} {
     set k [K]
     switch -- [S cp_show] {
         spread {
-            _bars $c [lmap r [::VMDance::Results::table] {list [lindex $r 0] [lindex $r 4]}] "Mean RMSD² from the representative (Å²)" "%.2g"
+            _bars $c [lmap r [::VMDance::Results::table] {list [lindex $r 0] [_len [lindex $r 4]]}] \
+                [expr {[_roots] ? "RMS distance from the representative (Å)" : "Mean RMSD² from the representative (Å²)"}] "%.3g"
         }
         scatter { _compactness_scatter $c }
         isim {
@@ -676,7 +1033,8 @@ proc ::VMDance::Plots::draw_compactness {c} {
                 -text [expr {[dict get $s isim] eq "" ? "all frames: none" : [format "all frames: %.4g (lower: tighter)" [dict get $s isim]]}] -tags label
         }
         default {
-            _bars $c [lmap r [::VMDance::Results::table] {list [lindex $r 0] [lindex $r 3]}] "Mean square deviation within (Å²)" "%.2g"
+            _bars $c [lmap r [::VMDance::Results::table] {list [lindex $r 0] [_len [lindex $r 3]]}] \
+                [expr {[_roots] ? "Root mean square deviation within (Å)" : "Mean square deviation within (Å²)"}] "%.3g"
         }
     }
 }
@@ -691,28 +1049,42 @@ proc ::VMDance::Plots::_compactness_scatter {c} {
     set pts {}
     foreach r [::VMDance::Results::table] {
         lassign $r cl n pct msd
-        if {$msd ne ""} { lappend pts [list $cl $n $msd] }
+        if {$msd ne ""} { lappend pts [list $cl $n [_len $msd]] }
     }
     if {![llength $pts]} { ::VMDance::Plot::empty $c "No cluster MSD" "The backend gave none."; return }
     set xs [lmap p $pts {lindex $p 1}]; set ys [lmap p $pts {lindex $p 2}]
     set xmax [::tcl::mathfunc::max {*}$xs]; set ymax [::tcl::mathfunc::max {*}$ys]
     ::VMDance::Plot::setup $c 0 [expr {$xmax * 1.12 + 1}] 0 [expr {$ymax * 1.15 + 1e-6}] \
         [list [::VMDance::Plot::ml] 18 18 [::VMDance::Plot::mb]]
-    ::VMDance::Plot::axes $c "Frames" "Mean square deviation within (Å²)" auto auto [gridopt]
+    ::VMDance::Plot::axes $c "Frames" [expr {[_roots] ? "Root mean square deviation within (Å)" : "Mean square deviation within (Å²)"}] auto auto [gridopt]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
     set mx [::VMDance::Plot::X $c [_median $xs]]; set my [::VMDance::Plot::Y $c [_median $ys]]
     $c create line $mx $y0 $mx $y1 -fill #c4c9d2 -dash {4 3} -tags grid
     $c create line $x0 $my $x1 $my -fill #c4c9d2 -dash {4 3} -tags grid
     set hit {}
-    foreach p $pts {
-        lassign $p cl n v
+    # (smaller dots for many clusters; a cluster's number where it has room,
+    # the selected ones' first: hundreds of them were a black column)
+    set many [expr {[llength $pts] > 40}]
+    set lh [::VMDance::Plot::lh]
+    set boxes {}
+    foreach p [lsort -integer -decreasing -index 0 [lmap p $pts {list [on [lindex $p 0]] {*}$p}]] {
+        lassign $p sel cl n v
         set x [::VMDance::Plot::X $c $n]; set y [::VMDance::Plot::Y $c $v]
-        set r [expr {[on $cl] ? 7 : 6}]
+        set r [expr {$sel ? 7 : ($many ? 4 : 6)}]
         $c create oval [expr {$x - $r}] [expr {$y - $r}] [expr {$x + $r}] [expr {$y + $r}] -fill [ccol $cl] \
-            -outline [expr {[on $cl] ? "#111111" : "white"}] -width [expr {[on $cl] ? 2 : 1}] -tags point
-        $c create text [expr {$x + $r + 3}] $y -text $cl -anchor w -font MdvSmall -fill [theme text] -tags label
+            -outline [expr {$sel ? "#111111" : "white"}] -width [expr {$sel ? 2 : 1}] -tags point
         lappend hit [list $x $y $cl]
+        set bx [list [expr {$x + $r + 2}] [expr {$y - $lh / 2.0}] [expr {$x + $r + 4 + [font measure MdvSmall $cl]}] [expr {$y + $lh / 2.0}]]
+        set free 1
+        foreach b $boxes {
+            if {[lindex $bx 0] < [lindex $b 2] && [lindex $b 0] < [lindex $bx 2] && [lindex $bx 1] < [lindex $b 3] && [lindex $b 1] < [lindex $bx 3]} { set free 0; break }
+        }
+        if {!$free} continue
+        lappend boxes $bx [list [expr {$x - $r}] [expr {$y - $r}] [expr {$x + $r}] [expr {$y + $r}]]
+        $c create text [expr {$x + $r + 3}] $y -text $cl -anchor w -font [expr {$sel ? "MdvBold" : "MdvSmall"}] -fill [theme text] -tags label
     }
+    $c raise point label
+    $c raise label
     $c create text [expr {$x1 - 4}] [expr {$y0 + 4}] -anchor ne -font MdvSmall -fill [theme muted] -text "dashed: the medians" -tags label
     set H($c,pts) $hit
 }
@@ -736,8 +1108,8 @@ proc ::VMDance::Plots::hover_compactness {c x y} {
     if {$cl eq "" || $cl < 0} { return "" }
     set r [lindex [::VMDance::Results::table] $cl]
     set s "[_cluster_words $cl]"
-    if {[lindex $r 3] ne ""} { append s [format "; MSD within %.3g Å²" [lindex $r 3]] }
-    if {[lindex $r 4] ne ""} { append s [format ", RMSD² from its representative %.3g Å²" [lindex $r 4]] }
+    if {[lindex $r 3] ne ""} { append s [format "; %s within %.3g %s" [expr {[_roots] ? "√MSD" : "MSD"}] [_len [lindex $r 3]] [_lenu]] }
+    if {[lindex $r 4] ne ""} { append s [format ", %s from its representative %.3g %s" [expr {[_roots] ? "RMS distance" : "RMSD²"}] [_len [lindex $r 4]] [_lenu]] }
     set sim [::VMDance::Results::extra similarity]
     if {[dict size $sim] && [lindex [dict get $sim cluster] $cl] ne ""} {
         append s [format ", iSIM %.3g" [lindex [dict get $sim cluster] $cl]]
@@ -821,21 +1193,44 @@ proc ::VMDance::Plots::draw_tree {c} {
     lassign $tree how rows base order x height roots kids
     if {[llength $order] < 1} { ::VMDance::Plot::empty $c "No tree" "The clustering has no cluster with frames."; return }
     if {$how eq "linkage" && [llength $order] < 2} { ::VMDance::Plot::empty $c "One cluster" "A dendrogram needs two clusters or more."; return }
+    set helm [expr {$how eq "helm"}]
+    # (a linkage's heights are RMSD²: as lengths when asked; HELM's are
+    # the merges' order)
+    if {!$helm && [_roots]} { dict for {nd h} $height { dict set height $nd [_len $h] } }
     set hmax 0
     dict for {nd h} $height { if {$h > $hmax} { set hmax $h } }
     if {$hmax <= 0} { set hmax 1 }
     set n [llength $order]
-    set helm [expr {$how eq "helm"}]
     set final [expr {$helm ? [_helm_final] : {}}]
-    set ylab [expr {$helm ? "Merge (in order)" : "RMSD² between mean structures (Å²)"}]
+    set ylab [expr {$helm ? "Merge (in order)" : ([_roots] ? "RMSD between mean structures (Å)" : "RMSD² between mean structures (Å²)")}]
     # (a linkage is not how DIVINE made its clusters: its splits, which
     # CPP-MDANCE does not return, can group them otherwise; nor HELM's
     # merges, for a run that has none)
     set not [::VMDance::_get {divine ", not DIVINE's splits" helm ", not HELM's merges"} [::VMDance::Results::algorithm] ""]
     set xlab [expr {$helm ? "HELM's starting clusters (colour: the cluster they end in)" : "Cluster (average linkage of the mean structures$not)"}]
-    ::VMDance::Plot::setup $c -0.6 [expr {$n - 0.4}] 0 [expr {$hmax * 1.08}] [list [::VMDance::Plot::ml] 18 18 [::VMDance::Plot::mb $c $xlab]]
-    ::VMDance::Plot::axes $c $xlab $ylab {} auto [gridopt]
+    # the leaves' labels: side by side when they fit; upright, read from
+    # below, when they do not (every n-th when a line's height does not
+    # fit between two leaves either): sixty leaves had none at all
+    set ml [::VMDance::Plot::ml]
+    set lh [::VMDance::Plot::lh]
+    set widest 0
+    foreach l $order { set widest [expr {max($widest, [font measure MdvSmall $l])}] }
+    set room [expr {([lindex [::VMDance::Plot::size $c] 0] - $ml - 18) / double($n)}]
+    set lmode [expr {![S td_labels] ? "none" : ($room >= $widest + 3 ? "flat" : "up")}]
+    set every [expr {$lmode eq "up" ? max(1, int(ceil(($lh - 2) / $room))) : 1}]
+    set mb [::VMDance::Plot::mb $c $xlab]
+    if {$lmode eq "up"} { set mb [expr {$mb + max(0, $widest - $lh + 4)}] }
+    ::VMDance::Plot::setup $c -0.6 [expr {$n - 0.4}] 0 [expr {$hmax * 1.08}] [list $ml 18 18 $mb]
+    ::VMDance::Plot::axes $c [expr {$lmode eq "up" ? "" : $xlab}] $ylab {} auto [gridopt]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    if {$lmode eq "up"} {
+        # (the axis' title under the upright labels)
+        lassign [::VMDance::Plot::_xtitle $c $xlab] f wrap
+        set tw [expr {$wrap ? $wrap : [font measure $f $xlab]}]
+        set W [lindex [::VMDance::Plot::size $c] 0]
+        $c create text [expr {max($tw / 2.0 + 2, min($W - $tw / 2.0 - 2, ($x0 + $x1) / 2.0))}] [expr {$y1 + 9 + $widest + 4}] \
+            -text $xlab -anchor n -font $f -fill [theme text] -tags axis -width $wrap -justify center
+    }
     set w [lw]
     # the cluster a node's leaves end in (HELM), else ""
     set cl_of [dict create]
@@ -857,17 +1252,20 @@ proc ::VMDance::Plots::draw_tree {c} {
     }
     # the leaves: a mark in their cluster's colour, labels when they fit
     set room [expr {($x1 - $x0) / double($n)}]
-    set lh [::VMDance::Plot::lh]
     set hit {}
+    set li 0
     foreach l $order {
         set px [::VMDance::Plot::X $c [dict get $x $l]]
         set cl [dict get $cl_of $l]
         set r [expr {min(5.0, max(2.0, $room / 3.0))}]
         $c create oval [expr {$px - $r}] [expr {$y1 - $r}] [expr {$px + $r}] [expr {$y1 + $r}] -fill [ccol $cl] \
             -outline [expr {$cl ne "" && $cl >= 0 && [on $cl] ? "#111111" : "white"}] -tags leaf
-        if {[S td_labels] && $room >= [font measure MdvSmall $l] + 3} {
+        if {$lmode eq "flat"} {
             $c create text $px [expr {$y1 + $r + 2}] -text $l -anchor n -font MdvSmall -fill [theme text] -tags label
+        } elseif {$lmode eq "up" && $li % $every == 0} {
+            $c create text $px [expr {$y1 + $r + 3}] -text $l -angle 90 -anchor e -font MdvSmall -fill [theme text] -tags label
         }
+        incr li
         lappend hit [list $px $l $cl]
     }
     if {$helm} {
@@ -913,8 +1311,8 @@ proc ::VMDance::Plots::_tree_heights {c} {
         ::VMDance::Plot::empty $c "No heights" "This run of HELM was made before the heights of its merges were measured: cluster again."
         return
     }
-    set hs [::VMDance::Results::tree_heights]
-    set ylab [expr {$how eq "helm" ? "Merge height: the cluster's MSD (Å²)" : "Merge height: RMSD² (Å²)"}]
+    set hs [lmap h [::VMDance::Results::tree_heights] {_len $h}]
+    set ylab [expr {$how eq "helm" ? ([_roots] ? "Merge height: the cluster's √MSD (Å)" : "Merge height: the cluster's MSD (Å²)") : ([_roots] ? "Merge height: RMSD (Å)" : "Merge height: RMSD² (Å²)")}]
     set L [llength $leaves]
     set pts {}
     set j 0
@@ -927,21 +1325,32 @@ proc ::VMDance::Plots::_tree_heights {c} {
     set kmin [::tcl::mathfunc::min {*}$xs]; set kmax [::tcl::mathfunc::max {*}$xs]
     set hi [::tcl::mathfunc::max {*}$ys]
     if {$hi <= 0} { set hi 1 }
-    # the largest jump: a merge's height over the one before it (at k + 1)
-    set jump ""; set best 1.0
+    # the jump: a merge's height over the one before it (at k + 1), the
+    # largest when it stands out: twice the merge before at least, half as
+    # much again as the next largest jump, and among the coarser half of
+    # the merges (among dozens of starting clusters two of the first
+    # merges always differ by some factor: the tau peptide's largest was
+    # at k 53, of a continuum that has no place to stop)
     set floor [expr {0.05 * $hi}]
+    set ratios {}
     foreach p $pts {
         lassign $p k h
         set i [lsearch -exact -index 0 $pts [expr {$k + 1}]]
         if {$i < 0} continue
-        set d [expr {$h / max([lindex $pts $i 1], $floor)}]
-        if {$d > $best} { set best $d; set jump $k }
+        lappend ratios [list $k [expr {$h / max([lindex $pts $i 1], $floor)}]]
+    }
+    set ratios [lsort -real -decreasing -index 1 $ratios]
+    set jump ""; set best 0.0
+    if {[llength $ratios]} {
+        lassign [lindex $ratios 0] k1 d1
+        set d2 [expr {[llength $ratios] > 1 ? [lindex $ratios 1 1] : 1.0}]
+        if {$d1 >= 2.0 && $d1 >= 1.5 * $d2 && $k1 <= ($kmin + $kmax) / 2.0} { set jump $k1; set best $d1 }
     }
     # (the clustering's k too: HELM's last merge is at k + 1, its k left of
     # it; the ticks whole numbers of clusters)
     set klo [expr {[K] >= $kmin - 1 && [K] >= 1 ? min($kmin, [K]) : $kmin}]
     set ml [::VMDance::Plot::ml]
-    ::VMDance::Plot::setup $c [expr {$klo - 0.5}] [expr {$kmax + 0.5}] 0 [expr {$hi * 1.1}] [list $ml 18 18 [::VMDance::Plot::mb]]
+    ::VMDance::Plot::setup $c [expr {$klo - 0.5}] [expr {$kmax + 0.5}] 0 [expr {$hi * 1.1}] [list $ml [expr {max(18, [::VMDance::Plot::note_margin])}] 18 [::VMDance::Plot::mb]]
     set kt {}
     for {set k $klo} {$k <= $kmax} {incr k} { lappend kt $k }
     ::VMDance::Plot::axes $c "Clusters before the merge (k)" $ylab $kt auto [gridopt]
@@ -956,8 +1365,9 @@ proc ::VMDance::Plots::_tree_heights {c} {
     if {$jump ne ""} {
         set px [::VMDance::Plot::X $c $jump]; set py [::VMDance::Plot::Y $c [lindex $pts [lsearch -exact -index 0 $pts $jump] 1]]
         $c create oval [expr {$px - 7}] [expr {$py - 7}] [expr {$px + 7}] [expr {$py + 7}] -outline [theme cursor] -width 1.5 -tags mark
-        $c create text [expr {$x1 - 4}] [expr {$y0 + 4}] -anchor ne -font MdvSmall -fill [theme muted] \
-            -text [format "circled: the largest jump (× %.1f), from k = %d to %d" $best $jump [expr {$jump - 1}]] -tags label
+        ::VMDance::Plot::note $c [format "circled: the jump that stands out (× %.1f), from k = %d to %d" $best $jump [expr {$jump - 1}]] label
+    } elseif {[llength $ratios] > 1} {
+        ::VMDance::Plot::note $c "no merge stands out from the one before it" label
     }
     # the clustering's k (merges stop there)
     if {[K] >= $klo && [K] <= $kmax} {
@@ -973,7 +1383,7 @@ proc ::VMDance::Plots::hover_tree {c x y} {
         set k [expr {int(round([::VMDance::Plot::invX $c $x]))}]
         set i [lsearch -exact -index 0 $H($c,heights) $k]
         if {$i < 0} { return "" }
-        return [format "from %d to %d clusters: a merge of height %.4g Å²" $k [expr {$k - 1}] [lindex $H($c,heights) $i 1]]
+        return [format "from %d to %d clusters: a merge of height %.4g %s" $k [expr {$k - 1}] [lindex $H($c,heights) $i 1] [_lenu]]
     }
     lassign [_leaf_at $c $x $y] how px l cl
     if {$how eq ""} { return "" }
@@ -996,7 +1406,13 @@ proc ::VMDance::Plots::click_tree {c x y add} {
 proc ::VMDance::Plots::draw_silhouette {c} {
     variable H
     set k [K]
-    set sil [::VMDance::Results::measure silhouette]
+    # (of the clusters' mean structures, or of every frame: Plot options)
+    set kind [expr {[S sl_kind] eq "pairs" ? "pairs" : "centroid"}]
+    set sil [::VMDance::Results::silhouette $kind]
+    if {$kind eq "pairs" && ![llength $sil]} {
+        ::VMDance::Plot::empty $c "No silhouette from every frame" "This run was made before it was measured: cluster again, or show the silhouette from the clusters' mean structures (Plot options)."
+        return
+    }
     set fr [::VMDance::Results::frames]
     set all [lmap v $sil {expr {$v eq "" ? [continue] : $v}}]
     if {![llength $all]} { ::VMDance::Plot::empty $c "No silhouette" "A silhouette needs two clusters or more."; return }
@@ -1013,8 +1429,18 @@ proc ::VMDance::Plots::draw_silhouette {c} {
     set gap [expr {min(max(2, $total / 60), $total / (3.0 * max(1, [llength $blocks] - 1)))}]
     set ytot [expr {$total + $gap * ([llength $blocks] - 1)}]
     set ml [expr {max([::VMDance::Plot::ml], [font measure MdvSmall "00"] + 30)}]
-    ::VMDance::Plot::setup $c -1 1 0 $ytot [list $ml 18 18 [::VMDance::Plot::mb]]
-    ::VMDance::Plot::axes $c "Silhouette" "" {-1 -0.5 0 0.5 1} {} [gridopt]
+    # the axis from the lowest value, a quarter below at most (from 0 when
+    # none is below it: from the clusters' mean structures a k-means
+    # clustering has none, each frame being in the cluster of the nearest
+    # mean, and half the plot was an empty −1 to 0)
+    set min [::tcl::mathfunc::min {*}$all]
+    set lo [expr {$min < 0 ? max(-1.0, floor($min * 4.0) / 4.0) : 0.0}]
+    set xt {}
+    set stepx [expr {1.0 - $lo > 1.25 ? 0.5 : 0.25}]
+    for {set t $lo} {$t <= 1.0 + 1e-9} {set t [expr {$t + $stepx}]} { lappend xt $t }
+    set xtitle [expr {$kind eq "pairs" ? "Silhouette (from every frame, squared distances)" : "Silhouette (from the clusters' mean structures)"}]
+    ::VMDance::Plot::setup $c $lo 1 0 $ytot [list $ml [expr {max(18, [::VMDance::Plot::note_margin])}] 18 [::VMDance::Plot::mb $c $xtitle]]
+    ::VMDance::Plot::axes $c $xtitle "Cluster" $xt {} [gridopt]
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
     set xz [::VMDance::Plot::X $c 0]
     # y from the top: row r at data ytot - r (a gap can be a fraction of one)
@@ -1059,7 +1485,10 @@ proc ::VMDance::Plots::draw_silhouette {c} {
     if {[S sl_mean]} {
         set xm [::VMDance::Plot::X $c $mean]
         $c create line $xm $y0 $xm $y1 -fill [theme cursor] -dash {6 3} -width 1.2 -tags mean
-        $c create text [expr {$xm + 4}] [expr {$y0 + 2}] -anchor nw -font MdvSmall -fill [theme cursor] -text [format "mean %.3f" $mean] -tags mean
+        # (above the plot: inside it the label was drawn over the first cluster)
+        set t [format "mean %.3f" $mean]
+        set hw [expr {[font measure MdvSmall $t] / 2.0}]
+        $c create text [expr {max($x0 + $hw, min($x1 - $hw, $xm))}] [expr {$y0 - 3}] -anchor s -font MdvSmall -fill [theme cursor] -text $t -tags mean
     }
     set H($c,sil) [list $ytot $hit]
 }
@@ -1079,7 +1508,12 @@ proc ::VMDance::Plots::hover_silhouette {c x y} {
     lassign [_sil_at $c $x $y] cl p
     if {$cl eq ""} { return "" }
     lassign $p i v
-    format "frame %s (cluster %d): silhouette %.3f" [lindex [::VMDance::Results::frames] $i] $cl $v
+    set s [format "frame %s (cluster %d): silhouette %.3f" [lindex [::VMDance::Results::frames] $i] $cl $v]
+    # (the other kind's, when the run has both)
+    set other [expr {[S sl_kind] eq "pairs" ? "centroid" : "pairs"}]
+    set o [lindex [::VMDance::Results::silhouette $other] $i]
+    if {$o ne ""} { append s [format " (%s: %.3f)" [expr {$other eq "pairs" ? "from every frame" : "from the mean structures"}] $o] }
+    return $s
 }
 proc ::VMDance::Plots::click_silhouette {c x y add} {
     lassign [_sil_at $c $x $y] cl p
@@ -1093,7 +1527,7 @@ proc ::VMDance::Plots::click_silhouette {c x y add} {
 #---------------------------------------------------------------------------
 
 proc ::VMDance::Plots::draw_elbow {c} {
-    variable H; variable ch_col; variable db_col
+    variable H; variable ch_col; variable db_col; variable accent
     set e $::VMDance::Results::elbow
     set recs [dict get $e records]
     # (an elbow scan of eQUAL is of its radius: the values are radii)
@@ -1103,31 +1537,57 @@ proc ::VMDance::Plots::draw_elbow {c} {
     set series {}
     if {$show in {both ch}} { lappend series ch $ch_col "Calinski–Harabasz (higher: better)" }
     if {$show in {both db}} { lappend series db $db_col "Davies–Bouldin (lower: better)" }
+    if {$show eq "explained"} { lappend series explained $accent "Variance the clusters explain (%)" }
     set items {}
     foreach {key col lab} $series { lappend items $lab $col }
     set failed [lmap r $recs {expr {[dict get $r status] eq "ok" ? [continue] : [::VMDance::Results::scan_x $r]}}]
     if {[llength $failed]} { lappend items "failed at [expr {$radius ? "radius" : "k ="}] [join $failed {, }]" @none }
-    # bars behind, 0 to 1: the agreement between seedings, when the scan has
-    # it; of eQUAL's radius, the clusters found (the most: the full height)
-    set bars {}
+    # bars in a strip of their own under the scores (over the scores'
+    # lines their values could not be read, and they had no scale): the
+    # agreement between seedings, 0 to 1, when the scan has it; of eQUAL's
+    # radius, the clusters found
+    set bars {}; set btitle ""; set bmax 1.0
     set stab [expr {[S eb_stability] && [llength [::VMDance::_get [dict get $e request] stability {}]]}]
     if {$stab} {
-        lappend items "Stability: agreement between seedings (bars, 0 to 1)" #c9d3df
+        set btitle "Stability"
+        lappend items "Stability: how alike the seedings' clusters are (below, 0 to 1)" #c9d3df
         foreach r $recs {
             set v [::VMDance::_get $r stability ""]
-            if {$v ne "" && $v > 0} { lappend bars [list [::VMDance::Results::scan_x $r] [expr {min(1.0, $v)}] [format %.2f $v]] }
+            if {$v ne ""} { lappend bars [list [::VMDance::Results::scan_x $r] [expr {max(0.0, min(1.0, $v))}] [format %.2f $v]] }
         }
     } elseif {$radius} {
-        lappend items "Clusters found (bars)" #c9d3df
-        set most [::tcl::mathfunc::max 1 {*}[lmap r $recs {expr {[dict get $r nclusters] eq "" ? 0 : [dict get $r nclusters]}}]]
+        set btitle "Clusters"
+        lappend items "Clusters found (below)" #c9d3df
+        set bmax [::tcl::mathfunc::max 1 {*}[lmap r $recs {expr {[dict get $r nclusters] eq "" ? 0 : [dict get $r nclusters]}}]]
         foreach r $recs {
             if {[dict get $r status] ne "ok"} continue
-            lappend bars [list [dict get $r radius] [expr {double([dict get $r nclusters]) / $most}] [dict get $r nclusters]]
+            lappend bars [list [dict get $r radius] [dict get $r nclusters] [dict get $r nclusters]]
         }
     }
+    # the current clustering's k (eQUAL's radius), when it is of the scan's algorithm
+    set cur ""
+    if {[::VMDance::Results::has_data] && [dict get [::VMDance::Results::request] algorithm] eq [dict get $e request algorithm]} {
+        set q [::VMDance::Results::request]
+        set v [expr {$radius ? [::VMDance::_get [dict get $q params] threshold ""] : [dict get $q k]}]
+        if {[string is double -strict $v] && [llength [lmap x $ks {expr {$x == $v ? 1 : [continue]}}]]} {
+            set cur $v
+            lappend items "dotted: the clustering now" @none
+        }
+    }
+    # what the scan suggests: a ring on those values, and a line of words
+    set sug [::VMDance::Results::elbow_suggest $e]
+    set words [::VMDance::_elbow_words $e 1]
     set ml [::VMDance::Plot::ml]
     set mr [expr {$show eq "both" ? $ml : 18}]
     set mt [_legend_margin $c $items $ml $mr]
+    if {$words ne ""} { set mt [expr {max($mt, [::VMDance::Plot::note_margin]) + ([S plot_legend] && [llength $items] ? [::VMDance::Plot::rowh] : 0)}] }
+    set mb [::VMDance::Plot::mb]
+    lassign [::VMDance::Plot::size $c] W Hh
+    set strip 0; set gap 0
+    if {[llength $bars]} {
+        set gap 10
+        set strip [expr {max(48, int(0.2 * ($Hh - $mt - $mb)))}]
+    }
     set kmin [::tcl::mathfunc::min {*}$ks]; set kmax [::tcl::mathfunc::max {*}$ks]
     if {$kmax == $kmin} { set kmax [expr {$kmin + 1}] }
     # (the half gap around the values: k's 0.5; radii's, half the smallest gap)
@@ -1137,10 +1597,16 @@ proc ::VMDance::Plots::draw_elbow {c} {
         set half [expr {($kmax - $kmin) / 2.0}]
         foreach a [lrange $sorted 0 end-1] b [lrange $sorted 1 end] { if {$b > $a} { set half [expr {min($half, ($b - $a) / 2.0)}] } }
     }
+    # a record's value of a series ("" none)
+    set val {{r key} {
+        if {[dict get $r status] ne "ok"} { return "" }
+        if {$key ne "explained"} { return [dict get $r $key] }
+        set v [::VMDance::Results::explained $r]
+        expr {$v eq "" ? "" : 100.0 * $v}
+    }}
     # each score on its own scale: the first on the left axis
-    set first 1
     foreach {key col lab} $series {
-        set vals [lmap r $recs {expr {[dict get $r status] eq "ok" && [dict get $r $key] ne "" ? [dict get $r $key] : [continue]}}]
+        set vals [lmap r $recs {expr {[set v [apply $val $r $key]] eq "" ? [continue] : $v}}]
         if {![llength $vals]} { set lo 0; set hi 1 } else { set lo [::tcl::mathfunc::min {*}$vals]; set hi [::tcl::mathfunc::max {*}$vals] }
         if {$hi == $lo} { set d [expr {$hi == 0 ? 1.0 : abs($hi) * 0.1}]; set lo [expr {$lo - $d}]; set hi [expr {$hi + $d}] }
         set pad [expr {($hi - $lo) * 0.1}]
@@ -1148,36 +1614,74 @@ proc ::VMDance::Plots::draw_elbow {c} {
     }
     set k0 [lindex $series 0]
     lassign $rng($k0) lo hi
-    ::VMDance::Plot::setup $c [expr {$kmin - $half}] [expr {$kmax + $half}] $lo $hi [list $ml $mt $mr [::VMDance::Plot::mb]]
-    ::VMDance::Plot::axes $c [expr {$radius ? "Radius (MDANCE's MSD, Å²)" : "Number of clusters (k)"}] [lindex $series 2] $ks auto [gridopt]
+    set xtitle [expr {$radius ? "Radius (MDANCE's MSD, Å²)" : "Number of clusters (k)"}]
+    ::VMDance::Plot::setup $c [expr {$kmin - $half}] [expr {$kmax + $half}] $lo $hi [list $ml $mt $mr [expr {$mb + $strip + $gap}]]
+    if {$strip} {
+        # (the values and the title of x are written under the strip)
+        ::VMDance::Plot::axes $c "" [lindex $series 2] $ks auto [dict merge [gridopt] [dict create xfmt {apply {{v} {return ""}}}]]
+    } else {
+        ::VMDance::Plot::axes $c $xtitle [lindex $series 2] $ks auto [gridopt]
+    }
     lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
-    if {[llength $bars]} {
-        set bw [expr {max(3.0, ([::VMDance::Plot::X $c [expr {$kmin + $half}]] - [::VMDance::Plot::X $c $kmin]))}]
+    set lh [::VMDance::Plot::lh]
+    set ybot $y1
+    if {$strip} {
+        set s0 [expr {$y1 + $gap}]; set s1 [expr {$s0 + $strip}]
+        set ybot $s1
+        $c create rectangle $x0 $s0 $x1 $s1 -fill [theme plotbg] -outline "" -tags {bg plotbg}
+        set bw [expr {max(3.0, 1.4 * ([::VMDance::Plot::X $c [expr {$kmin + $half}]] - [::VMDance::Plot::X $c $kmin]))}]
+        # its scale: 0, the middle, the top
+        foreach t [list 0 [expr {$bmax / 2.0}] $bmax] {
+            set py [expr {$s1 - double($t) / $bmax * ($strip - $lh - 2)}]
+            if {[S plot_grid]} { $c create line $x0 $py $x1 $py -fill [theme grid] -tags grid }
+            $c create line [expr {$x0 - 4}] $py $x0 $py -fill [theme axis] -tags axis
+            $c create text [expr {$x0 - 6}] $py -text [expr {$bmax == 1 ? [format %.1f $t] : [::VMDance::Plot::fmt [expr {round($t)}]]}] -anchor e -font MdvSmall -fill [theme text] -tags axis
+        }
         foreach b $bars {
             lassign $b bx v txt
             set px [::VMDance::Plot::X $c $bx]
-            set py [expr {$y1 - $v * ($y1 - $y0)}]
-            $c create rectangle [expr {$px - $bw / 2}] $py [expr {$px + $bw / 2}] $y1 -fill #dfe5ec -outline #c9d3df -tags stability
+            set py [expr {$s1 - double($v) / $bmax * ($strip - $lh - 2)}]
+            $c create rectangle [expr {$px - $bw / 2}] $py [expr {$px + $bw / 2}] $s1 -fill #c9d3df -outline "" -tags stability
             if {$bw >= [font measure MdvSmall $txt] + 2} {
-                $c create text $px [expr {$py + 2}] -text $txt -anchor n -font MdvSmall -fill [theme muted] -tags stability
+                $c create text $px [expr {$py - 1}] -text $txt -anchor s -font MdvSmall -fill [theme text] -tags stability
             }
         }
-        # (above the grid, behind the scores' lines)
-        $c raise stability plotbg
-        if {[llength [$c find withtag grid]]} { $c raise stability grid }
+        $c create line $x0 $s1 $x1 $s1 -fill [theme axis] -tags axis
+        $c create line $x0 $s0 $x0 $s1 -fill [theme axis] -tags axis
+        if {[font measure MdvSmall $btitle] <= $strip} {
+            $c create text [expr {max(14, 2 + $lh / 2.0)}] [expr {($s0 + $s1) / 2.0}] -text $btitle -angle 90 -font MdvSmall -fill [theme text] -tags axis
+        }
+        # the values of x that have room, and its title
+        lassign [::VMDance::Plot::_fit_ticks $c x $ks ::VMDance::Plot::fmt 8] ticks labelled
+        foreach t $ticks {
+            set px [::VMDance::Plot::X $c $t]
+            $c create line $px $s1 $px [expr {$s1 + 4}] -fill [theme axis] -tags axis
+            if {$t in $labelled} { $c create text $px [expr {$s1 + 6}] -text [::VMDance::Plot::fmt $t] -anchor n -font MdvSmall -fill [theme text] -tags axis }
+        }
+        $c create text [expr {($x0 + $x1) / 2.0}] [expr {$s1 + 6 + $lh + 3}] -text $xtitle -anchor n -font MdvText -fill [theme text] -tags axis
     }
     set w [expr {[lw] + 0.6}]
     foreach {key col lab} $series {
         lassign $rng($key) lo hi
         set pts {}
+        array unset at
         foreach r $recs {
-            if {[dict get $r status] ne "ok" || [dict get $r $key] eq ""} continue
+            set v [apply $val $r $key]
+            if {$v eq ""} continue
             set px [::VMDance::Plot::X $c [::VMDance::Results::scan_x $r]]
-            set py [expr {$y1 - ([dict get $r $key] - $lo) / ($hi - $lo) * ($y1 - $y0)}]
+            set py [expr {$y1 - ($v - $lo) / ($hi - $lo) * ($y1 - $y0)}]
             lappend pts $px $py
+            set at([::VMDance::Results::scan_x $r]) [list $px $py]
         }
         if {[llength $pts] >= 4} { $c create line {*}$pts -fill $col -width $w -tags series }
         foreach {px py} $pts { $c create oval [expr {$px - 4}] [expr {$py - 4}] [expr {$px + 4}] [expr {$py + 4}] -fill $col -outline white -tags series }
+        # the suggested values of this score: ringed
+        foreach g [expr {$key eq "db" ? {db_lowest db_dip} : ($key eq "ch" ? {ch_highest} : {})}] {
+            set x [dict get $sug $g]
+            if {$x eq "" || ![info exists at($x)]} continue
+            lassign $at($x) px py
+            $c create oval [expr {$px - 8}] [expr {$py - 8}] [expr {$px + 8}] [expr {$py + 8}] -outline $col -width 1.6 -tags mark
+        }
         if {$key ne $k0} {
             # the right axis
             $c create line $x1 $y0 $x1 $y1 -fill [theme axis] -tags axis
@@ -1187,7 +1691,7 @@ proc ::VMDance::Plots::draw_elbow {c} {
                 $c create line $x1 $py [expr {$x1 + 4}] $py -fill [theme axis] -tags axis
                 $c create text [expr {$x1 + 6}] $py -text [::VMDance::Plot::_stepfmt $lo $hi 5 $t] -anchor w -font MdvSmall -fill $col -tags axis
             }
-            $c create text [expr {[lindex [::VMDance::Plot::size $c] 0] - 10}] [expr {($y0 + $y1) / 2.0}] -text $lab -angle 90 \
+            $c create text [expr {$W - 10}] [expr {($y0 + $y1) / 2.0}] -text $lab -angle 90 \
                 -font [::VMDance::Plot::_fit_font $lab [expr {$y1 - $y0}]] -fill $col -tags axis
         }
     }
@@ -1197,23 +1701,22 @@ proc ::VMDance::Plots::draw_elbow {c} {
         $c create line [expr {$px - 4}] [expr {$y1 - 4}] [expr {$px + 4}] [expr {$y1 + 4}] -fill [theme cursor] -width 2 -tags series
         $c create line [expr {$px - 4}] [expr {$y1 + 4}] [expr {$px + 4}] [expr {$y1 - 4}] -fill [theme cursor] -width 2 -tags series
     }
-    # the current clustering's k (eQUAL's radius), when it is of the scan's algorithm
-    if {[::VMDance::Results::has_data] && [dict get [::VMDance::Results::request] algorithm] eq [dict get $e request algorithm]} {
-        set q [::VMDance::Results::request]
-        set cur [expr {$radius ? [::VMDance::_get [dict get $q params] threshold ""] : [dict get $q k]}]
-        if {[string is double -strict $cur] && [llength [lmap v $ks {expr {$v == $cur ? 1 : [continue]}}]]} {
-            set px [::VMDance::Plot::X $c $cur]
-            $c create line $px $y0 $px $y1 -fill $::VMDance::Plots::accent -dash {2 3} -tags mark
-        }
+    if {$cur ne ""} {
+        set px [::VMDance::Plot::X $c $cur]
+        $c create line $px $y0 $px $ybot -fill $accent -dash {2 3} -tags mark
     }
+    if {$words ne ""} { ::VMDance::Plot::note $c "ringed · $words" }
     _legend $c $items [list $x0 $x1]
     set H($c,elbow) $ks
+    set H($c,elbowbot) $ybot
 }
 # The scan's value (k, or radius) nearest the pointer, within half the gap
-# to the next ("" none).
+# to the next ("" none): over the scores or the strip under them.
 proc ::VMDance::Plots::_k_at {c x y} {
     variable H
-    if {![info exists H($c,elbow)] || ![::VMDance::Plot::inside $c $x $y]} { return "" }
+    if {![info exists H($c,elbow)]} { return "" }
+    lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
+    if {$x < $x0 || $x > $x1 || $y < $y0 || $y > $H($c,elbowbot)} { return "" }
     set best ""; set bd Inf
     set pxs [lsort -real [lmap k $H($c,elbow) {::VMDance::Plot::X $c $k}]]
     set gap Inf
@@ -1238,9 +1741,11 @@ proc ::VMDance::Plots::hover_elbow {c x y} {
     if {[S eb_partition]} { _partition $c $x $y $k $r }
     set s [_at_words $k]
     if {[dict exists $r radius]} {
-        append s " ([dict get $r nclusters] clusters)"
-    } elseif {[dict get $r nclusters] != $k} { append s " (found [dict get $r nclusters])" }
+        append s " ([dict get $r nclusters] cluster[expr {[dict get $r nclusters] == 1 ? "" : "s"}])"
+    } elseif {[dict get $r nclusters] != $k} { append s " ([dict get $r nclusters] with frames)" }
     append s ": Calinski–Harabasz [_sc [dict get $r ch]], Davies–Bouldin [_sc [dict get $r db]]"
+    set ex [::VMDance::Results::explained $r]
+    if {$ex ne ""} { append s [format ", %.0f%% of the variance explained" [expr {100 * $ex}]] }
     if {[::VMDance::_get $r stability ""] ne ""} {
         append s ", stability [format %.2f [dict get $r stability]]"
         if {[::VMDance::_get $r compared ""] ne ""} { append s " ([dict get $r compared] seedings)" }
@@ -1271,7 +1776,7 @@ proc ::VMDance::Plots::_partition {c x y k r} {
     set by [expr {max(4, min($Hh - $bh - 4, $y - $bh / 2.0))}]
     $c create rectangle $bx $by [expr {$bx + $boxw}] [expr {$by + $bh}] -fill white -outline [theme muted] -tags partition
     $c create text [expr {$bx + 6}] [expr {$by + 4}] -anchor nw -font MdvBold -fill [theme text] \
-        -text [expr {[dict exists $r radius] ? "radius $k: $found clusters" : "k = $k[expr {$found != $k ? " (found $found)" : ""}]"}] -tags partition
+        -text [expr {[dict exists $r radius] ? "radius $k: $found cluster[expr {$found == 1 ? "" : "s"}]" : "k = $k[expr {$found != $k ? " ($found with frames)" : ""}]"}] -tags partition
     # (the bars scaled to the largest share: the widths compare the clusters)
     set fmax [expr {double([::tcl::mathfunc::max {*}$sizes]) / $tot}]
     for {set i 0} {$i < $shown} {incr i} {
@@ -1349,7 +1854,7 @@ proc ::VMDance::Plots::draw_sweep {c} {
                     set col #f3d9d9; set txt "×"
                 } elseif {[dict get $r $key] ne ""} {
                     set col [::VMDance::Cmap::at $cmap [expr {(double([dict get $r $key]) - $lo) / ($hi - $lo)}]]
-                    set txt [format [expr {$key eq "ch" ? "%.3g" : "%.3f"}] [dict get $r $key]]
+                    set txt [_cellfmt [expr {$key eq "ch" ? "%.4g" : "%.3f"}] [dict get $r $key]]
                 }
             }
             $c create rectangle $xa $ya [expr {$xa + $cw}] [expr {$ya + $ch}] -fill $col -outline white -tags cell

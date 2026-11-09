@@ -323,7 +323,7 @@ set a $::VMDance::Results::A
 dict set a request k 6
 ${R}::publish $a
 update
-check "h1 review N10: the Results summary says why DIVINE has fewer clusters than asked" [string match "DIVINE, k 6 of * frames × * atoms: 2 clusters — fewer than the 6 asked: no split left * frames or more on each side (-threshold 0.3). Calinski–Harabasz *" [set ${S}(summary)]]
+check "h1 review N10: the Results summary says why DIVINE has fewer clusters than asked" [string match "DIVINE, k 6 of * frames × * atoms, not fitted: 2 clusters — fewer than the 6 asked: no split left * frames or more on each side (-threshold 0.3). Calinski–Harabasz *" [set ${S}(summary)]]
 set o [load_system outlier]
 vmdance -mol $o -sel all -algorithm equal -threshold 1.0 -quiet 1
 check "eQUAL with noise: every plot" [expr {[every_plot_ok] && ![llength $::bgerrors]}]
@@ -420,7 +420,7 @@ check "  gone when the pointer leaves" [expr {![llength [$c find withtag partiti
 # (g7's F15: a record's nclusters counts the clusters with frames)
 ::VMDance::Plots::_partition $c $px [expr {($y0 + $y1) / 2}] 3 {status ok nclusters 2 sizes {3 0 3}}
 check "  a k whose clustering left a cluster empty: the box says how many it found" [expr {
-    [lsearch -exact [lmap i [$c find withtag partition] {if {[$c type $i] ne "text"} continue; $c itemcget $i -text}] "k = 3 (found 2)"] >= 0}]
+    [lsearch -exact [lmap i [$c find withtag partition] {if {[$c type $i] ne "text"} continue; $c itemcget $i -text}] "k = 3 (2 with frames)"] >= 0}]
 $c delete partition
 # (g7's F47: the RMSD² from the representative is lower than the MSD within)
 check "the tips of the RMSD² from the representative: from half the MSD to all of it (they said twice as large)" [expr {
@@ -597,7 +597,7 @@ ${G}::panels_changed
 ${G}::show_tab timeline
 ${G}::_rows_changed
 update
-foreach e [set ${G}::optwhen] { lassign $e wids cond; if {[string match *tl_view* $cond]} { set tlw [lindex $wids 0] } }
+foreach e [set ${G}::optwhen] { lassign $e wids cond; if {[string match {*tl_view) eq "lanes"*} $cond]} { set tlw [lindex $wids 0] } }
 set shown_before [winfo ismapped $tlw]
 ${G}::open_session_dialog
 update
@@ -947,12 +947,12 @@ ${G}::_algorithm_changed
 set before [::VMDance::Backend::settings]
 ${G}::settings_dialog
 update
-set tip $::VMDance::Tip::text($w.settings.f.bk.mode)
+set tip $::VMDance::Tip::text($w.settings.f.c.p.bk.mode)
 check "  the Use tip: the coordinates are written with the library too (it said no files)" [expr {![string match "*no files*" $tip] && [string match "*private folder*" $tip]}]
 array set ${G}::E [list mode cli cli $copy]
 ${G}::_settings_backend
 check "  a program tried: not applied, the dialog says it is for OK" [expr {[::VMDance::Backend::settings] eq $before &&
-    [string match "On OK: the program $copy*" [$w.settings.f.bk.st cget -text]]}]
+    [string match "On OK: the program $copy*" [$w.settings.f.c.p.bk.st cget -text]]}]
 fake_env MDANCE_FAKE_SLEEP 1.5
 set nruns [llength [${R}::run_list]]
 ${G}::cluster
@@ -987,7 +987,7 @@ set fakepath [lindex [::VMDance::Backend::current] 1]
 set ::VMDance::Backend::notes($fakepath) "\"$fakepath\" did not answer within 3 s when run without arguments: its algorithms are not known, so all are offered"
 ${G}::settings_dialog
 update
-check "  a program slow to start: Settings says its algorithms are not known" [string match "*Algorithms: *\n*did not answer within 3 s*all are offered." [$w.settings.f.bk.st cget -text]]
+check "  a program slow to start: Settings says its algorithms are not known" [string match "*Algorithms: *\n*did not answer within 3 s*all are offered." [$w.settings.f.c.p.bk.st cget -text]]
 ${G}::_settings_cancel
 unset -nocomplain ::VMDance::Backend::notes($fakepath)
 ${G}::settings_dialog
@@ -1038,7 +1038,7 @@ set bs $PT.pk.bt.save
 check "  its last buttons can be reached" [expr {[winfo rooty $bs] + [winfo height $bs] <= [winfo rooty $cv] + [winfo height $cv] + 1}]
 wm minsize $w $mw0 $mh0
 wm geometry $w $g0
-${G}::apply_appearance
+${G}::apply_appearance; wm geometry $w [winfo width $w]x[lindex [${G}::needed_size] 1]
 update
 check "  a tall one again: no scroll bar" [expr {[winfo manager [winfo parent $cv].sb] eq ""}]
 set ${S}(readout) [string repeat "a long readout " 80]

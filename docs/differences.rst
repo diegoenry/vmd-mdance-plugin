@@ -49,6 +49,13 @@ and defaults, and measures the same things; what changed, and why:
      - the Setup's parameters; HELM from the same starting clusters; a k
        that cannot run is recorded, the others go on; any k made the
        clustering
+   * - What a scan suggests
+     - the two scores' curves
+     - rings and a sentence: Davies–Bouldin's lowest value and its sharpest
+       dip (MDANCE's two criteria, as its ``analysis_db`` script finds
+       them), Calinski–Harabasz's highest; the stability across NANI's
+       seedings; the variance the clusters explain; a radius for eQUAL
+       suggested from the frames
    * - Sweep
      - KMeans NANI and DIVINE
      - also HELM (its seeding: its first clustering's); a configuration
@@ -58,7 +65,15 @@ and defaults, and measures the same things; what changed, and why:
        mean structures
      - every frame; from the RMSDs to the mean structures (lower values:
        0.39 against 0.62 on 3ptb's Cα at k 4); 0 for a frame alone in its
-       cluster
+       cluster. A second kind beside it: from every frame, of the squared
+       distances (the classic silhouette, scikit-learn's with
+       ``metric="sqeuclidean"``)
+   * - Structures as PDB
+     - the frames copied into a molecule made for it, written by VMD's
+       ``animate write``: each ended by ``END``, none named
+     - models (``MODEL`` … ``ENDMDL``), a ``REMARK`` before each naming its
+       cluster and frame, one ``END``; VMD's writer frame by frame, no
+       molecule made
    * - Label files
      - two columns read by VMD frame: the plugin's own export of a range or
        a step refused
@@ -71,7 +86,8 @@ and defaults, and measures the same things; what changed, and why:
        the plugin tells them apart; the trimmed starting clusters left out
    * - Fit
      - none (the coordinates as they are)
-     - optional: *Fit to the first frame*, on the values
+     - optional: *Fit to the first frame*, on the values; off by default,
+       with a note, and a warning when the frames do not look superposed
    * - DIVINE
      - *Refine* always live (it changes nothing with NANI's splits);
        *Threshold*; any metric

@@ -13,7 +13,7 @@ set o [load_system outlier]
 
 check "no clustering: the questions say so" [expr {[string match "*no clustering*" [err {vmdance clusters}]] &&
     [vmdance info] eq "" && [string match "*no clustering*" [err {vmdance get 0}]]}]
-check "an unknown subcommand names the valid ones" [string match "*unknown subcommand \"clusterz\" (valid: info*" [err {vmdance clusterz}]]
+check "an unknown subcommand names the valid ones" [string match "*unknown subcommand \"clusterz\" (valid: help, info*" [err {vmdance clusterz}]]
 set al [vmdance algorithms]
 check "algorithms: labels, defaults, availability" [expr {[dict get $al kmeans label] eq "KMeans NANI" && [dict get $al equal k] == 0 && [dict get $al divine available]}]
 check "parameters: the catalog" [expr {[lindex [dict get [vmdance parameters helm] -merge-scheme] 1] eq "Inter" &&

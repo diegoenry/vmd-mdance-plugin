@@ -30,11 +30,13 @@ Add it to ``~/.vmdrc``:
 .. code-block:: tcl
 
    lappend auto_path /path/to/vmd-mdance-plugin/vmdance
-   package require vmdance   ;# registers Extensions > Analysis > VMDance
+   package require vmdance   ;# adds the menu entry Analysis > VMDance
    set env(MDANCE_CLI) /path/to/CPP-MDANCE/build/cli/mdance-cli
    set env(MDANCE_LIB) /path/to/CPP-MDANCE/build/tcl/mdance_tcl.so   ;# optional
 
-Then open **Extensions ▸ Analysis ▸ VMDance**, or type ``vmdance`` in
+Then open **Analysis ▸ VMDance** (VMD 2's main window has no Extensions
+menu; in VMD 1.9 the entry is under **Extensions ▸ Analysis ▸ VMDance**),
+or type ``vmdance`` in
 VMD's console. It needs a VMD built with Tcl/Tk 8.6, as VMD 2 is (``info
 patchlevel`` in VMD's console says which: VMD 1.9.3 and the Linux 1.9.4
 alphas have Tcl 8.5, and cannot load it), and is

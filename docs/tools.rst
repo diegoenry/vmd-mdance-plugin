@@ -29,7 +29,8 @@ Pick frames
 
 Frames chosen among the Setup's frames without clustering (``vmdance
 pick``): the most diverse (``diversity``, ``-param`` a whole percentage of
-the frames, 1 to 100: CPP-MDANCE reads a number below 1 as a share, and
+the frames, 1 to 100 — the window's field is then named *% of the frames*,
+*How many* for the others: CPP-MDANCE reads a number below 1 as a share, and
 drops the decimals of the others; with ``-metric MSD`` only, as its
 diversity selection reads past its data with the other indices), the
 outliers (``outliers``, a number of frames, or a share below 1 that holds a
@@ -38,7 +39,8 @@ frame at least), a representative sample drawn over the similarity
 with ``-nbins`` bins), the medoid or the outlier
 (one frame). A frame picked twice is refused as the backend's error. The
 3D tab draws them, on their molecule; a double-click on the list goes to
-one (``vmdance pick goto f``); **Save…** writes them as PDB, or DCD with a
+one (``vmdance pick goto f``); **Save…** writes them as PDB (a model
+each, named *picked frame f* in a ``REMARK``), or DCD with a
 PDB of the atoms beside it, of the same name (asked first when one is
 there: the molecule's own file may be; ``vmdance pick save file``).
 They keep what tells their frames, as a clustering does: once their

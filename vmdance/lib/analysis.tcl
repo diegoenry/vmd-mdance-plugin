@@ -33,6 +33,7 @@ namespace eval ::VMDance::Job {
     variable running 0
     variable cancelled 0
     variable stopped ""        ;# why the backend was stopped from outside ("": Cancel)
+    variable partial {}        ;# what a cancelled elbow scan had scanned (_elbow_partial)
     variable kind ""
     variable progress_cb ""
     variable inner {0.0 1.0}
@@ -297,6 +298,8 @@ proc ::VMDance::Job::start {kind req progress done} {
     set running 1
     set cancelled 0
     set stopped ""
+    # (what a cancelled scan had scanned: its caller may keep it)
+    variable partial {}
     set ::VMDance::Job::kind $kind
     set progress_cb $progress
     coroutine ::VMDance::Job::_co ::VMDance::Job::_body $kind $req $done
@@ -1078,7 +1081,7 @@ proc ::VMDance::Job::_do_elbow {req} {
     set hi [expr {[dict get $req algorithm] eq "helm" ? 0.95 : 1.0}]
     set invalid [::VMDance::_get $req invalid {}]
     foreach k $ks {
-        if {$cancelled} { error "cancelled" }
+        if {$cancelled} { _elbow_partial $req $recs $t0 $c; error "cancelled" }
         if {[dict exists $invalid $k]} {
             lappend recs [dict merge [dict create k $k] [_failed "not run: [dict get $invalid $k]"]]
             incr i
@@ -1094,7 +1097,7 @@ proc ::VMDance::Job::_do_elbow {req} {
         }
         set a [expr {$lo + ($hi - $lo) * $i / $n}]; set b [expr {$lo + ($hi - $lo) * ($i + 1) / $n}]
         if {[catch {_cluster $c $req $a $b $initial} cl opts]} {
-            if {$cancelled} { error "cancelled" }
+            if {$cancelled} { _elbow_partial $req $recs $t0 $c; error "cancelled" }
             # (a k that HELM's starting clusters cannot take: not run)
             if {[dict get $opts -errorcode] eq {VMDANCE NOTRUN}} { set why $cl; set cl "not run: $cl" } else { incr ran }
             lappend recs [dict merge $at [_failed $cl]]
@@ -1115,6 +1118,27 @@ proc ::VMDance::Job::_do_elbow {req} {
     dict set req k ""
     if {[llength $radii]} { dict set req params threshold "" }
     _scan elbow $req $recs $t0 [dict get $c digest]
+}
+
+# An elbow scan cancelled at a value: the values scanned before it are
+# kept as a scan of their own (Job::partial), for the caller to keep: two
+# of them at least, and not HELM's, whose records are scored together once
+# all are made. (They were thrown away: a scan of 2 to 40 cancelled at 12
+# left "No elbow scan".)
+proc ::VMDance::Job::_elbow_partial {req recs t0 c} {
+    variable partial {}
+    if {[dict get $req algorithm] eq "helm"} return
+    set done [lmap r $recs {expr {[dict get $r status] eq "ok" ? 1 : [continue]}}]
+    if {[llength $done] < 2} return
+    set xs [lmap r $recs {::VMDance::Results::scan_x $r}]
+    if {[llength [::VMDance::_get $req radii {}]]} {
+        dict set req radii $xs
+        dict set req params threshold ""
+    } else {
+        dict set req ks $xs
+    }
+    dict set req k ""
+    set partial [_scan elbow $req $recs $t0 [dict get $c digest]]
 }
 
 # A sweep: every configuration, one after the other.
@@ -1348,6 +1372,42 @@ proc ::VMDance::Job::_do_map {req} {
     set m [::VMDance::Measure::pca $c [dict get $p sample] ::VMDance::Job::cancelled \
         [list apply {{f m} { ::VMDance::Job::_progress [expr {0.3 + 0.7 * $f}] $m }}]]
     dict merge [dict create params $p] $m
+}
+
+# The distances between frames, for eQUAL's radius: req an input (checked;
+# its frames a sample, 150 or so). {sample pairs percentiles {2 v 5 v 10 v
+# 25 v 50 v} from to by}: MDANCE's MSD (Å², half the RMSD² of two frames:
+# what the radius is compared with) of every two of the frames, the values
+# that 2, 5, 10, 25 and 50% of the pairs are within, and a range to scan
+# the radius over: from the 2% value to the 50% one, in ten steps, to two
+# significant digits.
+proc ::VMDance::Job::_do_radii {req} {
+    variable cancelled
+    set c [_coords $req 0.0 0.5]
+    set rows {}
+    ::VMDance::Coords::each $c i r { lappend rows $r } ::VMDance::Job::cancelled
+    set na [dict get $c natoms]
+    set n [llength $rows]
+    set d {}
+    set slice [clock milliseconds]
+    for {set i 0} {$i < $n} {incr i} {
+        set a [lindex $rows $i]
+        for {set j [expr {$i + 1}]} {$j < $n} {incr j} {
+            lappend d [expr {[::VMDance::Measure::msd $a [lindex $rows $j] $na] / 2.0}]
+        }
+        ::VMDance::Coords::_breathe slice ::VMDance::Job::cancelled
+        _progress [expr {0.5 + 0.5 * ($i + 1) / $n}] "measuring the distances between [expr {$i + 1}] of $n frames"
+    }
+    set d [lsort -real $d]
+    set m [llength $d]
+    set pc {}
+    foreach p {2 5 10 25 50} { dict set pc $p [format %.3g [lindex $d [expr {min($m - 1, int($p / 100.0 * $m))}]]] }
+    set from [format %.2g [dict get $pc 2]]
+    set to [format %.2g [dict get $pc 50]]
+    if {$from <= 0} { set from [format %.2g [expr {$to / 10.0}]] }
+    set by [format %.2g [expr {($to - $from) / 9.0}]]
+    if {$by <= 0} { set by $from }
+    dict create sample $n pairs $m percentiles $pc from [expr {$from + 0}] to [expr {$to + 0}] by [expr {$by + 0}]
 }
 
 # A result's profiles, atom by atom: req {result params groups}, groups

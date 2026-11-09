@@ -50,7 +50,14 @@ frame. The rows are clustered as they are — MDANCE expects an aligned
 trajectory — unless *Fit to the first frame* (``-fit selection``)
 superposes each frame on the first clustered one by those atoms first; the
 fit is computed on the values (VMD's ``measure fit``), and VMD's own
-coordinates never move. Coordinates that are not numbers (NaN or infinite:
+coordinates never move. The fit is off unless asked. Whether the frames
+look superposed is measured, not assumed: a sample of them (the first and
+20 others) is compared with the first, as they are and once fitted on it,
+and frames that a fit brings to half the distance, an ångström nearer at
+least, do not look superposed. Setup's note under the Fit box says so, the
+command notes it as it clusters them, and ``vmdance alignment`` returns the
+two distances. Clustered as they are, such frames separate by where the
+molecule is, not by its shape. Coordinates that are not numbers (NaN or infinite:
 a simulation that blew up, a damaged file) are refused as they are read,
 naming the VMD frame and its first such atom: leave the frame out
 (``-first``, ``-last``, ``-step``) or delete it. (``mdance-cli`` named a
@@ -183,14 +190,18 @@ Extended quality: a cluster grows from a seed (the medoid of what is left,
 or the frames of highest complementary similarity) and takes the frames
 within ``-threshold`` (the radius: MDANCE's MSD of the frame and the seed,
 Å², half their RMSD²: a frame joins when its RMSD² to the seed is at most
-twice the radius) of it; the next cluster
+twice the radius, its RMSD at most √(2 × radius): 4 Å at a radius of 8) of
+it; the next cluster
 grows from what is left. The number of clusters follows from the radius;
 frames outside every cluster are *noise* (label -1, grey everywhere).
 Optionally small clusters are rejected as noise (``-reject-lowd``), and the
 growth stops at the first cluster whose MSD is above ``-sim-threshold``
 (``-check-sim``: a ceiling; that cluster and every frame left become noise,
 and 0 is refused, as it makes every frame noise). eQUAL never places its
-last frame or two: they are noise too. There is no k.
+last frame or two: they are noise too. There is no k. Which radius to
+try depends on the frames: ``vmdance radii`` (Setup's *Suggest a radius*)
+measures the distances between about 150 of them and proposes a range
+(:doc:`scans`).
 
 What comes back
 ---------------
@@ -225,10 +236,27 @@ From the same rows, once per clustering, and kept with it:
 - every frame's **silhouette** from the mean structures: a the RMSD from
   its own cluster's mean, b from the nearest other one, (b − a) / max(a,
   b), from -1 (closer to another cluster) to 1 (well inside its own); 0
-  for a frame alone in its cluster. It is not scikit-learn's, which
+  for a frame alone in its cluster. It is the *simplified* silhouette, not
+  scikit-learn's, which
   averages the distances to every frame of each cluster: this one reads
   higher (0.39 against 0.19 on 3ptb's Cα at k 4), and the MDANCE plugin's
-  squared a and b (0.62 there).
+  squared a and b (0.62 there). For k-means it is never below 0: k-means
+  puts each frame in the cluster of the nearest mean;
+- every frame's **silhouette from every frame**, of the squared distances:
+  a the mean RMSD² from the other frames of its cluster, b the smallest
+  mean RMSD² from the frames of another cluster, (b − a) / max(a, b). This
+  is the classic silhouette of the squared distances, and can be below 0
+  for k-means too. It costs no more than the first: the mean squared
+  distance from a frame to a cluster's frames is its squared distance from
+  their mean structure plus their own mean squared distance from it, so
+  every pair is counted from the means. scikit-learn's
+  ``silhouette_samples(metric="sqeuclidean")`` gives the same numbers on
+  the clustered coordinates (the tests count every pair). The Silhouette
+  plot shows either (*From*), ``vmdance silhouette -kind pairs`` returns
+  it, and the export has both.
 
 From the labels alone: the **runs** of consecutive clustered frames in one
-cluster (visits and residence), the **transitions** between clusters.
+cluster (visits and residence), the **transitions** between clusters, each
+cluster's **share window by window** and the frame it is first seen at
+(``vmdance timeline``), and, with groups, how unlike their shares of the
+clusters are (:doc:`groups`).

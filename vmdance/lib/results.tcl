@@ -296,6 +296,8 @@ proc ::VMDance::Results::check {a} {
         if {![dict exists $m $key]} { error "the measures have no \"$key\"" }
         _numlist "the measure $key" [dict get $m $key] $n
     }
+    # (the silhouette from every frame: runs made before have none)
+    if {[dict exists $m silhouette_pairs]} { _numlist "the measure silhouette_pairs" [dict get $m silhouette_pairs] $n }
     # (HELM's merges' heights, a value per merge: runs made before have none)
     if {[dict exists $m merge_msd]} { _numlist "the merges' heights" [dict get $m merge_msd] [llength [dict get $a zmatrix]] }
     foreach key {rep_msd centroid_msd} {
@@ -515,14 +517,24 @@ proc ::VMDance::Results::describe {a} {
     if {[dict get $q k] ne ""} { append s ", k [dict get $q k]" } else { append s ", radius [dict get $q params threshold]" }
     set k [dict get $a nclusters]
     append s " → $k cluster[expr {$k == 1 ? "" : "s"}]"
+    # (a cluster the algorithm left without frames is one of the k: said,
+    # or "10 clusters" names 8)
+    set e [llength [lsearch -all -exact [dict get $a sizes] 0]]
+    if {$e} { append s " ($e empty)" }
+    if {[dict get $q fit] ne ""} { append s ", fitted" }
     return $s
+}
+# The clusters of the current clustering that have no frame.
+proc ::VMDance::Results::empty_clusters {} {
+    variable sizes
+    lsearch -all -exact $sizes 0
 }
 
 # Publish a clustering as a new run (and the current one): a job's, which
 # read its frames on its molecule as its record has it.
 proc ::VMDance::Results::publish {a {label ""}} {
     variable runs; variable current; variable next_id; variable limit; variable trusted
-    set a [_inherit_groups $a]
+    set a [_inherit_map [_inherit_groups $a]]
     check $a
     # (everything that can fail before anything is replaced)
     if {$label eq ""} { set label [describe $a] }
@@ -954,6 +966,60 @@ proc ::VMDance::Results::_inherit_groups {a} {
     return $a
 }
 
+# A clustering with its clusters numbered by size, the largest 0 (equal
+# sizes in the order they had; those without frames last): the labels,
+# every list and matrix that has a row a cluster, and the per-cluster
+# parts of its extras, renumbered together. The backend's numbering is
+# kept by the run it is made of: this is another. An error when the
+# clusters are in that order already.
+proc ::VMDance::Results::renumbered {a} {
+    set sizes [dict get $a sizes]
+    set k [llength $sizes]
+    set order [lsort -integer -decreasing -index 1 [lmap c [lsearch -all -glob $sizes *] {list $c [lindex $sizes $c]}]]
+    set order [lmap p $order {lindex $p 0}]
+    set same 1
+    set i 0
+    foreach c $order { if {$c != $i} { set same 0 }; incr i }
+    if {$same} { error "the clusters are numbered by size already" }
+    set new [lrepeat $k 0]
+    set i 0
+    foreach c $order { lset new $c $i; incr i }
+    dict set a labels [lmap l [dict get $a labels] {expr {$l < 0 ? $l : [lindex $new $l]}}]
+    foreach key {sizes representatives msd} { dict set a $key [lmap c $order {lindex [dict get $a $key] $c}] }
+    foreach key {rep_msd centroid_msd} {
+        set M [dict get $a measures $key]
+        if {![llength $M]} continue
+        dict set a measures $key [lmap i $order {lmap j $order {lindex $M $i $j}}]
+    }
+    if {[dict exists $a extras similarity]} {
+        foreach key {cluster outliers} {
+            dict set a extras similarity $key [lmap c $order {lindex [dict get $a extras similarity $key] $c}]
+        }
+    }
+    if {[dict exists $a extras profiles]} {
+        foreach key {clusters differences} {
+            dict set a extras profiles $key [lmap c $order {lindex [dict get $a extras profiles $key] $c}]
+        }
+        dict set a extras profiles reference [lindex $new [dict get $a extras profiles reference]]
+    }
+    return $a
+}
+
+# A new clustering of the coordinates the current one's map was made of
+# (the same frames of the same atoms, fitted the same: the coordinates'
+# digests agree) takes its map: the map is of the frames, not of their
+# clusters, and was made again, seconds each time, after every Cluster.
+proc ::VMDance::Results::_inherit_map {a} {
+    variable A
+    if {[dict exists $a extras map] || ![has_data] || ![dict exists $A extras map]} { return $a }
+    foreach key {digest frames natoms} { if {[dict get $A $key] ne [dict get $a $key]} { return $a } }
+    foreach key {mol fit atoms fitatoms} {
+        if {[::VMDance::_get [dict get $A request] $key ""] ne [::VMDance::_get [dict get $a request] $key ""]} { return $a }
+    }
+    dict set a extras map [dict get $A extras map]
+    return $a
+}
+
 # A scan record's value: its k, or (an elbow scan of eQUAL) its radius.
 proc ::VMDance::Results::scan_x {r} {
     if {[dict exists $r radius]} { return [dict get $r radius] }
@@ -976,6 +1042,59 @@ proc ::VMDance::Results::elbow_record {e x} {
         if {[string is double -strict $v] && $v == $x} { return $r }
     }
     return {}
+}
+
+# The share of the frames' variance that a scan record's clusters explain
+# (SSR/SST, 0 to 1; "" without a Calinski–Harabasz score or with one
+# cluster): from the score itself, CH = (SSR / (k − 1)) / (SSE / (n − k)),
+# n the frames in its clusters, k the clusters with frames. The curve
+# that has an elbow: where another cluster stops adding much.
+proc ::VMDance::Results::explained {r} {
+    if {[dict get $r status] ne "ok" || [dict get $r ch] eq ""} { return "" }
+    set k [dict get $r nclusters]
+    set n [::tcl::mathop::+ 0 {*}[dict get $r sizes]]
+    if {$k < 2 || $n <= $k} { return "" }
+    set f [expr {double([dict get $r ch]) * ($k - 1)}]
+    expr {$f / ($n - $k + $f)}
+}
+# What an elbow scan e suggests (each a k, or a radius of an eQUAL scan;
+# "" when the scan does not say):
+#   db_lowest db_second   the lowest Davies–Bouldin score, and the next
+#   db_dip db_dip2        its local minimum that bends most (the second
+#                         difference, before + after − 2 × it, largest),
+#                         and the next: MDANCE's two criteria
+#                         (docs/tutorials/nani.rst, examples/analysis_db.py)
+#   ch_highest ch_peak    their mirror on Calinski–Harabasz
+#   stable                the values whose clusters the seedings agree on
+#                         (stability 0.9 or more), when the scan has it
+#   most_stable           the value of the highest stability
+proc ::VMDance::Results::elbow_suggest {e} {
+    set out [dict create db_lowest "" db_second "" db_dip "" db_dip2 "" ch_highest "" ch_peak "" stable {} most_stable ""]
+    if {![dict size $e]} { return $out }
+    set recs [lmap r [dict get $e records] {expr {[dict get $r status] eq "ok" ? $r : [continue]}}]
+    set recs [lsort -real -index 0 [lmap r $recs {list [scan_x $r] $r}]]
+    foreach {key sign low second bend bend2} {db 1 db_lowest db_second db_dip db_dip2 ch -1 ch_highest "" ch_peak ""} {
+        # (sign -1: the highest and the peaks, as the lowest and the dips of the score's negative)
+        set pts [lmap p $recs {expr {[dict get [lindex $p 1] $key] eq "" ? [continue] : [list [lindex $p 0] [expr {$sign * [dict get [lindex $p 1] $key]}]]}}]
+        if {![llength $pts]} continue
+        set by [lsort -real -index 1 $pts]
+        dict set out $low [lindex $by 0 0]
+        if {$second ne "" && [llength $by] > 1} { dict set out $second [lindex $by 1 0] }
+        set dips {}
+        for {set i 1} {$i < [llength $pts] - 1} {incr i} {
+            set a [lindex $pts [expr {$i - 1}] 1]; set v [lindex $pts $i 1]; set b [lindex $pts [expr {$i + 1}] 1]
+            if {$v <= $a && $v <= $b} { lappend dips [list [lindex $pts $i 0] [expr {$a + $b - 2 * $v}]] }
+        }
+        set dips [lsort -real -decreasing -index 1 $dips]
+        if {[llength $dips]} { dict set out $bend [lindex $dips 0 0] }
+        if {$bend2 ne "" && [llength $dips] > 1} { dict set out $bend2 [lindex $dips 1 0] }
+    }
+    set st [lmap p $recs {expr {[::VMDance::_get [lindex $p 1] stability ""] eq "" ? [continue] : [list [lindex $p 0] [dict get [lindex $p 1] stability]]}}]
+    if {[llength $st]} {
+        dict set out stable [lmap p $st {expr {[lindex $p 1] >= 0.9 ? [lindex $p 0] : [continue]}}]
+        dict set out most_stable [lindex [lsort -real -decreasing -index 1 $st] 0 0]
+    }
+    return $out
 }
 
 proc ::VMDance::Results::set_elbow {e} { variable elbow $e; _notify elbow }
@@ -1120,6 +1239,14 @@ proc ::VMDance::Results::get {key} { variable A; dict get $A $key }
 # made by hand leaves it out.
 proc ::VMDance::Results::meta {key} { variable A; ::VMDance::_get $A $key "" }
 proc ::VMDance::Results::measure {key} { variable A; dict get $A measures $key }
+# The frames' silhouettes of a kind: centroid (from the clusters' mean
+# structures) or pairs (from every frame, of the squared distances; "" for
+# a run made before it was measured).
+proc ::VMDance::Results::silhouette {{kind centroid}} {
+    variable A
+    if {$kind eq "pairs"} { return [::VMDance::_get [dict get $A measures] silhouette_pairs ""] }
+    dict get $A measures silhouette
+}
 proc ::VMDance::Results::nclusters {} { variable K; return $K }
 proc ::VMDance::Results::nframes {} { variable N; return $N }
 proc ::VMDance::Results::frames {} { variable frames; return $frames }
