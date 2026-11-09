@@ -35,8 +35,7 @@ lappend out ".. This page is written by docs/tools/gen_parameters.tcl from the p
     "Every parameter is an option of the command (``-name value``), a field of" \
     "the window's Setup tab, and — but for the few that are the plugin's own —" \
     "an option of ``mdance-cli`` of the same name (``--name``). Its default is" \
-    "the MDANCE plugin's (but DIVINE's Refine: :doc:`algorithms`)." \
-    "``vmdance parameters algorithm`` lists them in a" \
+    "the MDANCE plugin's. ``vmdance parameters algorithm`` lists them in a" \
     "script. A number is 0, or between 1.2e-38 and 3.4e38 in size:" \
     "``mdance-cli`` reads HELM's as C floats, the others as doubles, and fails" \
     "on one beyond (a session's run that holds one still opens)." ""

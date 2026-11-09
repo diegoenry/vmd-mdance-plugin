@@ -6,8 +6,9 @@ set ``MDANCE_CLI`` to its ``mdance-cli``, in ``~/.vmdrc`` (``set
 env(MDANCE_CLI) …``) or with **Settings ▸ Backend** (scripts use it too;
 in one, ``vmdance backend -mode cli -cli path``).
 
-**DIVINE is not offered.** Your CPP-MDANCE was built without it
-(``BUILD_DIVINE``); the note under the algorithm says so. A program rebuilt
+**DIVINE is not offered.** Your CPP-MDANCE was built without it (a tree
+before its PR #52 of 1 October 2026, or ``BUILD_DIVINE`` off); the note
+under the algorithm says so. A program rebuilt
 with it at the same path (or behind a launcher) is asked again when the
 algorithm chooser opens, and by a run.
 

@@ -584,6 +584,39 @@ proc ::VMDance::Job::_library_divine {a k params} {
         return -code error -errorcode {VMDANCE NOTRUN} "-kinit CompSim with -percentage $p: CPP-MDANCE's DIVINE crashes when it splits a cluster of fewer than [expr {int(ceil(100.0 / $p))}] frames, and the library takes VMD with it; use the program (Settings ▸ Backend, or vmdance backend -mode cli -cli path), -percentage 50 or more, or another seeding"
     }
 }
+# CPP-MDANCE's DIVINE refining an OutlierPair split (-refine) of a cluster
+# whose frames are all the same reads out of bounds, and crashes (the
+# program, and VMD with the library; MDANCE fails there too): both anchors
+# are one frame, which leaves one side empty. It splits such a cluster
+# (its score 0) only when no other can be split: with a smallest share of
+# one frame every other split is made, so only at a k above the number of
+# different frames; with a larger share, when a split can leave identical
+# frames alone on a side, as many as the share or more. Identical frames
+# have the same fingerprint (Coords::_print). An error says why (Job::_cluster
+# makes it a "not run").
+proc ::VMDance::Job::_divine_repeats {c k params} {
+    if {[dict get $params anchors] ne "OutlierPair" || ![dict get $params refine]} return
+    set alike [dict create]
+    set i 0
+    foreach fp [dict get $c fp] { dict lappend alike $fp $i; incr i }
+    set n [llength [dict get $c frames]]
+    set d [dict size $alike]
+    if {$d == $n} return
+    set most {}
+    foreach rows [dict values $alike] { if {[llength $rows] > [llength $most]} { set most $rows } }
+    set least [::VMDance::Algo::divine_least [dict get $params threshold] $n]
+    set points [expr {[dict get $params end-mode] eq "points"}]
+    if {$least < 2 && !$points && $k <= $d} return
+    if {$least >= 2 && [llength $most] < $least} return
+    # (VMD's frame numbers, never the rows)
+    set fs [lmap r [lrange $most 0 2] {lindex [dict get $c frames] $r}]
+    set same "frames [join [lrange $fs 0 end-1] {, }] and [lindex $fs end][expr {[llength $most] > 3 ? " (and [expr {[llength $most] - 3}] more)" : ""}] have the same coordinates"
+    set crash "and CPP-MDANCE's DIVINE crashes refining a split of a cluster of identical frames (MDANCE fails there too)"
+    if {$least < 2 && !$points} {
+        error "-anchors OutlierPair with -refine 1 and -k $k: only $d of the $n frames differ ($same), so DIVINE would split a cluster of identical frames, $crash; use -k $d or fewer, -refine 0, or -anchors SplinterPair"
+    }
+    error "-anchors OutlierPair with -refine 1 and -threshold [dict get $params threshold]: $same, as many as a side of a split keeps ($least), so DIVINE can split a cluster of identical frames, $crash; use -refine 0, -anchors SplinterPair, or a -threshold that keeps more than [llength $most] frames a side"
+}
 # The same for an extraction, exactly: the text the library makes of its
 # rows is their CSV's, less its last newline (the same numbers, a
 # separator after each).
@@ -778,24 +811,32 @@ proc ::VMDance::Job::_cluster {c req lo hi {initial ""}} {
     if {$a eq "helm" && [catch {::VMDance::Algo::check_starting $k [dict get $req params] [::VMDance::Algo::starting_sizes $initial] $nf} e]} {
         return -code error -errorcode {VMDANCE NOTRUN} $e
     }
+    # (DIVINE refining an OutlierPair split of identical frames, which
+    # crashes the backend: not run)
+    if {$a eq "divine" && [catch {_divine_repeats $c $k [dict get $req params]} e]} {
+        return -code error -errorcode {VMDANCE NOTRUN} $e
+    }
     set inner [list $lo $hi]
     _progress $lo "$label[expr {$k ne "" ? ", k = $k" : ""}]"
     if {[catch {_call $c [list cluster $a $k [dict get $req metric] [dict get $req params] $initial] $label} raw opts]} {
         # (a later split of DIVINE's, of a cluster too small for its NANI's
         # two seeds, which the backend calls kClusters: Algo::check_combination
         # can check the first only)
+        set q [dict get $req params]
+        if {$a eq "divine"} {
+            set fewer [expr {[dict get $q end-mode] eq "points" ? "or raise -threshold" : "or ask for fewer clusters"}]
+        }
         if {$a eq "divine" && [string match "*fewer centers than kClusters*" $raw]} {
-            set p [dict get $req params percentage]
-            error "DIVINE chose to split a cluster of fewer than [expr {int(ceil(200.0 / $p))}] frames: its 2-cluster NANI (-kinit [dict get $req params kinit]) seeds from the densest $p% of the cluster's frames, and needs 2; raise -percentage, seed with KmeansPP or Random, or ask for fewer clusters"
+            set p [dict get $q percentage]
+            error "DIVINE chose to split a cluster of fewer than [expr {int(ceil(200.0 / $p))}] frames: its 2-cluster NANI (-kinit [dict get $q kinit]) seeds from the densest $p% of the cluster's frames, and needs 2; raise -percentage, seed with KmeansPP or Random, $fewer"
         }
         # (or of fewer than 100 / p frames, none among its densest p%: NANI
         # seeded by complementary similarity crashes the program then, after
         # the first split, _library_divine)
-        set q [dict get $req params]
-        if {$a eq "divine" && [string match "*mdance-cli crashed*" $raw] && $k > 2 && [dict get $q anchors] eq "NANI" &&
-                [dict get $q kinit] eq "CompSim" && [dict get $q percentage] < 50} {
+        if {$a eq "divine" && [string match "*mdance-cli crashed*" $raw] && ($k > 2 || [dict get $q end-mode] eq "points") &&
+                [dict get $q anchors] eq "NANI" && [dict get $q kinit] eq "CompSim" && [dict get $q percentage] < 50} {
             set p [dict get $q percentage]
-            error "DIVINE chose to split a cluster of fewer than [expr {int(ceil(100.0 / $p))}] frames, and mdance-cli crashed: its 2-cluster NANI (-kinit CompSim) seeds from the densest $p% of the cluster's frames, none there; raise -percentage to 50 or more, seed with KmeansPP or Random, or ask for fewer clusters"
+            error "DIVINE chose to split a cluster of fewer than [expr {int(ceil(100.0 / $p))}] frames, and mdance-cli crashed: its 2-cluster NANI (-kinit CompSim) seeds from the densest $p% of the cluster's frames, none there; raise -percentage to 50 or more, seed with KmeansPP or Random, $fewer"
         }
         return -options $opts $raw
     }

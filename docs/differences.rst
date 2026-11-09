@@ -73,10 +73,10 @@ and defaults, and measures the same things; what changed, and why:
      - none (the coordinates as they are)
      - optional: *Fit to the first frame*, on the values
    * - DIVINE
-     - Refine on by default (it changed nothing with NANI's splits, and
-       crashed the backend with the other anchors'); *Threshold*; any metric
-     - Refine off and greyed; *Smallest share*, what a split leaves on each
-       side, greyed with NANI; MSD
+     - *Refine* always live (it changes nothing with NANI's splits);
+       *Threshold*; any metric
+     - *Refine* greyed with NANI; *Smallest share*, what a split leaves on
+       each side; MSD
    * - Settings
      - lost when VMD quits; the text size could not reach the widgets
      - kept (``~/.vmdance.prefs``); the text size applies to the whole

@@ -39,9 +39,6 @@ namespace eval ::VMDance::Algo {
     }
     # the order of the window's chooser
     variable order {kmeans divine helm equal}
-    # anchors that crash CPP-MDANCE's DIVINE with -refine (an out-of-bounds
-    # read in divine.cpp): refused before the backend runs
-    variable divine_crash_anchors {OutlierPair SplinterPair}
     variable A {
         kmeans {
             label "KMeans NANI" k 10
@@ -60,8 +57,8 @@ namespace eval ::VMDance::Algo {
                 {split choice WeightedMSD {WeightedMSD MSD Radius} "Split" "Which cluster is split next: the largest mean square deviation weighted by size, the largest one, or the widest"}
                 {anchors choice NANI {NANI OutlierPair SplinterPair} "Anchors" "How a cluster is split in two: by a 2-cluster NANI, or from its two most distant frames"}
                 {kinit choice StratAll {StratAll StratReduced CompSim DivSelect KmeansPP Random VanillaKmeansPP} "Seeding" "NANI's seeding for the splits (Anchors: NANI)"}
-                {refine bool 0 {} "Refine with k-means" "MDANCE refines the OutlierPair and SplinterPair splits with k-means; CPP-MDANCE's DIVINE reads out of bounds when it does, so they run unrefined. A NANI split is a k-means already: Refine changes nothing there"}
-                {threshold real 0 {0 ""} "Smallest share" "A split is made only when each side keeps at least this share of all the frames (0: no limit; at most 0.5, below it for an odd number of frames). CPP-MDANCE applies it with Anchors OutlierPair and SplinterPair only, and rounds share × frames where MDANCE truncates"}
+                {refine bool 1 {} "Refine with k-means" "The OutlierPair and SplinterPair splits refined by a 2-cluster k-means, seeded by each side's medoid (MDANCE's default). A NANI split is a k-means already: Refine changes nothing there"}
+                {threshold real 0 {0 ""} "Smallest share" "A split is made only when each side keeps at least this share of all the frames, share × frames cut to a whole number (0: no limit; at most 0.5)"}
                 {end-mode choice k {k points} "Stop when" "k clusters are reached, or (points: k not used) no cluster can be split leaving the smallest share on each side"}
                 {percentage int 10 {1 100} "Seeds from %" "The share of a cluster's frames NANI's seeds are drawn from, at each split (StratAll, StratReduced, CompSim, DivSelect): a cluster of fewer than 200 / this many frames cannot be split"}
             }
@@ -252,10 +249,17 @@ proc ::VMDance::Algo::check_metric {m} {
     return $m
 }
 
+# The frames each side of a DIVINE split keeps at least, of n frames with
+# -threshold t: max(1, floor(t × n)), in doubles as the backend and MDANCE
+# compute it (0.29 of 100 frames: 28). (entier, not int, which wraps a
+# share far above 1 to a negative number.)
+proc ::VMDance::Algo::divine_least {t n} {
+    expr {max(1, entier(floor($t * $n)))}
+}
+
 # The checks across parameters (and k), for n frames and the metric; an
 # error says why.
 proc ::VMDance::Algo::check_combination {a k params n {nstart ""} {metric MSD}} {
-    variable divine_crash_anchors
     # CPP-MDANCE's diversity selection (the seedings CompSim and DivSelect,
     # eQUAL's comp_sim seeds) takes the frame of the largest 1 − index above
     # -1: with an index other than MSD, on coordinates, none is, and it reads
@@ -294,33 +298,23 @@ proc ::VMDance::Algo::check_combination {a k params n {nstart ""} {metric MSD}} 
             if {$metric ni [metrics_of divine]} {
                 error "-metric $metric: DIVINE splits by MSD whatever the metric (MDANCE's DIVINE has none), and CPP-MDANCE would use it only to choose the representatives; use -metric MSD"
             }
-            if {[dict get $params refine] && $an in $divine_crash_anchors} {
-                error "-anchors $an with -refine 1 crashes CPP-MDANCE's DIVINE (an out-of-bounds read); use -anchors NANI, or -refine 0"
-            }
             # -threshold: the smallest share of the frames each side of a
-            # split keeps (CPP-MDANCE: round(t × n) frames, at least 1;
-            # MDANCE truncates), tested by the pair anchors' splits only
-            if {$t > 0 && $an eq "NANI"} {
-                error "-threshold $t with -anchors NANI: CPP-MDANCE's DIVINE does not apply it to NANI's splits (MDANCE does); use -anchors OutlierPair or SplinterPair (with -refine 0), or -threshold 0"
-            }
-            set least [expr {max(1, round($t * $n))}]
+            # split keeps, every split's (CPP-MDANCE since its PR #52, as
+            # MDANCE: share × frames cut to a whole number, 1 at least)
+            set least [divine_least $t $n]
             if {($k > 1 || $points) && 2 * $least > $n} {
-                # (the largest share whose frames, rounded, are half or
-                # fewer: 0.5 of an odd number rounds up, past half; cut, not
-                # rounded, to 3 digits)
-                error "-threshold $t: each side of a split must keep $least of the $n frames, so no split can be made (one cluster); use at most [expr {$n / 2 * 1000 / $n / 1000.0}] (0: no limit)"
+                error "-threshold $t: each side of a split must keep $least of the $n frames, so no split can be made (one cluster); use at most 0.5 (0: no limit)"
             }
             if {$points} {
                 # (k is not used: the splits go on until none is left)
-                if {$an eq "NANI"} {
-                    error "-end-mode points with -anchors NANI: CPP-MDANCE's NANI splits go on until every frame is alone (-threshold does not stop them; StratAll, StratReduced, CompSim and DivSelect fail first, on clusters too small to seed); use -anchors OutlierPair or SplinterPair (with -refine 0) and -threshold, or -end-mode k"
-                }
                 if {$least < 2} {
                     # (a share that works here and leaves clusters of some
                     # size: 2 frames each still make up to n / 2, and the
-                    # backend's points splits slow as the square of their number)
-                    set eg [format %.3g [expr {max(0.05, 2.0 / $n)}]]
-                    set m [expr {max(1, round($eg * $n))}]
+                    # backend's points splits slow as the square of their
+                    # number; below 40 frames, the share of 2 in thousandths,
+                    # rounded up)
+                    set eg [expr {$n >= 40 ? 0.05 : (2000 + $n - 1) / $n / 1000.0}]
+                    set m [divine_least $eg $n]
                     error "-end-mode points with -threshold $t: a split may leave a single frame on a side, so the splits go on to single frames (up to $n clusters); [expr {2 * $m > $n ? "use -end-mode k (no split of $n frames leaves 2 on each side)" : "give -threshold, the smallest share of the frames each side keeps (e.g. $eg: $m frames or more each, [expr {$n / $m}] clusters at most), or use -end-mode k"}]"
                 }
             }

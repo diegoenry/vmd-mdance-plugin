@@ -7,8 +7,7 @@ Parameters
 Every parameter is an option of the command (``-name value``), a field of
 the window's Setup tab, and — but for the few that are the plugin's own —
 an option of ``mdance-cli`` of the same name (``--name``). Its default is
-the MDANCE plugin's (but DIVINE's Refine: :doc:`algorithms`).
-``vmdance parameters algorithm`` lists them in a
+the MDANCE plugin's. ``vmdance parameters algorithm`` lists them in a
 script. A number is 0, or between 1.2e-38 and 3.4e38 in size:
 ``mdance-cli`` reads HELM's as C floats, the others as doubles, and fails
 on one beyond (a session's run that holds one still opens).
@@ -65,13 +64,13 @@ Divisive hierarchical clustering: the trajectory split in two, cluster by cluste
      - ``StratAll``, ``StratReduced``, ``CompSim``, ``DivSelect``, ``KmeansPP``, ``Random``, ``VanillaKmeansPP``
      - **Seeding**: NANI's seeding for the splits (Anchors: NANI)
    * - ``-refine``
-     - ``0``
+     - ``1``
      - 0 or 1
-     - **Refine with k-means**: MDANCE refines the OutlierPair and SplinterPair splits with k-means; CPP-MDANCE's DIVINE reads out of bounds when it does, so they run unrefined. A NANI split is a k-means already: Refine changes nothing there
+     - **Refine with k-means**: The OutlierPair and SplinterPair splits refined by a 2-cluster k-means, seeded by each side's medoid (MDANCE's default). A NANI split is a k-means already: Refine changes nothing there
    * - ``-threshold``
      - ``0``
      - number, at least 0
-     - **Smallest share**: A split is made only when each side keeps at least this share of all the frames (0: no limit; at most 0.5, below it for an odd number of frames). CPP-MDANCE applies it with Anchors OutlierPair and SplinterPair only, and rounds share × frames where MDANCE truncates
+     - **Smallest share**: A split is made only when each side keeps at least this share of all the frames, share × frames cut to a whole number (0: no limit; at most 0.5)
    * - ``-end-mode``
      - ``k``
      - ``k``, ``points``

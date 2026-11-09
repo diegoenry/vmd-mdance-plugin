@@ -85,9 +85,9 @@ coordinates' text would pass Tcl's 2 GB (which ends VMD), is refused, and
 the program named. Either way the coordinates are written to a file of the
 plugin's private folder. *Automatic* (the default) uses the program when
 there is one, else the library, and Setup then says so; through a library
-call the status line says that VMD waits for it. CPP-MDANCE builds DIVINE only
-with `BUILD_DIVINE` on a tree that has it; the window offers only the
-algorithms the backend was built with, and says which are missing.
+call the status line says that VMD waits for it. CPP-MDANCE builds DIVINE when
+its tree has it (its main since PR #52, 1 October 2026); the window offers
+only the algorithms the backend was built with, and says which are missing.
 
 ## What it clusters
 
@@ -110,16 +110,16 @@ are never moved.
 The metric is the mean square deviation (MSD) of the coordinates; the ten
 binary and extended-similarity indices of MDANCE are there for
 fingerprint-like data (**Settings ▸ Unlock the metrics**). The defaults are
-those of the MDANCE plugin's window (but DIVINE's Refine, off). Checks come
+those of the MDANCE plugin's window. Checks come
 before the backend runs, and say what to change: NANI's seedings by
 extended similarity draw k seeds from the densest share of the frames, so
-k 10 at 10% needs 100 frames; DIVINE's OutlierPair and SplinterPair anchors
-with refinement crash CPP-MDANCE's DIVINE, and are refused (Refine is off:
-a NANI split is a k-means already), DIVINE splits by MSD (another metric
-would only choose its representatives), its first NANI split needs two
-seeds, its smallest share is not for NANI's splits (CPP-MDANCE ignores it
-there) and no more than a split can leave, and `-end-mode points` needs the
-pair anchors and a share of 2 frames or more (else every frame ends alone);
+k 10 at 10% needs 100 frames; DIVINE refining an OutlierPair split of
+identical frames crashes CPP-MDANCE's DIVINE, and is refused where DIVINE
+would come to one (it names the repeated frames), DIVINE splits by MSD
+(another metric would only choose its representatives), its first NANI
+split needs two seeds, its smallest share no more than a split can leave,
+and `-end-mode points` a share of 2 frames or more (else every frame ends
+alone);
 HELM merges more starting clusters than k (those its first clustering
 leaves with frames; what `-min-samples` and `-trim-k` leave too; what
 `-trim-val`'s cut, an MSD the backend computes, leaves once HELM has run),
@@ -429,11 +429,9 @@ Choices of this plugin:
   command and the export. The result keeps the backend's rows (`zmatrix`).
 - **Fit to the first frame** is new (the old plugin clustered the
   coordinates as they were, which is still the default).
-- **DIVINE's Refine** is off and greyed (the old plugin's was on): it
-  changed nothing with NANI's splits, which are k-means already, and
-  CPP-MDANCE's DIVINE crashes refining the other anchors'. Its metric is
-  MSD, and its *Threshold* is the smallest share of the frames a split
-  leaves on each side (*Smallest share*), greyed with NANI.
+- **DIVINE's Refine** is greyed with NANI's anchors, whose splits are
+  k-means already. Its metric is MSD, and its *Threshold* is the smallest
+  share of the frames a split leaves on each side (*Smallest share*).
 - **Settings are kept** between sessions of VMD (the backend, the metrics'
   lock, the text size, the theme); the text size applies to the whole
   window (the old one could not reach VMD's ttk widgets).
@@ -531,17 +529,18 @@ README's numbers on MDANCE's data (`MDANCE_DATA`, the package's
 `mdance/data`). What is missing there is skipped, and says so; so are a
 few checks of g7, g8 and h4 that read files kept outside the repository.
 The windowed suite needs a display (`Xephyr :9 -screen 1600x1200x24 -ac &`
-then `DISPLAY=:9`). Current results: 140, 110, 67, 42, 33, 31, 194 and 219
+then `DISPLAY=:9`). Current results: 140, 110, 67, 42, 60, 31, 194 and 219
 checks (core, jobs, results, session, reference, hardening, hardening2,
-gui), 384 in the second round's thirteen group suites, and 99 in the
+gui), 391 in the second round's thirteen group suites, and 99 in the
 groups suite (the real backend), all passing in
 VMD 2.1 (Linux); the core suite also in `tclsh` 8.6. End to end
 (`DISPLAY=:9 sh tests/e2e/run_e2e.sh`: four phases, each in a new VMD, with
-the real backend): 29, 14, 15 and 10 checks, passing. The reference suite skips
-three: DIVINE's comparisons with the program and the library (not in this
-CPP-MDANCE build), and one of MDANCE's results that CPP-MDANCE does not
-reproduce, KMeans NANI seeded at a stratified position on a half (3ptb's
-Cα, frames 0–49, k 4): recorded, not asserted. What no suite can decide is in
+the real backend): 29, 14, 15 and 10 checks, passing. The reference suite, with
+a CPP-MDANCE built with DIVINE (main since its PR #52), skips two of
+MDANCE's results that CPP-MDANCE does not reproduce, a seed at a stratified
+position on a half (3ptb's Cα: KMeans NANI of frames 0–49, k 4; DIVINE
+k 5): recorded, not asserted (without DIVINE: 33 checks, DIVINE's
+skipped). What no suite can decide is in
 `TESTING.md`.
 
 ## Notes and limits
@@ -606,9 +605,12 @@ Cα, frames 0–49, k 4): recorded, not asserted. What no suite can decide is in
   25 11 10 4; DIVINE's splits of some sizes, and HELM's first clustering,
   too). It depends on the number of frames and of seeds: more often with
   few frames or many seeds. The reference suite records it.
-- DIVINE (a CPP-MDANCE built with it): its smallest share is applied to
-  the pair anchors' splits only, and rounded where MDANCE truncates it (0.035
-  of 100 frames: 4 frames, MDANCE's 3, and another clustering); its Tree is
+- DIVINE (a CPP-MDANCE built with it, main since its PR #52): refining a
+  pair anchors' split, it seeds a side of two frames with the one its
+  round-off makes their medoid, where MDANCE takes the first (another
+  clustering, now and then),
+  and it crashes refining an OutlierPair split of identical frames (MDANCE
+  fails there too; the plugin refuses it); its Tree is
   the average linkage of the mean structures, not its splits, which
   CPP-MDANCE does not return; with `-end-mode points` it returns the last
   clustering only, not MDANCE's scores at every split (an elbow scan with

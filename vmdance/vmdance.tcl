@@ -282,12 +282,11 @@ proc ::VMDance::_fewer {} {
         return "fewer than the [dict get $q k] asked: HELM started from $n cluster[expr {$n == 1 ? "" : "s"}]"
     }
     # (DIVINE stops when no cluster can be split: by its smallest share,
-    # which only the pair anchors' splits apply, else because the frames
-    # left in each are the same)
+    # else because the frames left in each are the same)
     if {[dict get $q algorithm] eq "divine" && [_get $p end-mode k] eq "k"} {
         set t [_get $p threshold 0]
-        set m [expr {max(1, round($t * [::VMDance::Results::nframes]))}]
-        if {[_get $p anchors NANI] ne "NANI" && $m >= 2} {
+        set m [::VMDance::Algo::divine_least $t [::VMDance::Results::nframes]]
+        if {$m >= 2} {
             return "fewer than the [dict get $q k] asked: no split left $m frames or more on each side (-threshold $t)"
         }
         return "fewer than the [dict get $q k] asked: the clusters left could not be split (their frames are the same)"

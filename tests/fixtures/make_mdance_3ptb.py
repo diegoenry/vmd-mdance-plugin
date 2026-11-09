@@ -2,8 +2,7 @@
 (tests/fixtures/mdance_3ptb.txt): MDANCE 0.4's KmeansNANI and Divine on the
 plugin's own coordinates (the CSVs make_mdance_3ptb.tcl writes), so that
 test_reference compares the plugin with MDANCE where CPP-MDANCE is known to
-differ (a stratified seed's position on a half; DIVINE's smallest share,
-rounded where MDANCE truncates) and where it agrees.
+differ (a stratified seed's position on a half) and where it agrees.
     python make_mdance_3ptb.py all.csv first50.csv out.txt
 """
 import sys
@@ -31,13 +30,19 @@ for k in (4, 5):
     labels = Divine(X, split="weighted_MSD", anchors="nani", init_type="strat_all", end="k", k=k,
                     refine=False, N_atoms=N, threshold=0, percentage=10).run()[1]
     cases.append((f"divine_k{k}", labels))
-# the pair anchors, unrefined, with a smallest share: 0.3 of 100 frames is
-# 30 for both; 0.035 is 3 frames for MDANCE (int), 4 for CPP-MDANCE (round)
-for name, anchors, t, end, k in (("divine_outlier_t0.3_k6", "outlier_pair", 0.3, "k", 6),
-                                 ("divine_splinter_t0.035_k6", "splinter_split", 0.035, "k", 6),
-                                 ("divine_outlier_t0.2_points", "outlier_pair", 0.2, "points", None)):
+# with a smallest share (0.3 of 100 frames: 30; 0.035: 3, int, as
+# CPP-MDANCE since its PR #52, which rounded it to 4 before), the pair
+# anchors unrefined and refined, and NANI's splits (which CPP-MDANCE gave
+# no share before PR #52)
+for name, anchors, t, end, k, refine in (("divine_outlier_t0.3_k6", "outlier_pair", 0.3, "k", 6, False),
+                                         ("divine_splinter_t0.035_k6", "splinter_split", 0.035, "k", 6, False),
+                                         ("divine_outlier_t0.2_points", "outlier_pair", 0.2, "points", None, False),
+                                         ("divine_outlier_refine_k6", "outlier_pair", 0, "k", 6, True),
+                                         ("divine_splinter_refine_k6", "splinter_split", 0, "k", 6, True),
+                                         ("divine_nani_t0.3_k6", "nani", 0.3, "k", 6, False),
+                                         ("divine_nani_t0.2_points", "nani", 0.2, "points", None, False)):
     labels = Divine(X, split="weighted_MSD", anchors=anchors, init_type="strat_all", end=end, k=k,
-                    refine=False, N_atoms=N, threshold=t, percentage=10).run()[1]
+                    refine=refine, N_atoms=N, threshold=t, percentage=10).run()[1]
     cases.append((name, labels))
 
 with open(out, "w") as f:

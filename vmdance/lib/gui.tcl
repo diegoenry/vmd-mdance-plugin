@@ -999,17 +999,15 @@ proc ::VMDance::GUI::_browse_labels {var} {
 
 # The fields that do not apply are greyed: HELM's trim values without
 # Trim first, its first clustering with a label file, DIVINE's seeding
-# with anchors other than NANI, its smallest share with NANI (CPP-MDANCE's
-# NANI splits do not use it) and its Refine always (a NANI split is a
-# k-means already; CPP-MDANCE's DIVINE crashes refining the others),
-# eQUAL's values of the options that are off.
+# with anchors other than NANI and its Refine with NANI (a NANI split is a
+# k-means already), eQUAL's values of the options that are off.
 # When a parameter's field is live (greyed out otherwise: the others' values
 # make it mean nothing).
 variable ::VMDance::GUI::param_rules {
     helm {initial {$S(p_helm_initial-labels) eq ""} initial-kinit {$S(p_helm_initial-labels) eq ""}
           initial-percentage {$S(p_helm_initial-labels) eq "" && $S(p_helm_initial-kinit) in {StratAll StratReduced CompSim DivSelect}}
           trim-k {$S(p_helm_trim-start)} trim-val {$S(p_helm_trim-start)} min-samples {$S(p_helm_trim-start)}}
-    divine {kinit {$S(p_divine_anchors) eq "NANI"} refine {0} threshold {$S(p_divine_anchors) ne "NANI"}
+    divine {kinit {$S(p_divine_anchors) eq "NANI"} refine {$S(p_divine_anchors) ne "NANI"}
             percentage {$S(p_divine_anchors) eq "NANI" && $S(p_divine_kinit) in {StratAll StratReduced CompSim DivSelect}}}
     equal {min-samples {$S(p_equal_reject-lowd)} sim-threshold {$S(p_equal_check-sim)}
            percentage {$S(p_equal_seed-method) eq "comp_sim"}}
@@ -1810,7 +1808,7 @@ proc ::VMDance::GUI::_mol_chosen {} {
 
 # The parameters of algorithm a from the Setup fields.
 # (a greyed-out field is not sent: a switch as off, a value left to its
-# default; DIVINE's Refine is greyed, off)
+# default; DIVINE's Refine, greyed with NANI's anchors, off)
 proc ::VMDance::GUI::_params_of {a} {
     variable S
     set out {}

@@ -9,21 +9,26 @@
 #        refused before running, a sweep's DIVINE × another metric not run,
 #        a session's run that has one still opens
 #   N10  -threshold is the smallest share of the frames each side of a split
-#        keeps (it said a spread): refused with NANI, whose splits
-#        CPP-MDANCE makes without it, and above what any split can leave
-#        (one cluster); a clustering that stops before k says why
-#   N06  -end-mode points is refused where it can only fail or leave every
-#        frame alone (NANI's splits, a share of one frame; the measures of
-#        thousands of one-frame clusters froze VMD), and in scans (k is not
-#        used there: every k the same clustering)
+#        keeps (it said a spread): refused above what any split can leave
+#        (one cluster); a clustering that stops before k says why. (It was
+#        refused with NANI, whose splits CPP-MDANCE made without it before
+#        its PR #52; since then every split keeps it, share × frames cut
+#        as MDANCE cuts it, where the plugin rounded it)
+#   N06  -end-mode points is refused where it can only leave every frame
+#        alone (a share of one frame; the measures of thousands of
+#        one-frame clusters froze VMD), and in scans (k is not used there:
+#        every k the same clustering). (NANI's splits were refused too,
+#        which the share did not stop before CPP-MDANCE's PR #52)
 #   N21  DIVINE's first split is checked for its NANI's two seeds, as
 #        KMeans's k seeds are (it failed in the backend naming a kClusters
 #        never set, or crashed it with CompSim); a later split's failure is
 #        said in DIVINE's terms; the library is not given CompSim splits
 #        that crash it, and VMD with it
-#   N23  Refine is off by default (it changes nothing with NANI, and the
-#        pair anchors, where it would act, crash the backend with it): the
-#        pair anchors run as they are
+#   N23  Refine acts on the pair anchors' splits only (a NANI split is a
+#        k-means already). They crashed CPP-MDANCE's DIVINE before its PR
+#        #52, and Refine was off and refused with them; it is on now, as
+#        MDANCE's, and refused only where DIVINE would refine an
+#        OutlierPair split of identical frames, which still crashes it
 #   N22  the tree of a DIVINE clustering is said to be the average linkage
 #        of the mean structures, not DIVINE's splits (the export here)
 #   N24  a program rebuilt or replaced at the same path is asked again what
@@ -95,14 +100,22 @@ dict set a request metric RR
 check "  a stored run of DIVINE with another metric (a session's) still opens" [expr {[err {${R}::check $a}] eq ""}]
 
 # N10: -threshold is the smallest share of all the frames each side of a
-# split keeps (MDANCE's minimum size of a cluster; CPP-MDANCE: round(t × n),
-# tested by the pair anchors only). It was described as a spread.
+# split keeps (MDANCE's minimum size of a cluster; CPP-MDANCE since its PR
+# #52 as MDANCE: floor(t × n), 1 at least, every split's). It was described
+# as a spread.
 set pp [dict get [vmdance parameters divine] -threshold]
 check "N10: -threshold described as the smallest share each side of a split keeps, not a spread" [expr {
     [lindex $pp 3] eq "Smallest share" && [string match "*each side keeps at least this share of all the frames*" [lindex $pp 4]] &&
     ![string match "*spread*" [lindex $pp 4]]}]
-check "  with Anchors NANI, whose splits CPP-MDANCE makes without it: refused" [string match "-threshold 0.3 with -anchors NANI: CPP-MDANCE's DIVINE does not apply it*" [err {
-    ${A}::check_combination divine 6 [dict replace $dv threshold 0.3] 100}]]
+check "  with Anchors NANI too (CPP-MDANCE's NANI splits keep it since its PR #52): taken" [expr {
+    [err {${A}::check_combination divine 6 [dict replace $dv threshold 0.3] 100}] eq ""}]
+check "  share × frames cut, as MDANCE and CPP-MDANCE cut it (0.29 of 100: 28; 0.035: 3; 1 at least)" [expr {
+    [${A}::divine_least 0.29 100] == 28 && [${A}::divine_least 0.035 100] == 3 && [${A}::divine_least 0 100] == 1 &&
+    [${A}::divine_least 1e30 100] > 100}]
+check "  0.5 of 101 frames taken (50 a side, where the rounding made 51 and refused it); 0.505 refused (51)" [expr {
+    [err {${A}::check_combination divine 2 [dict replace $dv threshold 0.5] 101}] eq "" &&
+    [string match "-threshold 0.505: each side of a split must keep 51 of the 101 frames*" [err {
+        ${A}::check_combination divine 2 [dict replace $dv threshold 0.505] 101}]]}]
 set op [dict replace $dv anchors OutlierPair refine 0]
 check "  with OutlierPair: taken up to what a split can leave on both sides (0.5 of 100 frames)" [expr {
     [err {${A}::check_combination divine 6 [dict replace $op threshold 0.3] 100}] eq "" &&
@@ -123,11 +136,14 @@ check "  a clustering that stops before k says why (the backend's line was dropp
 vmdance -mol $m -sel all -algorithm kmeans -k 2 -kinit KmeansPP -quiet 1
 check "  (no such note for a clustering of k)" [expr {![string match "*fewer than*" [::VMDance::_summary]]}]
 
-# N06: -end-mode points does not use k; with NANI's splits (no smallest
-# share in CPP-MDANCE) or a share of one frame it can only fail or leave
-# every frame alone, and the measures of 6001 one-frame clusters froze VMD.
-check "N06: -end-mode points with Anchors NANI: refused, saying what works" [string match "-end-mode points with -anchors NANI: *use -anchors OutlierPair or SplinterPair (with -refine 0) and -threshold, or -end-mode k" [err {
-    ${A}::check_combination divine 3 [dict replace $dv end-mode points] 100}]]
+# N06: -end-mode points does not use k; with a share of one frame it can
+# only leave every frame alone, and the measures of 6001 one-frame clusters
+# froze VMD. (NANI's splits, which CPP-MDANCE's share did not stop before
+# its PR #52, were refused too.)
+check "N06: -end-mode points with Anchors NANI and a share of 2 frames or more: taken (its splits keep the share now)" [expr {
+    [err {${A}::check_combination divine 3 [dict replace $dv end-mode points threshold 0.1] 100}] eq "" &&
+    [string match "-end-mode points with -threshold 0: *the splits go on to single frames*" [err {
+        ${A}::check_combination divine 3 [dict replace $dv end-mode points] 100}]]}]
 set sp [dict replace $dv anchors SplinterPair refine 0 end-mode points]
 check "  with a pair of anchors and a share of one frame (0, 0.01 of 100): refused (up to 100 clusters)" [expr {
     [string match "-end-mode points with -threshold 0: *the splits go on to single frames (up to 100 clusters); give -threshold*e.g. 0.05: 5 frames or more each, 20 clusters at most*" [err {${A}::check_combination divine 3 $sp 100}]] &&
@@ -186,15 +202,44 @@ check "  the library is not given DIVINE's CompSim splits below 50%: the program
     [err {${J}::_library_divine kmeans 3 [dict create kinit CompSim percentage 10]}] eq ""}]
 
 # N23: Refine acts only on the pair anchors' splits (a NANI split is a
-# k-means already), which crash CPP-MDANCE's DIVINE with it: on by default,
-# it did nothing, and made the pair anchors need -refine 0.
-check "N23: Refine off by default, and not passed on" [expr {[dict get $dv refine] == 0 &&
-    [lsearch [${A}::cli_args divine 3 MSD [${A}::check_params divine {}] 10 a b] --refine] < 0 &&
-    [lsearch [${A}::cli_args divine 3 MSD [${A}::check_params divine {refine 1}] 10 a b] --refine] >= 0}]
-check "  the pair anchors taken as they are; with -refine 1 still refused (the crash)" [expr {
+# k-means already). They crashed CPP-MDANCE's DIVINE with it before its PR
+# #52; it is on by default now, as MDANCE's, and refused only where DIVINE
+# would refine an OutlierPair split of identical frames (Job::_divine_repeats),
+# which still crashes it.
+check "N23: Refine on by default (MDANCE's), passed on; off, not" [expr {[dict get $dv refine] == 1 &&
+    [lsearch [${A}::cli_args divine 3 MSD [${A}::check_params divine {}] 10 a b] --refine] >= 0 &&
+    [lsearch [${A}::cli_args divine 3 MSD [${A}::check_params divine {refine 0}] 10 a b] --refine] < 0}]
+check "  the pair anchors with it taken" [expr {
     [err {${J}::check_cluster [list mol $m sel all algorithm divine params {anchors SplinterPair}]}] eq "" &&
-    [string match "*-anchors OutlierPair with -refine 1 crashes*" [err {${J}::check_cluster [list mol $m sel all algorithm divine params {anchors OutlierPair refine 1}]}]]}]
+    [err {${J}::check_cluster [list mol $m sel all algorithm divine params {anchors OutlierPair refine 1}]}] eq ""}]
 check "  its tip says where it acts, and that NANI's splits do not use it" [string match "*OutlierPair and SplinterPair*A NANI split is a k-means already*" [lindex [dict get [vmdance parameters divine] -refine] 4]]
+# identical frames (the same fingerprint): rows 0 and 2 of frames 10-13
+set c4 [dict create frames {10 11 12 13} fp {a b a c}]
+set op1 [dict replace $dv anchors OutlierPair]
+check "  identical frames, OutlierPair refined, a share of one frame: k up to the frames that differ taken, above it refused, naming VMD's frames" [expr {
+    [err {${J}::_divine_repeats $c4 3 $op1}] eq "" &&
+    [string match "-anchors OutlierPair with -refine 1 and -k 4: only 3 of the 4 frames differ (frames 10 and 12 have the same coordinates), so DIVINE would split a cluster of identical frames, and CPP-MDANCE's DIVINE crashes refining*use -k 3 or fewer, -refine 0, or -anchors SplinterPair" [err {${J}::_divine_repeats $c4 4 $op1}]]}]
+check "  with a share of 2 frames (0.5 of 4): refused when 2 frames are the same, whatever k" [string match "-anchors OutlierPair with -refine 1 and -threshold 0.5: frames 10 and 12 have the same coordinates, as many as a side of a split keeps (2)*" [err {
+    ${J}::_divine_repeats $c4 2 [dict replace $op1 threshold 0.5]}]]
+check "  3 of 4 the same: the 3 named; a share above the frames repeated (2 of 6, 0.5: 3), unrefined, SplinterPair, or no frame repeated: taken" [expr {
+    [string match "*: frames 10, 11 and 12 have the same coordinates, as many as*" [err {${J}::_divine_repeats [dict create frames {10 11 12 13} fp {a a a c}] 2 [dict replace $op1 threshold 0.5]}]] &&
+    [err {${J}::_divine_repeats [dict create frames {0 1 2 3 4 5} fp {a a b c d e}] 2 [dict replace $op1 threshold 0.5]}] eq "" &&
+    [err {${J}::_divine_repeats $c4 4 [dict replace $op1 refine 0]}] eq "" &&
+    [err {${J}::_divine_repeats $c4 4 [dict replace $op1 anchors SplinterPair]}] eq "" &&
+    [err {${J}::_divine_repeats [dict create frames {10 11 12 13} fp {a b c d}] 4 $op1}] eq ""}]
+# a molecule with each frame twice (its file read twice): an elbow's k above
+# the frames that differ not run, said why; the others run
+set m2 [load_system two_state]
+set nf2 [molinfo $m2 get numframes]
+mol addfile [file join $::fixtures two_state.pdb] waitfor all molid $m2
+set rows [vmdance elbow -mol $m2 -sel all -algorithm divine -anchors OutlierPair -ks [list $nf2 [expr {$nf2 + 1}]] -quiet 1]
+check "  an elbow of k $nf2 and [expr {$nf2 + 1}] on $nf2 frames twice: the first run, the second not run (the crash), said why" [expr {
+    [dict get [lindex $rows 0] status] eq "ok" &&
+    [string match "not run: -anchors OutlierPair with -refine 1 and -k [expr {$nf2 + 1}]: only $nf2 of the [expr {2 * $nf2}] frames differ (frames 0 and $nf2 have*" [dict get [lindex $rows 1] message]]}]
+set c0 $::VMDance::Backend::counter
+check "  one clustering of it refused, the backend not run" [expr {[string match "*-anchors OutlierPair with -refine 1 and -k [expr {$nf2 + 1}]: only $nf2 *" [err {
+    vmdance -mol $m2 -sel all -algorithm divine -anchors OutlierPair -k [expr {$nf2 + 1}] -quiet 1}]] && $::VMDance::Backend::counter == $c0}]
+mol delete $m2
 
 # N22: the tree of anything but HELM is the average linkage of the mean
 # structures, which can join DIVINE's clusters across its first split.
@@ -255,25 +300,21 @@ check "  7 frames: 0.286 (0.214 was refused again); 1923: 0.05, 96 frames or mor
 check "  2 and 3 frames, where no split leaves 2 on each side: -end-mode k" [expr {
     [lsort -unique [lmap n {2 3} {string match "*; use -end-mode k (no split of $n frames leaves 2 on each side)" [err {${A}::check_combination divine 3 $pts $n}]}]] eq {1}}]
 
-# N10 (review): 0.5 of an odd number of frames rounds up, past half (in
-# CPP-MDANCE too), and was refused with "use at most 0.5". The refusal gives
-# the largest share that leaves a split, and the tip says it.
+# N10 (review): 0.5 of an odd number of frames rounded up, past half (in
+# CPP-MDANCE too, before its PR #52), and was refused with "use at most
+# 0.5". Share × frames is cut now, as MDANCE and CPP-MDANCE cut it: 0.5
+# leaves a split of any number of frames, and the refusal of a larger share
+# says so.
 set op [dict replace $dv anchors OutlierPair refine 0 threshold 0.5]
 set bad {}
 for {set n 2} {$n <= 5001} {incr n} {
-    set e [err {${A}::check_combination divine 6 $op $n}]
-    if {$n % 2 == 0} {
-        if {$e ne ""} { lappend bad $n }
-    } elseif {![regexp {use at most ([0-9.]+) \(0: no limit\)$} $e -> most] || $most >= 0.5 ||
-            [err {${A}::check_combination divine 6 [dict replace $op threshold $most] $n}] ne ""} {
-        lappend bad $n
-    }
+    if {[err {${A}::check_combination divine 6 $op $n}] ne ""} { lappend bad $n }
 }
-check "review N10: -threshold 0.5 taken for an even number of frames, refused for an odd one with a share that is taken (2 to 5001)[expr {[llength $bad] ? ": not for [lrange $bad 0 5]" : ""}]" [expr {![llength $bad]}]
-check "  99 frames: at most 0.494; 1923: 0.499" [expr {
-    [string match "*must keep 50 of the 99 frames*; use at most 0.494 (0: no limit)" [err {${A}::check_combination divine 6 $op 99}]] &&
-    [string match "*must keep 962 of the 1923 frames*; use at most 0.499 (0: no limit)" [err {${A}::check_combination divine 6 $op 1923}]]}]
-check "  the tip: below 0.5 for an odd number of frames" [string match "*(0: no limit; at most 0.5, below it for an odd number of frames)*" [lindex [dict get [vmdance parameters divine] -threshold] 4]]
+check "review N10: -threshold 0.5 taken for every number of frames, even and odd (2 to 5001)[expr {[llength $bad] ? ": not for [lrange $bad 0 5]" : ""}]" [expr {![llength $bad]}]
+check "  above it, 99 frames at 0.51 (50 a side) and 1923 at 0.501 (963): refused, saying at most 0.5" [expr {
+    [string match "*must keep 50 of the 99 frames*; use at most 0.5 (0: no limit)" [err {${A}::check_combination divine 6 [dict replace $op threshold 0.51] 99}]] &&
+    [string match "*must keep 963 of the 1923 frames*; use at most 0.5 (0: no limit)" [err {${A}::check_combination divine 6 [dict replace $op threshold 0.501] 1923}]]}]
+check "  the tip: at most 0.5, share × frames cut" [string match "*share × frames cut to a whole number (0: no limit; at most 0.5)*" [lindex [dict get [vmdance parameters divine] -threshold] 4]]
 # (the note of a clustering short of k named -threshold whatever the
 # anchors: NANI's splits never apply it, nor does a share of one frame
 # stop one; those stop short only where the frames left are the same)
