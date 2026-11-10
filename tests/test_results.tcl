@@ -88,10 +88,14 @@ vmdance select 1
 vmdance draw -reps 0 -colour 0 -overlay 1 -top 3
 set rep [expr {[molinfo $m get numreps] - 1}]
 check "draw -overlay: the selected cluster's 3 nearest frames" [expr {[molinfo $m get numreps] == $user_reps + 1 &&
-    [mol drawframes $m $rep] eq [join [${R}::top 1 3] ,]}]
+    [mol drawframes $m $rep] eq [join [${R}::top 1 3] " "] && [frames_drawn $m $rep] == 3}]
 vmdance draw -frames "0-2,20"
 set n [expr {[molinfo $m get numreps] - $user_reps}]
-check "  frames typed: one representation per cluster" [expr {$n == 2}]
+# (the four frames, all drawn: VMD takes a list separated by spaces, and drew
+# the first frame alone of one separated by commas)
+set typed 0
+for {set i $user_reps} {$i < [molinfo $m get numreps]} {incr i} { set typed [expr {$typed + [frames_drawn $m $i]}] }
+check "  frames typed: one representation per cluster" [expr {$n == 2 && $typed == 4}]
 check "  a range that is not one" [string match "*not a frame or a range*" [err {vmdance draw -frames "1..5"}]]
 check "  spaces and leading zeros taken" [expr {[::VMDance::Viz::parse_frames "008-010, 3 - 4"] eq {3 4 8 9 10}}]
 check "  a frame past the last one" [string match "*frame 30 is past the last frame of the molecule (23)*" [err {vmdance draw -frames "20-30"}]]
@@ -100,7 +104,8 @@ check "  an unknown style" [string match "*-style must be one of*" [err {vmdance
 check "  an unknown option" [string match "*unknown option -glow*" [err {vmdance draw -glow 1}]]
 vmdance pick -mol $m -sel all -method diversity -param 20
 vmdance draw -overlay 0 -picks 1
-check "draw -picks" [expr {[molinfo $m get numreps] == $user_reps + 1}]
+check "draw -picks" [expr {[molinfo $m get numreps] == $user_reps + 1 &&
+    [frames_drawn $m $user_reps] == [llength [dict get [set ${R}::picks] vmdframes]] && [llength [dict get [set ${R}::picks] vmdframes]] > 1}]
 vmdance draw -picks 0
 check "everything off: only the user's representations are left, unchanged" [expr {[molinfo $m get numreps] == $user_reps &&
     [lmap i [lsort -integer -decreasing [lmap i [lsearch -all [lrepeat $user_reps x] x] {set i}]] {mol repname $m $i}] eq $user_names}]

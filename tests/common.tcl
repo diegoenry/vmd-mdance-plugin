@@ -104,6 +104,35 @@ proc load_ref {name} {
 }
 
 # The plugin's private files left (none after a job).
+# How many frames VMD draws of a representation. "mol drawframes" reads back
+# the text it was given, whatever VMD made of it (it stops reading at a
+# comma, with no error), so the scene is counted: the spheres of the
+# representation as VDW, with its frames, with one frame, and hidden.
+proc frames_drawn {m rep} {
+    set spec [mol drawframes $m $rep]
+    set style [lindex [molinfo $m get "{rep $rep}"] 0]
+    set f [file join $::out scene_[pid].dat]
+    set spheres [list apply {{f} {
+        display update ui
+        file delete $f
+        render Tachyon $f
+        set n [regexp -all {\mSphere\M} [read_text $f]]
+        file delete $f
+        return $n
+    }} $f]
+    mol modstyle $rep $m VDW
+    set all [{*}$spheres]
+    mol drawframes $m $rep 0
+    set one [{*}$spheres]
+    mol showrep $m $rep off
+    set none [{*}$spheres]
+    mol showrep $m $rep on
+    mol drawframes $m $rep $spec
+    mol modstyle $rep $m {*}$style
+    display update ui
+    if {$one <= $none} { return -1 }
+    return [expr {double($all - $none) / ($one - $none)}]
+}
 proc leftovers {} {
     set d $::VMDance::Backend::workdir
     if {$d eq "" || ![file isdirectory $d]} { return {} }

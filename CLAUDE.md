@@ -158,7 +158,13 @@ docs/internals.rst describe it.
   `coordtrans`: the fit was wrong until test_jobs compared distances.
 - `animate dup` crashes VMD 2 later (on a delete): add frames with
   `mol addfile`.
-- `molinfo … get drawframes` does not exist: `mol drawframes m rep`.
+- `molinfo … get drawframes` does not exist: `mol drawframes m rep`. It
+  takes the frames separated by spaces (and ranges, b:e and b:s:e), as the
+  Trajectory tab does; it stops reading at a comma and says nothing, and
+  reads back the text it was given: "0,5,9" drew frame 0 alone, so every
+  overlay and the picked frames drew one frame each until 2026-11-09, and
+  the tests, which compared the text, passed. A test counts what VMD draws
+  (`frames_drawn` in tests/common.tcl: the scene exported), never the text.
 - Widget names cannot start with a capital letter (`$f.MSD`): prefix them.
 - Coordinates moved in place change no molecule attribute: the kept rows
   carry every frame's fingerprint (Coords::_print: centre, radius of
