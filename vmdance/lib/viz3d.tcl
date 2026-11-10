@@ -357,8 +357,10 @@ proc ::VMDance::Viz::check {} {
     return 0
 }
 
-# VMD's drawframes wants a comma list.
-proc ::VMDance::Viz::_drawframes {fl} { join $fl , }
+# VMD's drawframes takes the frames separated by spaces (and ranges, b:e
+# and b:s:e), as its Trajectory tab does. It stops reading at a comma and
+# says nothing: "0,5,9" drew frame 0 alone, and read back as it was given.
+proc ::VMDance::Viz::_drawframes {fl} { join $fl " " }
 
 # The settings "mol addrep" uses; with an argument, put them back. VMD
 # has no getter for them: they are read from a representation added and

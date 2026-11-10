@@ -79,6 +79,11 @@ Changes
   ``timeline``, ``renumber``, ``elbow suggest``, ``groups -blocks``,
   ``groups compare``, ``silhouette -kind``. In the window, a message that
   names an option says which field it is.
+- 3D: an overlay of several frames, and the picked frames, drew only the
+  first frame of each list. VMD reads the frames of a representation
+  separated by spaces, as its Trajectory tab shows them; the plugin gave it
+  commas, which VMD takes without a word and stops reading at. Every frame
+  is drawn now.
 - VMD 2's main window has no Extensions menu: the plugin is under
   **Analysis ▸ VMDance** there, and the docs say so.
 - The tutorial reads the tau peptide's scan both ways: Davies–Bouldin's
