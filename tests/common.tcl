@@ -11,7 +11,8 @@ proc ::_env {name default} { expr {[info exists ::env($name)] && $::env($name) n
 set ::systems [_env VMDANCE_SYSTEMS /home/dgomes/github/myprojects/vmd-plugin-projects/vmd-interactions-v2/VMD-testsystems/systems]
 set ::fixtures [file join $::root tests fixtures]
 set ::refruns [_env MDANCE_REF_RUNS /home/dgomes/Downloads/mdance_vmd_runs]
-set ::fake [file join $::root tests fake_mdance_cli]
+# (on Windows a wrapper: Tcl runs no script by its #! line there)
+set ::fake [file join $::root tests fake_mdance_cli[expr {$::tcl_platform(platform) eq "windows" ? ".bat" : ""}]]
 set ::out [_env VMDANCE_OUT [file join $::root tests out]]
 file mkdir $::out
 set ::fails 0
@@ -51,7 +52,7 @@ proc csv_rows {f} {
 # compared with the plugin's answers)
 proc real_cli {} {
     set p [file normalize [_env MDANCE_CLI [file join $::root .. CPP-MDANCE build cli mdance-cli]]]
-    expr {[file executable $p] && [file tail $p] ne "fake_mdance_cli" ? $p : ""}
+    expr {[file executable $p] && [file rootname [file tail $p]] ne "fake_mdance_cli" ? $p : ""}
 }
 proc real_lib {} {
     set p [file normalize [_env MDANCE_LIB [file join $::root .. CPP-MDANCE build tcl mdance_tcl[info sharedlibextension]]]]

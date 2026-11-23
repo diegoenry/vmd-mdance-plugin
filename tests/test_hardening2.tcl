@@ -1513,9 +1513,9 @@ check "F75: the sweep's table names each algorithm's fixed parameters (the seedi
     [regexp {\n# parameters of KMeans NANI: percentage 40\n} $tsw] && [regexp {\n# parameters of HELM: initial 12, [^\n]*merge-scheme Intra[^\n]*\n} $tsw] &&
     ![regexp {\n# parameters of [^\n]*kinit} $tsw] && [first_row [file join $G4 sc_sweep.csv]] eq "algorithm,k,k_actual,metric,seeding,calinski_harabasz,davies_bouldin,status"}]
 check "  the sweep's, the elbow scan's and the picks' tables name the backend, and when" [expr {
-    [regexp {\n# backend: cli [^\n]*fake_mdance_cli; scanned [0-9]{4}-[0-9]{2}-[0-9]{2}T[^\n]*\n} $tsw] &&
-    [regexp {\n# backend: cli [^\n]*fake_mdance_cli; scanned } [slurp [file join $G4 sc_elbow.csv]]] &&
-    [regexp {\n# backend: cli [^\n]*fake_mdance_cli; picked } [slurp [file join $G4 sc_picks.csv]]]}]
+    [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; scanned [0-9]{4}-[0-9]{2}-[0-9]{2}T[^\n]*\n} $tsw] &&
+    [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; scanned } [slurp [file join $G4 sc_elbow.csv]]] &&
+    [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; picked } [slurp [file join $G4 sc_picks.csv]]]}]
 set sf [file join $G4 sc.vmdance]
 vmdance session save $sf
 vmdance session load $sf -mol none
@@ -1524,7 +1524,7 @@ set sw $::VMDance::Results::sweep
 ${R}::set_sweep [dict remove $sw backend]
 vmdance export $G4 -prefix sc2 -items sweep
 ${R}::set_sweep $sw
-check "  a sweep saved before scans kept it: its first clustering's backend" [regexp {\n# backend: cli [^\n]*fake_mdance_cli; scanned } [slurp [file join $G4 sc2_sweep.csv]]]
+check "  a sweep saved before scans kept it: its first clustering's backend" [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; scanned } [slurp [file join $G4 sc2_sweep.csv]]]
 set d [::VMDance::Session::read_file $sf]
 dict set d sweep backend "a \{b"
 write_session [file join $G4 bad.vmdance] $d

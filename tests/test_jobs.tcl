@@ -55,7 +55,7 @@ check "KMeans with the fake: two clusters of 12" [expr {[dict get $i nclusters] 
 set all {}; for {set f 0} {$f < 24} {incr f} { lappend all $f }
 check "  the frames are VMD's" [expr {[${R}::frames] eq $all}]
 check "  the representatives in their clusters" [expr {[${R}::cluster_at [${R}::rep_frame 0]] == 0 && [${R}::cluster_at [${R}::rep_frame 1]] == 1}]
-check "  the backend is recorded" [expr {[lindex [dict get $i backend] 0] eq "cli" && [file tail [lindex [dict get $i backend] 1]] eq "fake_mdance_cli"}]
+check "  the backend is recorded" [expr {[lindex [dict get $i backend] 0] eq "cli" && [file rootname [file tail [lindex [dict get $i backend] 1]]] eq "fake_mdance_cli"}]
 set fm [${R}::measure frame_msd]
 check "  every frame's MSD from its representative (0 for the representatives)" [expr {[llength $fm] == 24 &&
     [lindex $fm [${R}::rep 0]] == 0 && [lindex $fm [${R}::rep 1]] == 0}]
