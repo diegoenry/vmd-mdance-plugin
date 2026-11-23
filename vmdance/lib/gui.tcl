@@ -42,7 +42,7 @@ namespace eval ::VMDance::GUI {
         sw_score ch sw_cmap blues
         mx_values 1
         plot_grid 1 plot_legend 1 plot_cursor 1 plot_lw 1.4 plot_ccol muted plot_len a2 plot_time ""
-        ui_font 12 ui_window medium ui_theme auto show_left 1 show_opts 0 show_toolbar 1
+        ui_font 12 ui_window medium ui_theme auto ui_icons normal show_left 1 show_opts 0 show_toolbar 1
         unlock_metrics 0 backend_mode auto backend_cli "" backend_lib ""
         out_dir "" out_prefix vmdance out_top 10 out_format dcd out_sel all
         fig_width 900 fig_height 560 fig_pdf 1 fig_png 1 fig_eps 0 fig_dpi 300 fig_text 12 fig_prefix vmdance fig_dir ""
@@ -293,6 +293,7 @@ proc ::VMDance::GUI::apply_appearance {{first 0}} {
     if {!$first} { ::VMDance::Theme::apply }
     if {$first} { _sash_stops }
     _toolbar_icons
+    _tab_icons
     _tree_columns
     set lh [font metrics MdvUISmall -linespace]
     $w.sb configure -height [expr {$lh + 8}]
@@ -399,29 +400,33 @@ proc ::VMDance::GUI::window_size {key} {
 }
 
 # (an error names what is wrong; nothing is changed)
-proc ::VMDance::GUI::_check_appearance {font win theme} {
+proc ::VMDance::GUI::_check_appearance {font win theme {icons normal}} {
     variable window_sizes
     if {![regexp {^[1-9][0-9]?$} $font] || $font < 8 || $font > 24} { error "text size must be a whole number of points from 8 to 24" }
     if {![dict exists $window_sizes $win]} { error "window size must be one of [join [dict keys $window_sizes] {, }]" }
+    if {$icons ni {normal large}} { error "icons must be normal or large" }
     ::VMDance::Theme::resolve $theme
 }
-proc ::VMDance::GUI::set_appearance {font win {theme ""}} {
+# (the theme and the icons: as they are, when not given)
+proc ::VMDance::GUI::set_appearance {font win {theme ""} {icons ""}} {
     variable S
     if {$theme eq ""} { set theme $S(ui_theme) }
-    _check_appearance $font $win $theme
+    if {$icons eq ""} { set icons $S(ui_icons) }
+    _check_appearance $font $win $theme $icons
     set S(ui_font) $font
     set S(ui_window) $win
     set S(ui_theme) $theme
+    set S(ui_icons) $icons
     set ::VMDance::Theme::choice $theme
     set size [apply_appearance]
     save_prefs
-    status "Text size $font pt, window [join $size ×], theme [::VMDance::Theme::label $theme]."
+    status "Text size $font pt, window [join $size ×], theme [::VMDance::Theme::label $theme], $icons icons."
 }
 
 proc ::VMDance::GUI::save_prefs {} {
     variable S
     set d {}
-    foreach k {ui_font ui_window show_left show_opts ui_theme show_toolbar unlock_metrics backend_mode backend_cli backend_lib} {
+    foreach k {ui_font ui_window show_left show_opts ui_theme ui_icons show_toolbar unlock_metrics backend_mode backend_cli backend_lib} {
         dict set d $k $S($k)
     }
     set err [::VMDance::Prefs::save $d]
@@ -717,7 +722,7 @@ proc ::VMDance::GUI::_build_toolbar {} {
     _tb_button $f goto   goto    Go      "Go to the selected cluster's representative frame" {::VMDance::GUI::act goto}
     _tb_button $f render render  Render  "Render the 3D view to PNG…" {::VMDance::GUI::act render}
     _tb_sep $f s5
-    _tb_button $f settings settings Settings "Settings…: the backend, text and window size, theme" {::VMDance::GUI::act settings}
+    _tb_button $f settings settings Settings "Settings…: the backend, text and window size, theme, icons" {::VMDance::GUI::act settings}
     _tb_button $f help   help    Help    "Quick guide" {::VMDance::GUI::act help}
     _tb_toggle $f opts panel_right Options ::VMDance::GUI::S(show_opts) "Show or hide the plot options ($k+Shift+O)"
     # the plot options' toggle first, at the right: it is the last to be
@@ -763,10 +768,18 @@ proc ::VMDance::GUI::_toolbar_fit {} {
         pack forget $f.r2
     }
 }
-# The toolbar's icons at the text size: 24 pixels, 32 from 18 pt.
+# The icons' sizes in pixels, {toolbar tabs}. Normal: the toolbar's 24 (32
+# from 18-point text), the tabs' 16. Large (Settings ▸ Icons): 32 and 24,
+# at any text size.
+proc ::VMDance::GUI::icon_sizes {} {
+    variable S
+    if {$S(ui_icons) eq "large"} { return {32 24} }
+    list [expr {$::VMDance::Fonts::size >= 18 ? 32 : 24}] 16
+}
+# The toolbar's icons at their size (icon_sizes).
 proc ::VMDance::GUI::_toolbar_icons {} {
     variable w; variable tbicons
-    set sz [expr {$::VMDance::Fonts::size >= 18 ? 32 : 24}]
+    set sz [lindex [icon_sizes] 0]
     foreach {name icon} $tbicons {
         set b $w.tb.$name
         if {![winfo exists $b] || [$b cget -image] eq ""} continue
@@ -777,6 +790,23 @@ proc ::VMDance::GUI::_toolbar_icons {} {
         } else {
             $b configure -image $img
         }
+    }
+}
+# The tabs' icons at their size (icon_sizes): the panes', the plots' and
+# the plot options' headings. (An icon file missing: the tab keeps its text
+# alone, as it was made.)
+proc ::VMDance::GUI::_tab_icons {} {
+    variable w; variable tabs; variable leftnb
+    set sz [lindex [icon_sizes] 1]
+    foreach {key icon} {setup pane_setup results pane_results scans pane_scans tools pane_tools v3d pane_3d} {
+        set img [::VMDance::Icons::get $icon $sz]
+        if {$img ne "" && $leftnb ne "" && [winfo exists $leftnb.$key]} { $leftnb tab $leftnb.$key -image $img }
+    }
+    foreach {key title} $tabs {
+        set img [::VMDance::Icons::get tab_$key $sz]
+        if {$img eq ""} continue
+        if {[winfo exists $w.pw.right.nb.$key]} { $w.pw.right.nb tab $w.pw.right.nb.$key -image $img }
+        if {[winfo exists $w.pw.opts.body.${key}_title]} { $w.pw.opts.body.${key}_title configure -image $img }
     }
 }
 
@@ -3746,7 +3776,7 @@ proc ::VMDance::GUI::settings_dialog {} {
     if {[winfo exists $d]} { raise $d; return }
     # (the backend in use, whoever chose it)
     set sb [::VMDance::Backend::settings]
-    array set E [list font $S(ui_font) win $S(ui_window) theme $S(ui_theme) unlock $S(unlock_metrics) \
+    array set E [list font $S(ui_font) win $S(ui_window) theme $S(ui_theme) icons $S(ui_icons) unlock $S(unlock_metrics) \
         mode [dict get $sb -mode] cli [dict get $sb -cli] lib [dict get $sb -library]]
     toplevel $d
     wm title $d "VMDance settings"
@@ -3802,6 +3832,8 @@ proc ::VMDance::GUI::settings_dialog {} {
     foreach k [::VMDance::Theme::available] { lappend tn $k [::VMDance::Theme::label $k] }
     _combo $A.th ::VMDance::GUI::E(theme) $tn {#}
     _row $A 2 "Theme" $A.th
+    _combo $A.icons ::VMDance::GUI::E(icons) {normal "Normal" large "Large"} {#}
+    _row $A 3 "Icons" $A.icons "Large: the toolbar's icons at 32 pixels and the tabs' at 24, at any text size. Normal: 24 and 16 (the toolbar's 32 from 18-point text)."
     grid columnconfigure $A 1 -weight 1
     set X [_section $f.prog "Programs" -padding {8 6}]
     pack ${X}_sec -side top -fill x -pady {10 0}
@@ -3876,13 +3908,13 @@ proc ::VMDance::GUI::_settings_apply {} {
     variable E; variable S; variable w
     set d $w.settings
     set E(font) [string trim $E(font)]
-    if {[catch {_check_appearance $E(font) $E(win) $E(theme)} err]} { _error "Not applied: $err." $d; return }
+    if {[catch {_check_appearance $E(font) $E(win) $E(theme) $E(icons)} err]} { _error "Not applied: $err." $d; return }
     if {[catch {::VMDance::Backend::configure -mode $E(mode) -cli $E(cli) -library $E(lib)} err]} { _error "Not applied: $err." $d; return }
     foreach {k e} {backend_mode mode backend_cli cli backend_lib lib} { set S($k) $E($e) }
     set S(unlock_metrics) $E(unlock)
     _metric_lock
     backend_changed
-    if {[catch {set_appearance $E(font) $E(win) $E(theme)} err]} { _error $err $d; return }
+    if {[catch {set_appearance $E(font) $E(win) $E(theme) $E(icons)} err]} { _error $err $d; return }
     destroy $d
 }
 

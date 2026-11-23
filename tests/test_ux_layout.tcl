@@ -537,6 +537,72 @@ array set ${G}::E [list cli ""]
 ${G}::_settings_cancel
 check "  Cancel closes it" [expr {![winfo exists $d]}]
 
+# --- Settings ▸ Icons: larger icons --------------------------------------------------------
+# (an image's width in pixels; the toolbar's, a plot's tab, a pane's tab and
+# a plot options' heading)
+proc icon_px {img} { expr {$img eq "" ? 0 : [image width [lindex $img 0]]} }
+proc icons_now {} {
+    global w G
+    set ln [set ${G}::leftnb]
+    list [icon_px [$w.tb.open cget -image]] [icon_px [$w.pw.right.nb tab $w.pw.right.nb.populations -image]] \
+        [icon_px [$ln tab $ln.setup -image]] [icon_px [$w.pw.opts.body.populations_title cget -image]]
+}
+# every toolbar button with an icon, at that size
+proc toolbar_at {px} {
+    global w
+    foreach b [winfo children $w.tb] {
+        if {[winfo class $b] ni {TButton TCheckbutton TRadiobutton} || [$b cget -image] eq ""} continue
+        if {[icon_px [$b cget -image]] != $px} { return 0 }
+    }
+    return 1
+}
+${G}::set_appearance 12 compact auto normal
+update
+set n12 [icons_now]
+check "icons: normal at 12 pt, the toolbar's 24 pixels, the tabs' and headings' 16 ($n12)" [expr {$n12 eq {24 16 16 16} && [toolbar_at 24]}]
+set pf [file join $::out ux_layout_prefs]
+file delete $pf
+set ::VMDance::Prefs::file $pf
+${G}::set_appearance 12 compact auto large
+update
+set l12 [icons_now]
+check "  large: the toolbar's 32 (every button), the tabs' and headings' 24 ($l12)" [expr {$l12 eq {32 24 24 24} && [toolbar_at 32]}]
+check "  kept in the preferences, and said on the status line" [expr {[dict get [::VMDance::Prefs::load] ui_icons] eq "large" &&
+    [string match "*, large icons." [set ${S}(status)]]}]
+set ::VMDance::Prefs::file ""
+${G}::set_appearance 14 compact
+update
+check "  kept when the text size changes ([icons_now])" [expr {[icons_now] eq {32 24 24 24}}]
+check "  the toolbar whole in the window: on two rows when one is too narrow" [expr {[whole_in $w.tb.settings $w] && [whole_in $w.tb.open $w]}]
+${G}::set_appearance 20 compact auto normal
+update
+check "  normal at 20 pt: the toolbar's 32, the tabs' 16 ([icons_now])" [expr {[icons_now] eq {32 16 16 16}}]
+${G}::set_appearance 12 compact auto normal
+update
+# from Settings: the Icons field, OK
+${G}::settings_dialog
+update
+set d $w.settings
+set ic $d.f.c.p.app.icons
+check "  Settings has the Icons field, at Normal" [expr {[winfo exists $ic] && [$ic get] eq "Normal" && [set ${G}::E(icons)] eq "normal"}]
+$ic set Large
+event generate $ic <<ComboboxSelected>>
+${G}::_settings_apply
+update
+check "  Large chosen there and OK: large icons ([icons_now]), the dialog closed" [expr {[icons_now] eq {32 24 24 24} &&
+    [set ${S}(ui_icons)] eq "large" && ![winfo exists $d]}]
+${G}::settings_dialog
+update
+array set ${G}::E {icons huge}
+set nmsg [llength $::messages]
+${G}::_settings_apply
+check "  a size that is not one: refused, saying so, nothing changed" [expr {[set ${S}(ui_icons)] eq "large" && [winfo exists $d] &&
+    [llength $::messages] > $nmsg && [string match "*icons must be normal or large*" [lindex $::messages end]]}]
+${G}::_settings_cancel
+${G}::set_appearance 12 compact auto normal
+update
+check "  back to normal: 24 and 16 ([icons_now])" [expr {[icons_now] eq {24 16 16 16} && [toolbar_at 24]}]
+
 # --- 16: VMD's own look -----------------------------------------------------------------------
 ${G}::set_appearance 12 compact host
 update

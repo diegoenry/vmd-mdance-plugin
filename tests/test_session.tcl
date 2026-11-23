@@ -140,6 +140,13 @@ check "preferences: valid entries read" [expr {[dict get $p ui_font] == 14 && [d
 check "  invalid ones ignored, nothing evaluated" [expr {[dict get $p ui_theme] eq "auto" && [dict get $p show_left] == 1 &&
     ![dict exists $p unknown] && ![file exists [file join $::out pwned2]]}]
 check "  saved atomically" [expr {[::VMDance::Prefs::save $p] eq "" && [dict get [::VMDance::Prefs::load] ui_font] == 14}]
+# the icons (Settings ▸ Icons): normal unless large is kept
+check "  the icons: normal when none is kept" [expr {[dict get $p ui_icons] eq "normal"}]
+::VMDance::Prefs::save [dict replace $p ui_icons large]
+check "  large kept, and read back" [expr {[dict get [::VMDance::Prefs::load] ui_icons] eq "large"}]
+set fh [open $pf w]; puts $fh "ui_icons huge\nui_font 13"; close $fh
+check "  a size that is not one: normal, the rest read" [expr {[dict get [::VMDance::Prefs::load] ui_icons] eq "normal" &&
+    [dict get [::VMDance::Prefs::load] ui_font] == 13}]
 done
 } err]} { puts "FAIL test_session crashed: $err\n$::errorInfo"; puts "RESULT checks=$::checks fails=[incr ::fails] skips=$::skips" }
 ::VMDance::Backend::cleanup

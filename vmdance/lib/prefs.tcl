@@ -20,6 +20,7 @@ namespace eval ::VMDance::Prefs {
         ui_window      {medium {$v in {compact medium large}}}
         show_toolbar   {1 {[string is boolean -strict $v]}}
         ui_theme       {auto {$v in {auto native flat host}}}
+        ui_icons       {normal {$v in {normal large}}}
         show_left      {1 {[string is boolean -strict $v]}}
         show_opts      {0 {[string is boolean -strict $v]}}
         unlock_metrics {0 {[string is boolean -strict $v]}}
