@@ -4,6 +4,15 @@ Changes
 1.0 alpha 1, as it grew
 -----------------------
 
+**23 November 2026: the pages online.**
+
+- A workflow builds these pages and publishes them on GitHub Pages
+  (diegoenry.github.io/vmd-mdance-plugin).
+- :doc:`install` and the README: once peer reviewed, VMDance and
+  CPP-MDANCE will be distributed with VMD 2.x. Until then, CPP-MDANCE is
+  built, and the plugin's path added to ``~/.vmdrc`` (a Tcl/Tk plugin:
+  nothing to build).
+
 **23 November 2026: simpler pages, a new logo.**
 
 - Every page but the parameters (made from the plugin's table) and this

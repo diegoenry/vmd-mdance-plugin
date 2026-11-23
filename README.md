@@ -44,6 +44,13 @@ clusters:
 
 ## Install
 
+Once VMDance and CPP-MDANCE have been through peer review, they will be
+distributed with VMD 2.x. Until then:
+
+- build CPP-MDANCE;
+- add the plugin's path to your `~/.vmdrc`. VMDance is a Tcl/Tk plugin:
+  there is nothing to build.
+
 You need:
 
 - **VMD** built with Tcl/Tk 8.6, as VMD 2 is. `info patchlevel` in VMD's

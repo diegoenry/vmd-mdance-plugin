@@ -1,10 +1,17 @@
 Install
 =======
 
+.. note::
+
+   Once VMDance and CPP-MDANCE have been through peer review, they will be
+   distributed with VMD 2.x. Until then, you install them yourself.
+
 VMDance is two things:
 
-- the plugin (Tcl, no build);
-- a build of CPP-MDANCE, which does the clustering.
+- **CPP-MDANCE**, which does the clustering. Build it first
+  (`The backend`_).
+- **The plugin**. It is a Tcl/Tk plugin: there is nothing to build. Adding
+  its path to your ``~/.vmdrc`` is enough (`The plugin`_).
 
 Requirements
 ------------
@@ -108,7 +115,8 @@ eQual, and says why DIVINE is missing.
 The plugin
 ----------
 
-Add it to ``~/.vmdrc``:
+The plugin is Tcl/Tk: nothing is built or copied. Add its path to
+``~/.vmdrc``, with the backend's:
 
 .. code-block:: tcl
 
