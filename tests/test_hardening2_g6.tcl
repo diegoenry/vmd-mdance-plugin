@@ -247,7 +247,7 @@ vmdance select 2
 set ov2 [g6_reps $t overlay]
 check "F66: a selection change: the representatives and the colouring left as they are, the overlay made again" [expr {
     [llength $keep] == 4 && [g6_reps $t {colour reps}] eq $keep && [llength $ov2] == 1 && $ov2 ne $ov &&
-    [mol drawframes $t [mol repindex $t [lindex $ov2 0]]] eq [join [${R}::top 2 3] " "] &&
+    [spec_frames [mol drawframes $t [mol repindex $t [lindex $ov2 0]]]] eq [lsort -integer [${R}::top 2 3]] &&
     [frames_drawn $t [mol repindex $t [lindex $ov2 0]]] == 3}]
 set hid [lindex [g6_reps $t reps] 0]
 mol showrep $t [mol repindex $t $hid] off

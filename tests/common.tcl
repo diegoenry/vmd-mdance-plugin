@@ -109,6 +109,20 @@ proc load_ref {name} {
 # the text it was given, whatever VMD made of it (it stops reading at a
 # comma, with no error), so the scene is counted: the spheres of the
 # representation as VDW, with its frames, with one frame, and hidden.
+# The frames a drawframes text names, sorted ("0:2 9 10:2:14": 0 1 2 9 10
+# 12 14): what the plugin asked VMD to draw, whichever way it wrote them.
+proc spec_frames {spec} {
+    set out {}
+    foreach w $spec {
+        set p [split $w :]
+        switch [llength $p] {
+            1 { lappend out $w }
+            2 { for {set f [lindex $p 0]} {$f <= [lindex $p 1]} {incr f} { lappend out $f } }
+            3 { for {set f [lindex $p 0]} {$f <= [lindex $p 2]} {incr f [lindex $p 1]} { lappend out $f } }
+        }
+    }
+    lsort -integer -unique $out
+}
 proc frames_drawn {m rep} {
     set spec [mol drawframes $m $rep]
     set style [lindex [molinfo $m get "{rep $rep}"] 0]

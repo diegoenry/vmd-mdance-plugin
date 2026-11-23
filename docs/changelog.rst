@@ -4,6 +4,23 @@ Changes
 1.0 alpha 1, as it grew
 -----------------------
 
+**22 November 2026: long selections, and the tests on Windows.**
+
+- VMD crashes freeing a selection of about 100 000 single values (VMD 2.0
+  on Windows: between 100 000 and 120 000; Linux: about 700 000), and
+  adding one as a representation; a range ``a to b`` is one value. The
+  plugin hands VMD every text with its lists of whole numbers after
+  ``index``, ``serial`` and ``residue`` written as ranges (``all or index 0
+  0 …`` is ``all or index 0``); its own list of scattered atoms still too
+  long is named, ``name CA and index 4 to 99990``, where that selects
+  exactly them; a text still too long is refused, saying what to select
+  instead. Importing an MDANCE plugin session whose selection is a long
+  index list crashed VMD on Windows.
+- 3D: the frames of an overlay are written as ranges (``0:3 10:2:14``), as
+  the Trajectory tab takes them.
+- Tests: the text-mode suites run on Windows: the fake backend through
+  ``tests/fake_mdance_cli.bat``, the suites read as UTF-8.
+
 **9 November 2026: a review of its use, its layout and its plots.**
 
 - Setup: a note under *Fit to the first frame* — with a fit, the atoms it

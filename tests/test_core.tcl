@@ -316,6 +316,33 @@ check "preferences: MDANCEView's are read while VMDance has none" [expr {[dict g
 ::VMDance::Prefs::save [dict replace [::VMDance::Prefs::load] ui_font 11]
 check "  saved as VMDance's, which are read from then on" [expr {[file isfile [file join $pd .vmdance.prefs]] && [dict get [::VMDance::Prefs::load] ui_font] == 11}]
 set ::VMDance::Prefs::file $keep
+
+# --- selection and frame texts handed to VMD ------------------------------------
+# (VMD crashes freeing a selection of about 100 000 single values or more:
+# lists of whole numbers are written as ranges, frames too)
+set C ::VMDance::Mol::compact
+check "compact: an index list as sorted ranges" [expr {[$C "index 5 1 2 3 3"] eq "index 1 to 3 5"}]
+check "  a value repeated, after another clause" [expr {[$C "all or index 0 0 0 0"] eq "all or index 0"}]
+check "  ranges given are merged" [expr {[$C "index 1 to 3 2 to 6 8 7"] eq "index 1 to 8"}]
+check "  serial and residue too, in parentheses; resid and the rest left" [expr {
+    [$C "(residue 6 4 5 10) or (serial 2 1 and resid 4 5) and name CA"] eq "(residue 4 to 6 10) or (serial 1 to 2 and resid 4 5) and name CA"}]
+check "  a list that could mean otherwise is left as it is" [expr {
+    [$C "index 010 011"] eq "index 010 011" && [$C "index 1 2 < 3"] eq "index 1 2 < 3" &&
+    [$C "index 3 to 1 4"] eq "index 3 to 1 4" && [$C "index 1 2.5"] eq "index 1 2.5" &&
+    [$C {segname "index 1 2" and index 2 1}] eq {segname "index 1 2" and index 1 to 2} && [$C "index 7"] eq "index 7"}]
+check "  the values VMD holds counted (a range one)" [expr {[::VMDance::Mol::_items "index 0 to 9 12 and name CA"] == 6}]
+set long "all or index [string trim [string repeat {0 } 120000]]"
+check "vmd_text: a text of 120 000 index words handed as one value" [expr {[::VMDance::Mol::vmd_text 0 $long] eq "all or index 0"}]
+set seq {}; for {set i 0} {$i < 120000} {incr i} { lappend seq $i }
+check "  a list of 120 000 atoms one by one: one range" [expr {[::VMDance::Mol::vmd_text 0 "index $seq"] eq "index 0 to 119999"}]
+set names {}; for {set i 0} {$i < 60000} {incr i} { lappend names A$i }
+check "  60 000 names: refused, saying what to do (VMD would crash)" [string match "*60001 separate values, more than VMD takes (50000*select the atoms by name, residue or range*" [err {::VMDance::Mol::vmd_text 0 "name $names"}]]
+check "  a short text as it is" [expr {[::VMDance::Mol::vmd_text 0 "index 3 2 1"] eq "index 3 2 1"}]
+check "  a long text shown cut in a message" [expr {[string length [::VMDance::Mol::shown $long]] < 220 && [string match "*([string length $long] characters)" [::VMDance::Mol::shown $long]]}]
+set D ::VMDance::Viz::_drawframes
+check "drawframes: runs as ranges, a step kept" [expr {[$D {0 1 2 3 9}] eq "0:3 9" && [$D {0 5 10 15 16}] eq "0:5:15 16" && [$D {20 22 24 30 31 32}] eq "20:2:24 30:32"}]
+check "  sorted, each frame once; two frames as they are" [expr {[$D {3 1 2 2}] eq "1:3" && [$D {4 7}] eq "4 7" && [$D {}] eq "" && [$D {5}] eq "5"}]
+check "  the frames named are those given" [expr {[spec_frames [$D {0 1 2 5 10 15 16 40 41 42 43 50}]] eq {0 1 2 5 10 15 16 40 41 42 43 50}}]
 done
 } err]} { puts "FAIL test_core crashed: $err\n$::errorInfo"; puts "RESULT checks=$::checks fails=[incr ::fails] skips=$::skips" }
 if {[info commands quit] ne ""} { quit }

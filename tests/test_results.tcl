@@ -88,7 +88,7 @@ vmdance select 1
 vmdance draw -reps 0 -colour 0 -overlay 1 -top 3
 set rep [expr {[molinfo $m get numreps] - 1}]
 check "draw -overlay: the selected cluster's 3 nearest frames" [expr {[molinfo $m get numreps] == $user_reps + 1 &&
-    [mol drawframes $m $rep] eq [join [${R}::top 1 3] " "] && [frames_drawn $m $rep] == 3}]
+    [spec_frames [mol drawframes $m $rep]] eq [lsort -integer [${R}::top 1 3]] && [frames_drawn $m $rep] == 3}]
 vmdance draw -frames "0-2,20"
 set n [expr {[molinfo $m get numreps] - $user_reps}]
 # (the four frames, all drawn: VMD takes a list separated by spaces, and drew
@@ -173,6 +173,47 @@ set files [vmdance export $dir -prefix e -items elbow]
 check "  the elbow scan's scores" [expr {[lindex [csv_rows [lindex $files 0]] 0] eq {k k_actual calinski_harabasz davies_bouldin cluster_sizes status}}]
 vmdance run clear
 check "  without a clustering, only scans and picks" [string match "*no clustering*" [err {vmdance export $dir -items clusters}]]
+
+# --- selections VMD can take ------------------------------------------------------
+# (VMD crashes freeing a selection of about 100 000 single values, and adding
+# one as a representation: 120 000 on Windows' stack; Mol::vmd_text)
+set long "all or index [string trim [string repeat {0 } 120000]]"
+check "a selection of 120 000 index words: its atoms, and VMD goes on" [expr {
+    [::VMDance::Mol::atoms $m $long] eq [::VMDance::Mol::atoms $m all]}]
+set nr [molinfo $m get numreps]
+mol selection [::VMDance::Mol::vmd_text $m $long]
+mol representation Lines
+mol addrep $m
+check "  as a representation" [expr {[molinfo $m get numreps] == $nr + 1}]
+mol delrep $nr $m
+check "  deleted" [expr {[molinfo $m get numreps] == $nr}]
+# (the plugin's own index list, still too long once in ranges: its atoms
+# named, where that selects them exactly; max_values lowered to make one)
+set a [atomselect $m all]
+set names0 [$a get name]
+$a set name {N CA C O N CA C O}
+set keep $::VMDance::Mol::max_values
+set ::VMDance::Mol::max_values 1
+check "an index list too long: named by its atoms' names in its range" [expr {
+    [::VMDance::Mol::vmd_text $m "index 1 5"] eq "name CA and index 1 to 5" &&
+    [::VMDance::Mol::atoms $m "index 1 5"] eq {1 5} &&
+    [::VMDance::Mol::vmd_text $m "index 5 2 1"] eq "name C CA and index 1 to 5" &&
+    [::VMDance::Mol::atoms $m [::VMDance::Mol::index_text {1 2 5}]] eq {1 2 5}}]
+check "  refused where the names select others too (index 6 is a C after 5's CA)" [string match "*separate values*select the atoms by name, residue or range*" [err {::VMDance::Mol::atoms $m "index 1 2 6"}]]
+check "  a text of the user's that is still too long: refused, never named" [string match "*separate values*" [err {::VMDance::Mol::atoms $m "name N CA C O"}]]
+set ::VMDance::Mol::max_values $keep
+$a set name $names0
+$a delete
+check "  the names put back" [expr {[lsort -unique [[set s [atomselect $m all]] get name]] eq {CA}}]
+$s delete
+mol selection all
+mol representation VDW
+mol addrep $m
+set fl {0 1 2 3 10 12 14 20}
+mol drawframes $m $nr [::VMDance::Viz::_drawframes $fl]
+check "frames as ranges: \"[mol drawframes $m $nr]\" draws the 8 frames" [expr {
+    [mol drawframes $m $nr] eq "0:3 10:2:14 20" && [frames_drawn $m $nr] == 8}]
+mol delrep $nr $m
 done
 } err]} { puts "FAIL test_results crashed: $err\n$::errorInfo"; puts "RESULT checks=$::checks fails=[incr ::fails] skips=$::skips" }
 ::VMDance::Backend::cleanup

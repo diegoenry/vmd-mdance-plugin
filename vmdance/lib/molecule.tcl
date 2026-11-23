@@ -14,6 +14,13 @@ namespace eval ::VMDance::Mol {
     # clustering needs the same atoms in every frame
     variable dynamic_words {within exwithin pbwithin nearest x y z vx vy vz ufx ufy ufz
         user user2 user3 user4 phi psi pucker structure sasa}
+    # VMD frees a selection's values one by one, and past about 100 000
+    # single values its stack overflows: VMD crashes deleting the
+    # selection (VMD 2.0 on Windows, a 2 MB stack: between 100 000 and
+    # 120 000; Linux's 8 MB: about 700 000), and adding it as a
+    # representation. A range "a to b" is one value: 40 000 of them, in
+    # 120 000 words, are freed. The plugin hands VMD no text of more.
+    variable max_values 50000
 }
 
 proc ::VMDance::Mol::exists {m} {
@@ -34,8 +41,142 @@ proc ::VMDance::Mol::resolve {what m} {
 }
 
 proc ::VMDance::Mol::sel {m text {frame ""}} {
+    _sel $m [vmd_text $m $text] $frame
+}
+proc ::VMDance::Mol::_sel {m text {frame ""}} {
     if {$frame eq ""} { return [uplevel #0 [list atomselect $m $text]] }
     uplevel #0 [list atomselect $m $text frame $frame]
+}
+
+# The text handed to VMD for a selection text (atomselect, mol selection):
+# the same atoms, in few enough values (max_values). A long text has its
+# lists of whole numbers written as ranges (compact); the plugin's own
+# index list that is still too long (atoms scattered: the Cα of a large
+# system) is named instead, "name CA and index 4 to 99990", where that
+# selects exactly its atoms now (_named). Otherwise an error: VMD would
+# crash. Texts kept (requests, sessions) are not changed.
+proc ::VMDance::Mol::vmd_text {m text} {
+    variable max_values
+    # (a value is a character at least: a text no longer is handed as it is)
+    if {[string length $text] <= $max_values} { return $text }
+    set t [compact $text]
+    set n [_items $t]
+    if {$n <= $max_values} { return $t }
+    if {[regexp {^index( (0|[1-9][0-9]*)( to (0|[1-9][0-9]*))?)+$} $t]} {
+        set named [_named $m $t]
+        if {$named ne ""} { return $named }
+    }
+    error "the selection lists $n separate values, more than VMD takes ($max_values: it crashes freeing about 100000): select the atoms by name, residue or range (e.g. \"protein and name CA\", \"index 0 to 999\")"
+}
+
+# A selection text with each list of whole numbers after index, serial or
+# residue written as sorted ranges ("index 5 1 2 3 3" is "index 1 to 3 5"):
+# the same atoms, since such a list is a set. Its words are read as
+# _dynamic reads them (a quoted value is one word). A list is rewritten only
+# when nothing could make it mean otherwise: its numbers decimal (VMD and
+# Tcl read "010" differently), separated by spaces, "a to b" with a <= b,
+# and followed by the end, ")", "and" or "or".
+proc ::VMDance::Mol::compact {text} {
+    set toks [regexp -all -indices -inline {"(?:[^"]|\\\\|\\")*"|'(?:[^']|\\\\|\\')*'|[$@]?[A-Za-z0-9_]+(?:['"][A-Za-z0-9_'"]*)?} $text]
+    set n [llength $toks]
+    set out ""
+    set at 0
+    for {set i 0} {$i < $n} {incr i} {
+        lassign [lindex $toks $i] b e
+        if {[string range $text $b $e] ni {index serial residue}} continue
+        set vals {}
+        set last $e
+        set j [expr {$i + 1}]
+        set ok 1
+        while {$j < $n} {
+            lassign [lindex $toks $j] b2 e2
+            set v [string range $text $b2 $e2]
+            if {![_spaces $text $last $b2] || ![regexp {^(0|[1-9][0-9]*)$} $v]} break
+            set lo $v; set hi $v; set end $e2; set k [expr {$j + 1}]
+            if {$k + 1 < $n} {
+                lassign [lindex $toks $k] b3 e3
+                lassign [lindex $toks $k+1] b4 e4
+                set v4 [string range $text $b4 $e4]
+                if {[string range $text $b3 $e3] eq "to" && [_spaces $text $e2 $b3] && [_spaces $text $e3 $b4]} {
+                    if {![regexp {^(0|[1-9][0-9]*)$} $v4] || $v4 < $lo} { set ok 0; break }
+                    set hi $v4; set end $e4; incr k 2
+                }
+            }
+            lappend vals [list $lo $hi]
+            set last $end
+            set j $k
+        }
+        if {!$ok || [llength $vals] < 2} continue
+        set rest [string trimleft [string range $text $last+1 end]]
+        if {$rest ne "" && [string index $rest 0] ne ")" && ![regexp {^(and|or)(?![A-Za-z0-9_'"])} $rest]} continue
+        append out [string range $text $at $e] " " [_ranges $vals]
+        set at [expr {$last + 1}]
+        set i [expr {$j - 1}]
+    }
+    append out [string range $text $at end]
+}
+# Only spaces between two words (their last and first characters).
+proc ::VMDance::Mol::_spaces {text e b} {
+    string is space [string range $text $e+1 $b-1]
+}
+# {lo hi} pairs as merged ranges: "1 to 3 5".
+proc ::VMDance::Mol::_ranges {pairs} {
+    set out {}
+    set lo ""; set hi ""
+    foreach p [lsort -integer -index 0 $pairs] {
+        lassign $p a b
+        if {$lo ne "" && $a <= $hi + 1} {
+            if {$b > $hi} { set hi $b }
+            continue
+        }
+        if {$lo ne ""} { lappend out [expr {$hi > $lo ? "$lo to $hi" : $lo}] }
+        set lo $a; set hi $b
+    }
+    lappend out [expr {$hi > $lo ? "$lo to $hi" : $lo}]
+    join $out
+}
+# The values VMD holds for a text, at most: its words, a range "a to b" one
+# (counted, no list made).
+proc ::VMDance::Mol::_items {text} {
+    set w [regexp -all {"(?:[^"]|\\\\|\\")*"|'(?:[^']|\\\\|\\')*'|[$@]?[A-Za-z0-9_]+(?:['"][A-Za-z0-9_'"]*)?} $text]
+    expr {$w - 2 * [regexp -all {(?:^|\s)to(?=\s)} $text]}
+}
+# An index text (index_text's) as the indices, sorted.
+proc ::VMDance::Mol::_expand {t} {
+    set out {}
+    set w [lrange $t 1 end]
+    for {set i 0} {$i < [llength $w]} {incr i} {
+        set a [lindex $w $i]
+        if {[lindex $w $i+1] eq "to"} {
+            set b [lindex $w $i+2]
+            for {set k $a} {$k <= $b} {incr k} { lappend out $k }
+            incr i 2
+        } else { lappend out $a }
+    }
+    lsort -integer -unique $out
+}
+# The atoms of an index text named by their atom names within their range,
+# "name CA and index 4 to 99990", when that selects exactly them now; else
+# "". (The names unquoted: VMD reads a double-quoted value as a regular
+# expression.)
+proc ::VMDance::Mol::_named {m t} {
+    set idx [_expand $t]
+    set lo [lindex $idx 0]
+    set hi [lindex $idx end]
+    set box [_sel $m "index $lo to $hi"]
+    try { set rows [$box get {index name}] } finally { free $box }
+    foreach i $idx { set want($i) 1 }
+    set names [dict create]
+    foreach r $rows {
+        lassign $r i nm
+        if {[info exists want($i)]} { dict set names $nm 1 }
+    }
+    if {[dict size $names] > 100} { return "" }
+    foreach nm [dict keys $names] { if {![regexp {^[A-Za-z0-9_][A-Za-z0-9_']*$} $nm]} { return "" } }
+    set text "name [join [lsort [dict keys $names]]] and index $lo to $hi"
+    set s [_sel $m $text]
+    try { set got [$s list] } finally { free $s }
+    expr {$got eq $idx ? $text : ""}
 }
 proc ::VMDance::Mol::free {args} {
     foreach s $args {
@@ -73,8 +214,13 @@ proc ::VMDance::Mol::_why {msg} {
 # The atom indices of a selection text (at frame 0); an invalid text is an
 # error naming it.
 proc ::VMDance::Mol::atoms {m text} {
-    if {[catch {sel $m $text 0} s]} { error "invalid atom selection \"$text\": [_why $s]" }
+    if {[catch {sel $m $text 0} s]} { error "invalid atom selection \"[shown $text]\": [_why $s]" }
     try { return [$s list] } finally { free $s }
+}
+# A selection text as a message shows it: a long one cut, saying how long.
+proc ::VMDance::Mol::shown {text} {
+    if {[string length $text] <= 200} { return $text }
+    return "[string range $text 0 159]… ([string length $text] characters)"
 }
 
 # Selection text for a list of atom indices, with runs written "a to b"

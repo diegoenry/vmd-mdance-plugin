@@ -165,6 +165,17 @@ docs/internals.rst describe it.
   overlay and the picked frames drew one frame each until 2026-11-09, and
   the tests, which compared the text, passed. A test counts what VMD draws
   (`frames_drawn` in tests/common.tcl: the scene exported), never the text.
+- VMD frees a selection's values one by one: past about 100 000 single
+  values (a range "a to b" is one) its stack overflows and VMD crashes
+  deleting the selection, or adding it as a representation (VMD 2.0 on
+  Windows, a 2 MB stack: between 100 000 and 120 000; Linux: about
+  700 000). Making it works, so the crash comes later, in `free`.
+  Every text handed to VMD goes through Mol::vmd_text (Mol::sel, Viz::_add):
+  a long one has its lists of whole numbers after index, serial and residue
+  written as ranges (Mol::compact; "all or index 0 0 …" is "all or index 0"),
+  the plugin's own index list still too long is named ("name CA and index
+  4 to 99990", where that selects exactly its atoms now), else it is
+  refused. drawframes takes ranges too (b:e, b:s:e: Viz::_drawframes).
 - Widget names cannot start with a capital letter (`$f.MSD`): prefix them.
 - Coordinates moved in place change no molecule attribute: the kept rows
   carry every frame's fingerprint (Coords::_print: centre, radius of
