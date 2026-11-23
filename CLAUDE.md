@@ -4,7 +4,7 @@ A VMD Tcl/Tk plugin (package `vmdance`, command `vmdance`, namespace
 `::VMDance`) that clusters a trajectory's frames with MDANCE's
 algorithms, run by CPP-MDANCE (`../CPP-MDANCE`: `mdance-cli` and the
 `mdance_tcl` library). It replaces, rewritten from scratch, the MDANCE VMD
-plugin this repository held before (its last version: commit bf6fd41; the
+plugin this repository held before (its last version: commit 6257a8a; the
 rewrite was called MDANCEView, in its own repository ../MDANCEView, until it
 took its place on 2026-10-09; MDANCEView's sessions and preferences are
 still read), following the design of

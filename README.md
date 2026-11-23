@@ -23,7 +23,7 @@ and sweeps compare values of k and parameters.
 ![The VMDance window](docs/_static/figures/window.png)
 
 VMDance replaces, rewritten from scratch, the MDANCE VMD plugin this
-repository held before (its last version is commit `bf6fd41`; the rewrite
+repository held before (its last version is commit `6257a8a`; the rewrite
 was called MDANCEView until it took its place). It keeps its science — the
 same backend, the same algorithms and defaults, the same kinds of measures
 (the silhouette computed otherwise: see *Differences*) — and follows the
