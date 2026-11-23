@@ -95,7 +95,7 @@ def architecture():
     ax.text(0.3, 1.38, "CPP-MDANCE", fontsize=12, fontweight="bold", color=GREEN)
     box(ax, 0.6, 0.27, 3.0, 0.88, "mdance-cli", "a program: CSV in, JSON out", fc="#e9f1ec", ec="#93b39e")
     box(ax, 3.85, 0.27, 3.0, 0.88, "mdance_tcl", "a library, inside VMD", fc="#e9f1ec", ec="#93b39e")
-    box(ax, 7.2, 0.27, 4.2, 0.88, "KMeans NANI · DIVINE · HELM · eQUAL", "PRIME · iSIM · frame picks", fc="white", ec="#93b39e", size=9.5)
+    box(ax, 7.2, 0.27, 4.2, 0.88, "KMeans NANI · DIVINE · HELM · eQual", "PRIME · iSIM · frame picks", fc="white", ec="#93b39e", size=9.5)
     # what goes between the layers, in the gaps (no arrow crosses a box)
     def updown(x, y0, y1, down, up, color):
         arrow(ax, (x - 0.12, y0), (x - 0.12, y1), color=color)
@@ -199,7 +199,7 @@ def algorithms():
                 ax.plot(*zip(sk[a], sk[b]), color=INK, lw=0.9, alpha=0.7)
         ax.scatter(sk[:, 0], sk[:, 1], s=26, color="white", edgecolor=INK, lw=0.9, zorder=3)
     frame(ax, "HELM", "a first NANI of many clusters,\nthe closest merged, until k\nyou give: k (or a distance), the start", GOLD)
-    # eQUAL: clusters within a radius, the rest noise
+    # eQual: clusters within a radius, the rest noise
     ax = axs[3]
     r = 1.15
     taken = np.zeros(len(allp), bool)
@@ -212,7 +212,7 @@ def algorithms():
     q = allp[~taken]
     ax.scatter(q[:, 0], q[:, 1], s=13, color="#b8bec6", lw=0)
     ax.text(-1.55, 4.55, "grey: noise", fontsize=8, color=GREY, ha="left", va="center")
-    frame(ax, "eQUAL", "clusters within a radius of their\nseeds; frames in none are noise\nyou give: the radius (no k)", GREEN)
+    frame(ax, "eQual", "clusters within a radius of their\nseeds; frames in none are noise\nyou give: the radius (no k)", GREEN)
     fig.subplots_adjust(wspace=0.08, bottom=0.2)
     save(fig, "algorithms")
 

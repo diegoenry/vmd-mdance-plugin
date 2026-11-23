@@ -6,13 +6,13 @@ passes the coordinates and the parameters, and reads the answer. Every
 parameter, with its default and limits, is on :doc:`parameters`.
 
 .. figure:: _static/diagrams/algorithms.svg
-   :alt: The same frames clustered by KMeans NANI, DIVINE, HELM and eQUAL.
+   :alt: The same frames clustered by KMeans NANI, DIVINE, HELM and eQual.
    :width: 100%
    :class: diagram
 
    The four algorithms on the same frames: KMeans NANI's k clusters about
    their means (✕), seeded from the densest frames; DIVINE's splits, the
-   first of all the frames; HELM's many small clusters merged; eQUAL's
+   first of all the frames; HELM's many small clusters merged; eQual's
    clusters within a radius, and its noise.
 
 .. list-table::
@@ -36,7 +36,7 @@ parameter, with its default and limits, is on :doc:`parameters`.
      - many small NANI clusters, the closest merged until k (or a distance)
      - k or ``-eps``, the first clustering, a trim
      - a hierarchy from the bottom; the merges' heights
-   * - eQUAL
+   * - eQual
      - clusters within a radius of their seeds; the rest noise
      - the radius (no k)
      - dense states among sparse frames; a k it finds itself
@@ -49,8 +49,12 @@ selection's order (3 × atoms numbers). The same atoms are read at every
 frame. The rows are clustered as they are — MDANCE expects an aligned
 trajectory — unless *Fit to the first frame* (``-fit selection``)
 superposes each frame on the first clustered one by those atoms first; the
-fit is computed on the values (VMD's ``measure fit``), and VMD's own
-coordinates never move. The fit is off unless asked. Whether the frames
+fit is computed on the values, and VMD's own coordinates never move. The
+plugin computes it itself, to the last digit (Horn's quaternion): VMD's
+``measure fit`` stops after 1000 iterations, prints *Matrix: Warning: no
+convergence*, and its rotation is then not always the closest one (up to
+11% above the least RMSD on the tests' fixtures; on MDANCE's tau peptide
+within 0.0001 Å). The fit is off unless asked. Whether the frames
 look superposed is measured, not assumed: a sample of them (the first and
 20 others) is compared with the first, as they are and once fitted on it,
 and frames that a fit brings to half the distance, an ångström nearer at
@@ -75,11 +79,11 @@ Gle Ja JT RT RR SM SS1 SS2``) are binary and extended similarities, meant
 for fingerprint-like data; Settings unlock them in the window, and the
 command takes them as they are — but with what uses CPP-MDANCE's diversity
 selection: the seedings ``CompSim`` and ``DivSelect`` (KMeans NANI's, HELM's
-first clustering's), eQUAL's ``comp_sim`` seeds and the most diverse frames
+first clustering's), eQual's ``comp_sim`` seeds and the most diverse frames
 (:doc:`tools`). On coordinates its indices fall below what the selection
 starts from, and it reads past its data (``mdance-cli`` crashed, or every
 frame landed in one cluster that looked a success); MDANCE's Python stops
-there too. The plugin refuses those, and says what to use instead. eQUAL
+there too. The plugin refuses those, and says what to use instead. eQual
 takes MSD only: by the other indices every frame is within any radius of
 the seed on coordinates, and all landed in one cluster, whatever the seeds.
 DIVINE takes MSD only (below).
@@ -183,7 +187,7 @@ refused, naming what to change (a scan keeps that k as not run).
 counted once HELM has run, and refused so too. Its
 merges make the Tree plot: a forest when it stops at k.
 
-eQUAL
+eQual
 -----
 
 Extended quality: a cluster grows from a seed (the medoid of what is left,
@@ -197,7 +201,7 @@ frames outside every cluster are *noise* (label -1, grey everywhere).
 Optionally small clusters are rejected as noise (``-reject-lowd``), and the
 growth stops at the first cluster whose MSD is above ``-sim-threshold``
 (``-check-sim``: a ceiling; that cluster and every frame left become noise,
-and 0 is refused, as it makes every frame noise). eQUAL never places its
+and 0 is refused, as it makes every frame noise). eQual never places its
 last frame or two: they are noise too. There is no k. Which radius to
 try depends on the frames: ``vmdance radii`` (Setup's *Suggest a radius*)
 measures the distances between about 150 of them and proposes a range
@@ -216,7 +220,7 @@ the clusters, of the worst ratio of spreads to separation: lower is
 better) of the clustered frames, as scikit-learn computes them — none with
 fewer than two clusters, nor with every cluster a frame alone
 (scikit-learn takes 2 to n − 1 clusters: CPP-MDANCE's 0, or 1 and 0, are
-not kept as scores); eQUAL's noise is left out by the backend, HELM's
+not kept as scores); eQual's noise is left out by the backend, HELM's
 trimmed frames by the plugin, which scores HELM's clustered frames itself
 (CPP-MDANCE counts the trimmed frames as one more cluster); for HELM its
 merges. The plugin checks it all before

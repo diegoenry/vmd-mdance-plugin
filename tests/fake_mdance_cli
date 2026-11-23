@@ -163,7 +163,7 @@ def scores(frames, labels, members, k):
 
 
 def cluster_equal(frames, threshold):
-    """Emulate eQUAL: nearest-of-a-few-seeds, but frames farther than the radial
+    """Emulate eQual: nearest-of-a-few-seeds, but frames farther than the radial
     threshold from every seed become -1 noise. Produces real -1 labels."""
     n = len(frames)
     k = max(2, min(4, n // 3 or 2))

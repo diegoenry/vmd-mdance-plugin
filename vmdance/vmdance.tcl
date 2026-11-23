@@ -129,7 +129,7 @@ variable ::VMDance::help_text {
     backend      {"vmdance backend ?-mode auto|cli|library? ?-cli path? ?-library path? | backend try ?options?" "the CPP-MDANCE backend in use, or set it"}
     cancel       {"vmdance cancel" "stop the job that is running"}
     alignment    {"vmdance alignment ?-mol m? ?-sel text? ?-first f? ?-last l? ?-step s?" "whether the frames look superposed: how far a sample is from the first frame as it is, and once fitted"}
-    radii        {"vmdance radii ?-mol m? ?-sel text? ?-fit text? ?-first f? ?-last l? ?-step s?" "a range to scan eQUAL's radius over, from the distances between a sample of the frames"}
+    radii        {"vmdance radii ?-mol m? ?-sel text? ?-fit text? ?-first f? ?-last l? ?-step s?" "a range to scan eQual's radius over, from the distances between a sample of the frames"}
     clusters     {"vmdance clusters" "the table of the clusters: frames, share, MSD, mean RMSD² from the representative, representative frame"}
     get          {"vmdance get cluster" "a cluster in full: its numbers and its frames"}
     labels       {"vmdance labels" "{frame cluster ...} of every clustered frame (-1: in no cluster)"}
@@ -789,19 +789,19 @@ proc ::VMDance::_api_elbow {args} {
     set quiet [_bool "$what: -quiet" [dict get $o -quiet]]
     _check_idle $what
     if {[_get $req algorithm kmeans] eq "equal"} {
-        # (eQUAL: its radius; -ks, -from, -to and -by are k's)
+        # (eQual: its radius; -ks, -from, -to and -by are k's)
         if {[dict get $o -ks] ne "" || [llength [lmap {k v} $args {expr {$k in {-from -to -by} ? 1 : [continue]}}]]} {
-            error "$what: eQUAL is given no k: scan its radius with -radii {0.5 1 2}"
+            error "$what: eQual is given no k: scan its radius with -radii {0.5 1 2}"
         }
-        # (the radius is eQUAL's -threshold: a value given would be dropped
+        # (the radius is eQual's -threshold: a value given would be dropped
         # for the scan's)
         if {[llength [lmap {k v} $args {expr {$k eq "-threshold" ? 1 : [continue]}}]]} {
-            error "$what: -threshold: a scan of eQUAL runs each radius of -radii as its -threshold (-radii {0.5 1 2})"
+            error "$what: -threshold: a scan of eQual runs each radius of -radii as its -threshold (-radii {0.5 1 2})"
         }
         dict set req radii [dict get $o -radii]
         set ks {}
     } elseif {[dict get $o -radii] ne ""} {
-        error "$what: -radii is eQUAL's (-algorithm equal); [::VMDance::Algo::label [_get $req algorithm kmeans]] is scanned at values of k"
+        error "$what: -radii is eQual's (-algorithm equal); [::VMDance::Algo::label [_get $req algorithm kmeans]] is scanned at values of k"
     } elseif {[catch {_ks $what $o $args 200} ks]} { error $ks }
     dict set req ks $ks
     # (-stability 1: NANI's seedings that draw no random number; 0 none; or a
@@ -812,7 +812,7 @@ proc ::VMDance::_api_elbow {args} {
     dict set req stability $st
     if {[catch {::VMDance::Job::check_elbow $req} req]} { error "$what: $req" }
     set at [expr {[llength [_get $req radii {}]] ? "radius = [join [dict get $req radii] {, }]" : "k = [join [dict get $req ks] {, }]"}]
-    # (eQUAL's -threshold is the radius scanned: not said twice; DIVINE's is
+    # (eQual's -threshold is the radius scanned: not said twice; DIVINE's is
     # its smallest share)
     set said [dict get $req params]
     if {[dict get $req algorithm] eq "equal"} { set said [dict remove $said threshold] }
@@ -1378,7 +1378,7 @@ proc ::VMDance::_api_renumber {args} {
 }
 
 # radii ?-mol m? ?-sel text? ?-fit text? ?-first f? ?-last l? ?-step s?: a
-# range to scan eQUAL's radius over, from the distances between a sample
+# range to scan eQual's radius over, from the distances between a sample
 # of the frames (150 or so, evenly taken): {sample pairs percentiles from
 # to by} (Job::_do_radii).
 proc ::VMDance::_api_radii {args} {

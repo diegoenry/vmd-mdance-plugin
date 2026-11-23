@@ -14,7 +14,7 @@ Glossary
       backend's.
 
    noise
-      Frames in no cluster, label -1, grey everywhere: eQUAL's outside every
+      Frames in no cluster, label -1, grey everywhere: eQual's outside every
       cluster (and its last frames or two, which it never places), and the
       frames of the starting clusters HELM trims.
 
@@ -23,7 +23,7 @@ Glossary
       every pair of its frames (each with itself too), of their squared
       distance per atom — twice the mean squared distance from the set's
       mean structure; for two frames, half their RMSD². The backend's
-      clusters' MSD, eQUAL's radius and the similarity ceiling are this.
+      clusters' MSD, eQual's radius and the similarity ceiling are this.
 
    RMSD²
       The squared distance per atom between two structures (no fit): the

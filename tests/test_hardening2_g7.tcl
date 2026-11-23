@@ -10,10 +10,10 @@
 #        read as the tightest cluster), and a scan's record counts the
 #        clusters with frames (k_actual said k)
 #   F16  HELM's scores with a trim are those of its clustered frames, as
-#        MDANCE's and eQUAL's (the trimmed frames were one more cluster)
+#        MDANCE's and eQual's (the trimmed frames were one more cluster)
 #   F13  every cluster a frame alone has no scores (CPP-MDANCE's CH 1 and
 #        DB 0 were published, and the best of a sweep)
-#   F12  eQUAL's -min-samples is checked only with -reject-lowd, as the
+#   F12  eQual's -min-samples is checked only with -reject-lowd, as the
 #        backend reads it (2 to 9 frames were refused)
 #   F46  transitions: a row with nothing counted is "", as in the export and
 #        the plot (it was 0, a probability)
@@ -198,8 +198,8 @@ check "  every clustered frame alone, noise beside: none; a pair beside single f
     [dict get $o ch] eq "" && [dict get $o db] eq "" && [dict get $o2 ch] == 7.5 && [dict get $o2 db] == 0.3}]
 vmdance run clear
 
-# --- F12: eQUAL's -min-samples ---------------------------------------------------------------------------
-check "F12: eQUAL on 5 frames with the defaults is taken (-min-samples 10 is read only with -reject-lowd)" [expr {
+# --- F12: eQual's -min-samples ---------------------------------------------------------------------------
+check "F12: eQual on 5 frames with the defaults is taken (-min-samples 10 is read only with -reject-lowd)" [expr {
     ![catch {vmdance -mol $m -sel all -algorithm equal -threshold 1 -last 4 -quiet 1} r] && [dict get $r frames] == 5}]
 check "  with -reject-lowd 1 it is refused, naming -min-samples" [string match "*-min-samples 10: at most the 5 frames*" \
     [err {vmdance -mol $m -sel all -algorithm equal -threshold 1 -last 4 -reject-lowd 1 -quiet 1}]]
@@ -505,18 +505,20 @@ if {!$seen} { skip "  the built decks and design figure" "no unzip or pdftotext,
 # (README's listing gave the scores of name CA seeded StratAll as its
 # backbone CompSim clustering's; the paper's HELM scores are the program's
 # without a trim: with one the plugin scores the clustered frames)
-# (the listing loads MDANCE's packaged files since g8, whose backbone
-# CompSim scores are 1036.1 and 2.04: test_hardening2_g8 runs it on them)
+# (the listing loads MDANCE's packaged files since g8, and clusters the
+# atoms MDANCE's tutorial does since the review of 13 November, "resid 3 to
+# 12 and name CA N C O H", whose CompSim scores are 1005.6 and 2.01:
+# test_hardening2_g8 runs it on them)
 set t [g7_text README.md]
-check "review: README's listing gives its backbone CompSim clustering's scores" [expr {
-    [string match "*-kinit CompSim\n# -> run 1 molid 0 sel backbone fit {} frames 6001 * ch 1036.1 db 2.04 *" $t] && [string first "1139.6" $t] < 0}]
+check "review: README's listing gives its CompSim clustering's scores" [expr {
+    [string match "*-kinit CompSim\n# -> run 1 molid 0 sel {resid 3 to 12 and name CA N C O H} fit {} frames 6001 * ch 1005.6 db 2.01 *" $t] && [string first "1139.6" $t] < 0}]
 set ms ""
 foreach f [g7_papers manuscript.tex] { append ms " " [g7_text $f] }
 regsub -all {\s+} $ms " " ms
 if {[string trim $ms] eq ""} { skip "  the paper's validation" "not beside the repository here" } else {
     check "  the paper's HELM is without a trim" [expr {
-        [string match "*HELM without a trim, and eQUAL, the plugin's labels and scores are the program's*" $ms] &&
-        ![string match "*HELM and eQUAL, the plugin's labels are the program's*" $ms]}]
+        [string match "*HELM without a trim, and eQual, the plugin's labels and scores are the program's*" $ms] &&
+        ![string match "*HELM and eQual, the plugin's labels are the program's*" $ms]}]
 }
 vmdance run clear
 foreach x [list $m $m6] { mol delete $x }
@@ -564,7 +566,7 @@ if {[real_cli] eq ""} {
             [near [dict get $il ch] $ch 1e-9] && [near [dict get $il db] $db 1e-9] && [near [dict get $ic ch] $ch 1e-9] && [near [dict get $ic db] $db 1e-9]}]
         use_cli
     }
-    # (the reference: the backend's own scores where there is no noise, and eQUAL's)
+    # (the reference: the backend's own scores where there is no noise, and eQual's)
     set i [vmdance -mol $p -sel "name CA" -k 4 -kinit KmeansPP -quiet 1]
     lassign [g7_scores [g7_rows] [${R}::labels]] ch db
     lassign [lindex [::VMDance::Measure::scores $::VMDance::Coords::C [list [list [${R}::labels] 4]]] 0] mch mdb
@@ -572,7 +574,7 @@ if {[real_cli] eq ""} {
         [near [dict get $i ch] $ch 1e-7] && [near [dict get $i db] $db 1e-7] && [near $mch $ch 1e-9] && [near $mdb $db 1e-9]}]
     set i [vmdance -mol $p -sel "name CA" -algorithm equal -threshold 0.4 -quiet 1]
     lassign [g7_scores [g7_rows] [${R}::labels]] ch db
-    check "  and eQUAL's, its noise left out" [expr {[dict get $i noise] > 0 && [near [dict get $i ch] $ch 1e-7] && [near [dict get $i db] $db 1e-7]}]
+    check "  and eQual's, its noise left out" [expr {[dict get $i noise] > 0 && [near [dict get $i ch] $ch 1e-7] && [near [dict get $i db] $db 1e-7]}]
     # --- F47: the two compactness measures, with the metric MSD
     set ok 1; set seen 0
     foreach run {{-k 4 -kinit KmeansPP} {-algorithm equal -threshold 0.3}} {

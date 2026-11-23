@@ -5,7 +5,7 @@
 # along the trajectory (timeline), the silhouette from every frame (against
 # every pair, counted here), what an elbow scan suggests and the variance
 # its clusters explain, the groups by blocks and how unlike they are, the
-# clusters numbered by size, a range for eQUAL's radius, the structures as
+# clusters numbered by size, a range for eQual's radius, the structures as
 # models of a PDB, the summaries of clusters without frames, and help.
 source [file join [pwd] tests common.tcl]
 package require vmdance
@@ -317,7 +317,7 @@ if {$s0 eq [lsort -integer -decreasing $s0]} {
 }
 
 #---------------------------------------------------------------------------
-# A range for eQUAL's radius
+# A range for eQual's radius
 #---------------------------------------------------------------------------
 set r [vmdance radii -mol $m -sel "protein and name CA"]
 set pc [dict values [dict get $r percentiles]]
@@ -328,7 +328,7 @@ check "radii: the distances between the frames (100: all of them), a range from 
 set half [lsort -real [lmap j {1 2 3 4 5 6 7 8 9} {expr {[d2 [lindex $rows 0] [lindex $rows $j]] / 223 / 2.0}}]]
 check "  in MDANCE's MSD: half the RMSD² of two frames" [expr {[lindex $half 0] > [lindex $pc 0] / 100.0 && [lindex $half end] < 100 * [lindex $pc end]}]
 set e [vmdance elbow -mol $m -sel "protein and name CA" -algorithm equal -radii [list [dict get $r from] [dict get $r to]] -quiet 1]
-check "  eQUAL at its ends: more clusters at the smaller radius" [expr {[dict get [lindex $e 0] nclusters] > [dict get [lindex $e 1] nclusters]}]
+check "  eQual at its ends: more clusters at the smaller radius" [expr {[dict get [lindex $e 0] nclusters] > [dict get [lindex $e 1] nclusters]}]
 vmdance elbow clear
 check "  its options are the input's" [string match "*its options are -mol, -sel, -fit*" [err {vmdance radii -mol $m -k 3}]]
 

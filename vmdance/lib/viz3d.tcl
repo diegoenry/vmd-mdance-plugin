@@ -237,7 +237,8 @@ proc ::VMDance::Viz::_remove {{role ""}} {
 # user's current settings nor ours leak.
 proc ::VMDance::Viz::_add {m role sel style colour material frames} {
     variable owned
-    mol selection $sel
+    # (VMD crashes adding a representation of too many values: Mol::vmd_text)
+    mol selection [::VMDance::Mol::vmd_text $m $sel]
     mol representation $style
     mol color ColorID $colour
     mol material $material
@@ -264,7 +265,9 @@ proc ::VMDance::Viz::_atoms {m q {read clustered}} {
             _note "-sel: \"$o(sel)\" matches no atom of molecule $m: the residues of the atoms $read are drawn"
         }
     }
-    return "same residue as ([::VMDance::_get $q atoms [dict get $q sel]])"
+    # (the atoms made short first: inside "same residue as" an index list
+    # is no longer the plugin's own form, which vmd_text can name)
+    return "same residue as ([::VMDance::Mol::vmd_text $m [::VMDance::_get $q atoms [dict get $q sel]]])"
 }
 # What is drawn otherwise than asked: draw's note, and once on the console.
 proc ::VMDance::Viz::_note {text} {
@@ -360,7 +363,32 @@ proc ::VMDance::Viz::check {} {
 # VMD's drawframes takes the frames separated by spaces (and ranges, b:e
 # and b:s:e), as its Trajectory tab does. It stops reading at a comma and
 # says nothing: "0,5,9" drew frame 0 alone, and read back as it was given.
-proc ::VMDance::Viz::_drawframes {fl} { join $fl " " }
+# Runs of three frames or more at one step are written as ranges ("0:9",
+# "0:5:100"): a cluster's frames are often runs, and its text short. (A
+# frame listed twice is drawn twice: each once.)
+proc ::VMDance::Viz::_drawframes {fl} {
+    set fl [lsort -integer -unique $fl]
+    set n [llength $fl]
+    set out {}
+    set i 0
+    while {$i < $n} {
+        set a [lindex $fl $i]
+        if {$i + 2 < $n} {
+            set s [expr {[lindex $fl $i+1] - $a}]
+            set j [expr {$i + 1}]
+            while {$j + 1 < $n && [lindex $fl $j+1] - [lindex $fl $j] == $s} { incr j }
+            if {$j - $i >= 2} {
+                set b [lindex $fl $j]
+                lappend out [expr {$s == 1 ? "$a:$b" : "$a:$s:$b"}]
+                set i [expr {$j + 1}]
+                continue
+            }
+        }
+        lappend out $a
+        incr i
+    }
+    join $out " "
+}
 
 # The settings "mol addrep" uses; with an argument, put them back. VMD
 # has no getter for them: they are read from a representation added and

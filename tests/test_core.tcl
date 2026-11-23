@@ -31,20 +31,25 @@ check "  nesting deeper than 64 refused" [string match "*deeply*" [err {$J $deep
 # --- parameters -------------------------------------------------------------------
 check "the algorithms, in order" [expr {[${A}::all] eq {kmeans divine helm equal}}]
 check "  those given k" [expr {[${A}::with_k] eq {kmeans divine helm}}]
-check "  the window's defaults: KMeans k 10, DIVINE 3, HELM 10 from 50 (StratAll 10%)" [expr {
-    [${A}::default_k kmeans] == 10 && [${A}::default_k divine] == 3 && [${A}::default_k helm] == 10 &&
-    [dict get [${A}::defaults helm] initial] == 50 && [dict get [${A}::defaults helm] initial-kinit] eq "StratAll"}]
+check "  the window's defaults: k 6 for KMeans, DIVINE and HELM, HELM from 50 (StratAll 10%), merging Intra" [expr {
+    [${A}::default_k kmeans] == 6 && [${A}::default_k divine] == 6 && [${A}::default_k helm] == 6 &&
+    [dict get [${A}::defaults helm] initial] == 50 && [dict get [${A}::defaults helm] initial-kinit] eq "StratAll" &&
+    [dict get [${A}::defaults helm] merge-scheme] eq "Intra"}]
+check "  DIVINE's end-mode the command's only: not in the window, k" [expr {
+    [${A}::window_hides divine end-mode] && "end-mode" ni [lmap p [${A}::window_params divine] {lindex $p 0}] &&
+    "end-mode" in [${A}::param_names divine] && [dict get [${A}::defaults divine] end-mode] eq "k" &&
+    ![${A}::window_hides helm merge-scheme] && [llength [${A}::window_params helm]] == [llength [${A}::params helm]]}]
 set p [${A}::check_params kmeans {kinit CompSim}]
 check "check_params completes the defaults" [expr {$p eq {kinit CompSim percentage 10}}]
 check "  an unknown parameter names the valid ones" [string match "*-kinitt is not a parameter of KMeans NANI*-kinit, -percentage*" [err {${A}::check_params kmeans {kinitt x}}]]
 check "  a choice out of its values" [string match "*-kinit must be one of StratAll*" [err {${A}::check_params kmeans {kinit Nope}}]]
-foreach {v why} {1o "whole number" 2.5 "whole number" 010 "whole number" "" "whole number" 0 "at least 1" 101 "at most 100" ">f" "whole number" "|id" "whole number"} {
+foreach {v why} {1o "whole number" 2.5 "whole number" 010 "whole number" "" "-percentage is needed" 0 "at least 1" 101 "at most 100" ">f" "whole number" "|id" "whole number"} {
     check "  -percentage \"$v\" refused ($why)" [string match "*$why*" [err {${A}::check_params kmeans [list percentage $v]}]]
 }
 foreach {v ok} {1.5 1 .5 1 -1 1 1e3 1 1e400 0 NaN 0 Inf 0 1,5 0 0x10 0 01.5 0} {
     check "  -eps \"$v\" [expr {$ok ? "taken" : "refused"}]" [expr {[err {${A}::check_params helm [list eps $v]}] eq "" ? $ok : !$ok}]
 }
-check "  eQUAL needs -threshold" [string match "*-threshold is needed*" [err {${A}::check_params equal {}}]]
+check "  eQual's radius is 2 when none is given" [expr {[dict get [${A}::check_params equal {}] threshold] == 2}]
 check "  booleans become 0 and 1" [expr {[dict get [${A}::check_params divine {refine yes}] refine] == 1}]
 check "  a stored request's label file need not exist" [expr {[err {${A}::check_params helm {initial-labels /no/such.csv} 1}] eq "" &&
     [string match "*cannot read*" [err {${A}::check_params helm {initial-labels /no/such.csv}}]]}]
@@ -85,7 +90,7 @@ check "  trimming by k: --trim-start --trim-k --min-samples, not --trim-val" [ex
 set argv [${A}::cli_args divine 3 MSD [${A}::check_params divine {refine 0}] 10 in.csv out.json]
 check "  DIVINE: --refine only when on" [expr {[lsearch $argv --refine] < 0 && [lsearch [${A}::cli_args divine 3 MSD [${A}::check_params divine {refine 1}] 10 a b] --refine] >= 0}]
 set argv [${A}::cli_args equal "" MSD [${A}::check_params equal {threshold 2}] 10 in.csv out.json]
-check "  eQUAL: no --nclusters" [expr {[lsearch $argv --nclusters] < 0 && [lsearch $argv --threshold] >= 0}]
+check "  eQual: no --nclusters" [expr {[lsearch $argv --nclusters] < 0 && [lsearch $argv --threshold] >= 0}]
 check "lib_args: the same options with one dash" [expr {[${A}::lib_args kmeans [${A}::check_params kmeans {}] MSD] eq {-metric MSD -kinit StratAll -percentage 10}}]
 
 # label files
@@ -316,6 +321,117 @@ check "preferences: MDANCEView's are read while VMDance has none" [expr {[dict g
 ::VMDance::Prefs::save [dict replace [::VMDance::Prefs::load] ui_font 11]
 check "  saved as VMDance's, which are read from then on" [expr {[file isfile [file join $pd .vmdance.prefs]] && [dict get [::VMDance::Prefs::load] ui_font] == 11}]
 set ::VMDance::Prefs::file $keep
+
+# --- selection and frame texts handed to VMD ------------------------------------
+# (VMD crashes freeing a selection of about 100 000 single values or more:
+# lists of whole numbers are written as ranges, frames too)
+set C ::VMDance::Mol::compact
+check "compact: an index list as sorted ranges" [expr {[$C "index 5 1 2 3 3"] eq "index 1 to 3 5"}]
+check "  a value repeated, after another clause" [expr {[$C "all or index 0 0 0 0"] eq "all or index 0"}]
+check "  ranges given are merged" [expr {[$C "index 1 to 3 2 to 6 8 7"] eq "index 1 to 8"}]
+check "  serial and residue too, in parentheses; resid and the rest left" [expr {
+    [$C "(residue 6 4 5 10) or (serial 2 1 and resid 4 5) and name CA"] eq "(residue 4 to 6 10) or (serial 1 to 2 and resid 4 5) and name CA"}]
+check "  a list that could mean otherwise is left as it is" [expr {
+    [$C "index 010 011"] eq "index 010 011" && [$C "index 1 2 < 3"] eq "index 1 2 < 3" &&
+    [$C "index 3 to 1 4"] eq "index 3 to 1 4" && [$C "index 1 2.5"] eq "index 1 2.5" &&
+    [$C {segname "index 1 2" and index 2 1}] eq {segname "index 1 2" and index 1 to 2} && [$C "index 7"] eq "index 7"}]
+check "  the values VMD holds counted (a range one)" [expr {[::VMDance::Mol::_items "index 0 to 9 12 and name CA"] == 6}]
+set long "all or index [string trim [string repeat {0 } 120000]]"
+check "vmd_text: a text of 120 000 index words handed as one value" [expr {[::VMDance::Mol::vmd_text 0 $long] eq "all or index 0"}]
+set seq {}; for {set i 0} {$i < 120000} {incr i} { lappend seq $i }
+check "  a list of 120 000 atoms one by one: one range" [expr {[::VMDance::Mol::vmd_text 0 "index $seq"] eq "index 0 to 119999"}]
+set names {}; for {set i 0} {$i < 60000} {incr i} { lappend names A$i }
+check "  60 000 names: refused, saying what to do (VMD would crash)" [string match "*60001 separate values, more than VMD takes (50000*select the atoms by name, residue or range*" [err {::VMDance::Mol::vmd_text 0 "name $names"}]]
+check "  a short text as it is" [expr {[::VMDance::Mol::vmd_text 0 "index 3 2 1"] eq "index 3 2 1"}]
+check "  a long text shown cut in a message" [expr {[string length [::VMDance::Mol::shown $long]] < 220 && [string match "*([string length $long] characters)" [::VMDance::Mol::shown $long]]}]
+set D ::VMDance::Viz::_drawframes
+check "drawframes: runs as ranges, a step kept" [expr {[$D {0 1 2 3 9}] eq "0:3 9" && [$D {0 5 10 15 16}] eq "0:5:15 16" && [$D {20 22 24 30 31 32}] eq "20:2:24 30:32"}]
+check "  sorted, each frame once; two frames as they are" [expr {[$D {3 1 2 2}] eq "1:3" && [$D {4 7}] eq "4 7" && [$D {}] eq "" && [$D {5}] eq "5"}]
+check "  the frames named are those given" [expr {[spec_frames [$D {0 1 2 5 10 15 16 40 41 42 43 50}]] eq {0 1 2 5 10 15 16 40 41 42 43 50}}]
+
+# --- the fit (Coords::fit_matrix: Horn's quaternion, not VMD's measure fit) -------
+# (VMD's stops at 1000 iterations and returns a rotation that is not the
+# best; the plugin's is checked here without VMD)
+proc fit_apply {M X} {
+    lmap p $X {
+        lassign $p x y z
+        lmap r [lrange $M 0 2] {lassign $r a b c t; expr {$a * $x + $b * $y + $c * $z + $t}}
+    }
+}
+proc fit_rmsd {X Y} {
+    set s 0.0
+    foreach p $X q $Y { foreach a $p b $q { set s [expr {$s + ($a - $b) ** 2}] } }
+    expr {sqrt($s / [llength $X])}
+}
+# a turn of t radians about axis i (0 x, 1 y, 2 z)
+proc fit_turn {i t} {
+    set c [expr {cos($t)}]; set s [expr {sin($t)}]
+    switch $i {
+        0 { list [list 1.0 0.0 0.0 0.0] [list 0.0 $c [expr {-$s}] 0.0] [list 0.0 $s $c 0.0] {0 0 0 1} }
+        1 { list [list $c 0.0 $s 0.0] [list 0.0 1.0 0.0 0.0] [list [expr {-$s}] 0.0 $c 0.0] {0 0 0 1} }
+        2 { list [list $c [expr {-$s}] 0.0 0.0] [list $s $c 0.0 0.0] [list 0.0 0.0 1.0 0.0] {0 0 0 1} }
+    }
+}
+proc fit_mul {A B} {
+    lmap r $A { lmap j {0 1 2 3} { set v 0.0; foreach k {0 1 2 3} { set v [expr {$v + [lindex $r $k] * [lindex $B $k $j]}] }; set v } }
+}
+expr {srand(7)}
+set X {}
+for {set i 0} {$i < 30} {incr i} { lappend X [list [expr {10 * rand() - 5}] [expr {10 * rand() - 5}] [expr {10 * rand() - 5}]] }
+set T [fit_mul [fit_mul [fit_turn 0 0.7] [fit_turn 1 -1.9]] [fit_turn 2 2.6]]
+lset T 0 3 3.5; lset T 1 3 -12.0; lset T 2 3 0.25
+set Y [fit_apply $T $X]
+set M [::VMDance::Coords::fit_matrix $X [::VMDance::Coords::fit_ref $Y]]
+check "fit: a known turn and shift found back exactly" [expr {[fit_rmsd [fit_apply $M $X] $Y] < 1e-9}]
+set Yn [lmap p $Y {lmap v $p {expr {$v + 0.8 * (rand() - 0.5)}}}]
+set M [::VMDance::Coords::fit_matrix $X [::VMDance::Coords::fit_ref $Yn]]
+set r0 [fit_rmsd [fit_apply $M $X] $Yn]
+set R [lmap r [lrange $M 0 2] {lrange $r 0 2}]
+set det [expr {[lindex $R 0 0] * ([lindex $R 1 1] * [lindex $R 2 2] - [lindex $R 1 2] * [lindex $R 2 1])
+    - [lindex $R 0 1] * ([lindex $R 1 0] * [lindex $R 2 2] - [lindex $R 1 2] * [lindex $R 2 0])
+    + [lindex $R 0 2] * ([lindex $R 1 0] * [lindex $R 2 1] - [lindex $R 1 1] * [lindex $R 2 0])}]
+check "  noisy: a rotation (determinant 1), no mirror" [expr {abs($det - 1.0) < 1e-12}]
+# (the least RMSD: no small turn about any axis, through the reference's
+# centre, lowers it)
+lassign [::VMDance::Coords::fit_ref $Yn] - yc
+set better 0
+foreach i {0 1 2} {
+    foreach t {1e-3 -1e-3 1e-5 -1e-5} {
+        set C [list [list 1.0 0.0 0.0 [lindex $yc 0]] [list 0.0 1.0 0.0 [lindex $yc 1]] [list 0.0 0.0 1.0 [lindex $yc 2]] {0 0 0 1}]
+        set Ci [list [list 1.0 0.0 0.0 [expr {-[lindex $yc 0]}]] [list 0.0 1.0 0.0 [expr {-[lindex $yc 1]}]] [list 0.0 0.0 1.0 [expr {-[lindex $yc 2]}]] {0 0 0 1}]
+        set P [fit_mul $C [fit_mul [fit_turn $i $t] [fit_mul $Ci $M]]]
+        if {[fit_rmsd [fit_apply $P $X] $Yn] < $r0 - 1e-12} { incr better }
+    }
+}
+check "  noisy: the least RMSD ([format %.4f $r0] Å: no turn of 1e-3 or 1e-5 rad about x, y or z does better)" [expr {$better == 0}]
+check "  the same atoms: no move" [expr {[fit_rmsd [fit_apply [::VMDance::Coords::fit_matrix $X [::VMDance::Coords::fit_ref $X]] $X] $X] < 1e-12}]
+# (the fast path, Newton and the adjugate, against Jacobi; a turn of 180°,
+# where q0 is 0; atoms in a line, where the largest eigenvalue is double)
+set agree 1
+for {set t 0} {$t < 20} {incr t} {
+    set A {}; set B {}
+    for {set i 0} {$i < 12} {incr i} {
+        set p [list [expr {6 * rand() - 3}] [expr {6 * rand() - 3}] [expr {6 * rand() - 3}]]
+        lappend A $p
+        lappend B [lmap v $p {expr {$v + 2.0 * (rand() - 0.5)}}]
+    }
+    set fr [::VMDance::Coords::fit_ref $B]
+    set Mq [::VMDance::Coords::fit_matrix $A $fr]
+    # (Jacobi alone: the same K)
+    set saved [info body ::VMDance::Coords::_qcp]
+    proc ::VMDance::Coords::_qcp {K g} { return "" }
+    set Mj [::VMDance::Coords::fit_matrix $A $fr]
+    proc ::VMDance::Coords::_qcp {K g} $saved
+    if {abs([fit_rmsd [fit_apply $Mq $A] $B] - [fit_rmsd [fit_apply $Mj $A] $B]) > 1e-10} { set agree 0 }
+}
+check "  Newton and the adjugate give Jacobi's least RMSD (20 random sets)" $agree
+set T [fit_turn 2 [expr {acos(-1)}]]
+lset T 0 3 1.0
+set Y180 [fit_apply $T $X]
+check "  a turn of 180° found back" [expr {[fit_rmsd [fit_apply [::VMDance::Coords::fit_matrix $X [::VMDance::Coords::fit_ref $Y180]] $X] $Y180] < 1e-9}]
+set line [lmap i {0 1 2 3 4 5} {list [expr {1.0 * $i}] [expr {2.0 * $i}] [expr {-0.5 * $i}]}]
+set lineT [fit_apply [fit_mul [fit_turn 0 1.1] [fit_turn 2 0.4]] $line]
+check "  atoms in a line (a double eigenvalue: Jacobi): put on the line" [expr {[fit_rmsd [fit_apply [::VMDance::Coords::fit_matrix $line [::VMDance::Coords::fit_ref $lineT]] $line] $lineT] < 1e-9}]
 done
 } err]} { puts "FAIL test_core crashed: $err\n$::errorInfo"; puts "RESULT checks=$::checks fails=[incr ::fails] skips=$::skips" }
 if {[info commands quit] ne ""} { quit }

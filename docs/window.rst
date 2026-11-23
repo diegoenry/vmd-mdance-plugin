@@ -69,7 +69,7 @@ scan's k made the clustering, or came with a session. A range belongs to
 the molecule it was typed for: choosing another molecule puts the frames
 back to all of them, and the line at the bottom says so.
 
-**Algorithm**: KMeans NANI, DIVINE, HELM or eQUAL, with what it does; a
+**Algorithm**: KMeans NANI, DIVINE, HELM or eQual, with what it does; a
 note names the algorithms the backend was built without (asked again as the
 chooser opens: a program rebuilt meanwhile), and says when the library
 clusters (VMD then waits for each clustering, and the line at the bottom
@@ -79,15 +79,16 @@ says so through it), and that *Automatic* took it, finding no program.
 what was typed in them. Fields that do not apply are greyed: HELM's trim
 values without *Trim first*, its first clustering with a label file,
 DIVINE's seeding with anchors other than NANI and its Refine with NANI (a
-NANI split is a k-means already: :doc:`algorithms`), eQUAL's minimum size
+NANI split is a k-means already: :doc:`algorithms`), eQual's minimum size
 and similarity with their options
 off, a seeding share that the seeding does not use. **Metric** is the mean
-square deviation unless Settings unlock the others (DIVINE's and eQUAL's
+square deviation unless Settings unlock the others (DIVINE's and eQual's
 always: the field says why).
-**Defaults** puts the algorithm's back. Under eQUAL's **Radius**, the RMSD
+**Defaults** puts the algorithm's back. Under eQual's **Radius**, the RMSD
 it stands for: a frame joins a cluster when it is within √(2 × radius) Å
-of its seed (the radius is MDANCE's MSD, Å²). **Suggest a radius** proposes
-one from the frames themselves, where none is typed: the distance a tenth
+of its seed (the radius is MDANCE's MSD, Å²; 2 by default). **Suggest a
+radius** proposes one from the frames themselves, in place of the default
+or an empty field (a radius you typed is kept): the distance a tenth
 of the pairs of about 150 of them are within; and a range of radii for
 Scans ▸ Elbow (:doc:`scans`).
 
@@ -146,7 +147,7 @@ Scans
 -----
 
 **Elbow**: the Setup's algorithm and parameters at every k from … to …
-every …; with eQUAL chosen in Setup the box shows the radii instead (at
+every …; with eQual chosen in Setup the box shows the radii instead (at
 every radius from … to … every …, and **Suggest**, which proposes them from
 the frames). **Stability** is
 the agreement between NANI's four seedings at each k (KMeans NANI's only:

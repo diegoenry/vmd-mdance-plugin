@@ -1330,7 +1330,8 @@ proc ::VMDance::Plots::_tree_heights {c} {
     # much again as the next largest jump, and among the coarser half of
     # the merges (among dozens of starting clusters two of the first
     # merges always differ by some factor: the tau peptide's largest was
-    # at k 53, of a continuum that has no place to stop)
+    # at k 57, 1.6 times the one before, of a continuum that has no place
+    # to stop)
     set floor [expr {0.05 * $hi}]
     set ratios {}
     foreach p $pts {
@@ -1530,7 +1531,7 @@ proc ::VMDance::Plots::draw_elbow {c} {
     variable H; variable ch_col; variable db_col; variable accent
     set e $::VMDance::Results::elbow
     set recs [dict get $e records]
-    # (an elbow scan of eQUAL is of its radius: the values are radii)
+    # (an elbow scan of eQual is of its radius: the values are radii)
     set radius [::VMDance::Results::by_radius $e]
     set ks [lmap r $recs {::VMDance::Results::scan_x $r}]
     set show [S eb_show]
@@ -1544,7 +1545,7 @@ proc ::VMDance::Plots::draw_elbow {c} {
     if {[llength $failed]} { lappend items "failed at [expr {$radius ? "radius" : "k ="}] [join $failed {, }]" @none }
     # bars in a strip of their own under the scores (over the scores'
     # lines their values could not be read, and they had no scale): the
-    # agreement between seedings, 0 to 1, when the scan has it; of eQUAL's
+    # agreement between seedings, 0 to 1, when the scan has it; of eQual's
     # radius, the clusters found
     set bars {}; set btitle ""; set bmax 1.0
     set stab [expr {[S eb_stability] && [llength [::VMDance::_get [dict get $e request] stability {}]]}]
@@ -1564,7 +1565,7 @@ proc ::VMDance::Plots::draw_elbow {c} {
             lappend bars [list [dict get $r radius] [dict get $r nclusters] [dict get $r nclusters]]
         }
     }
-    # the current clustering's k (eQUAL's radius), when it is of the scan's algorithm
+    # the current clustering's k (eQual's radius), when it is of the scan's algorithm
     set cur ""
     if {[::VMDance::Results::has_data] && [dict get [::VMDance::Results::request] algorithm] eq [dict get $e request algorithm]} {
         set q [::VMDance::Results::request]

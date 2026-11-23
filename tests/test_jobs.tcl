@@ -16,7 +16,7 @@ set s1 [load_system single_state]
 
 # --- requests ---------------------------------------------------------------------
 check "a clustering request is checked whole" [expr {[dict get [::VMDance::Job::check_cluster [list mol $m sel all k 2]] natoms] == 8}]
-check "  NANI's seeds: k 10 from 10% of 24 frames refused" [string match "*-k 10: NANI*raise -percentage to 42*" [err {::VMDance::Job::check_cluster [list mol $m sel all]}]]
+check "  NANI's seeds: k 6 (the default) from 10% of 24 frames refused" [string match "*-k 6: NANI*raise -percentage to 25*" [err {::VMDance::Job::check_cluster [list mol $m sel all]}]]
 foreach {req why} [list \
         [list mol 99 sel all] "no molecule \"99\"" \
         [list mol $m sel "x > 1"] "can match other atoms in other frames (\"x\")" \
@@ -34,7 +34,7 @@ foreach {req why} [list \
         [list mol $m sel all k 2x] "-k must be a whole number" \
         [list mol $m sel all algorithm xyz] "-algorithm must be one of" \
         [list mol $m sel all algorithm equal k 3] "finds its own number of clusters" \
-        [list mol $m sel all algorithm equal] "-threshold is needed" \
+        [list mol $m sel all algorithm equal params {threshold ""}] "-threshold is needed (Radius)" \
         [list mol $m sel all metric Tanimoto] "-metric must be one of" \
         [list mol $m sel all fit "x < 3"] "-fit: the fit selection" \
         [list mol $m sel all fit "index 0 1"] "a fit needs at least 3 atoms" \
@@ -46,7 +46,7 @@ check "the command names the option" [string match "vmdance: -step must be 1 or 
 check "  an unknown option" [string match "*unknown option -bogus*" [err {vmdance -mol $m -sel all -bogus 1}]]
 check "  another algorithm's parameter" [string match "*-threshold is not a parameter of KMeans NANI*" [err {vmdance -mol $m -sel all -threshold 1}]]
 check "  an option given twice" [string match "*-k is given twice*" [err {vmdance -mol $m -sel all -k 2 -k 3}]]
-check "  eQUAL's similarity ceiling 0 (every frame noise) refused" [string match "*-check-sim 1 needs -sim-threshold above 0*" [err {vmdance -mol $m -sel all -algorithm equal -threshold 1 -check-sim 1 -sim-threshold 0}]]
+check "  eQual's similarity ceiling 0 (every frame noise) refused" [string match "*-check-sim 1 needs -sim-threshold above 0*" [err {vmdance -mol $m -sel all -algorithm equal -threshold 1 -check-sim 1 -sim-threshold 0}]]
 check "  HELM stopped by -k and -eps at once refused" [string match "*not both*" [err {vmdance -mol $m -sel all -algorithm helm -k 2 -eps 0.5 -initial 6 -initial-kinit KmeansPP}]]
 
 # --- a clustering ---------------------------------------------------------------------
@@ -55,7 +55,7 @@ check "KMeans with the fake: two clusters of 12" [expr {[dict get $i nclusters] 
 set all {}; for {set f 0} {$f < 24} {incr f} { lappend all $f }
 check "  the frames are VMD's" [expr {[${R}::frames] eq $all}]
 check "  the representatives in their clusters" [expr {[${R}::cluster_at [${R}::rep_frame 0]] == 0 && [${R}::cluster_at [${R}::rep_frame 1]] == 1}]
-check "  the backend is recorded" [expr {[lindex [dict get $i backend] 0] eq "cli" && [file tail [lindex [dict get $i backend] 1]] eq "fake_mdance_cli"}]
+check "  the backend is recorded" [expr {[lindex [dict get $i backend] 0] eq "cli" && [file rootname [file tail [lindex [dict get $i backend] 1]]] eq "fake_mdance_cli"}]
 set fm [${R}::measure frame_msd]
 check "  every frame's MSD from its representative (0 for the representatives)" [expr {[llength $fm] == 24 &&
     [lindex $fm [${R}::rep 0]] == 0 && [lindex $fm [${R}::rep 1]] == 0}]
@@ -91,9 +91,9 @@ vmdance -mol $s1 -sel all -k 1 -quiet 1
 check "one cluster: the NaN Davies–Bouldin is no score" [expr {[${R}::get db] eq "" && [${R}::nclusters] == 1}]
 check "  and no silhouette" [expr {[lsort -unique [${R}::measure silhouette]] eq {{}}}]
 
-# eQUAL: noise
+# eQual: noise
 vmdance -mol $o -sel all -algorithm equal -threshold 1.0 -quiet 1
-check "eQUAL: the far frame is noise" [expr {[lindex [${R}::labels] 6] == -1 && [${R}::noise] == 1 && [${R}::nclusters] > 0}]
+check "eQual: the far frame is noise" [expr {[lindex [${R}::labels] 6] == -1 && [${R}::noise] == 1 && [${R}::nclusters] > 0}]
 check "  noise has no MSD from a representative" [expr {[lindex [${R}::measure frame_msd] 6] eq ""}]
 set T [vmdance transitions]
 check "  transition rows sum to 1 with the share into noise" [expr {[near [::tcl::mathop::+ {*}[lindex $T [lindex [${R}::labels] 5]]] [expr {1 - 1.0 / [::tcl::mathop::+ {*}[lindex [vmdance transitions -counts 1] [lindex [${R}::labels] 5]] 1]}] 1e-3]}]
@@ -190,8 +190,8 @@ set rows [vmdance elbow -mol $m -sel all -from 2 -to 4 -quiet 1]
 check "  a k its seeding cannot take is not run (and says why)" [expr {[dict get [lindex $rows 0] status] eq "ok" &&
     [string match "not run: -k 3: NANI*" [dict get [lindex $rows 1] message]]}]
 check "  a scan where no k can run is refused" [string match "*-ks 3: NANI*" [err {vmdance elbow -mol $m -sel all -from 3 -to 4 -quiet 1}]]
-check "  eQUAL is scanned at its radius, not k" [expr {[string match "*-radii: an elbow scan of eQUAL*" [err {vmdance elbow -mol $m -sel all -algorithm equal}]] &&
-    [string match "*-threshold: a scan of eQUAL runs each radius of -radii*" [err {vmdance elbow -mol $m -sel all -algorithm equal -threshold 1}]]}]
+check "  eQual is scanned at its radius, not k" [expr {[string match "*-radii: an elbow scan of eQual*" [err {vmdance elbow -mol $m -sel all -algorithm equal}]] &&
+    [string match "*-threshold: a scan of eQual runs each radius of -radii*" [err {vmdance elbow -mol $m -sel all -algorithm equal -threshold 1}]]}]
 check "  -from above -to" [string match "*-from must not be above -to*" [err {vmdance elbow -mol $m -sel all -from 6 -to 5}]]
 check "  one value of k is no scan" [string match "*at least two values of k*" [err {vmdance elbow -mol $m -sel all -from 5 -to 5}]]
 check "  -ks, or -from -to -by: not both" [string match "*not both*" [err {vmdance elbow -mol $m -sel all -ks {2 3} -to 5}]]
@@ -216,7 +216,7 @@ check "  the best Calinski–Harabasz is the highest" [expr {[dict get $b ch] ==
 fake_env
 set i [vmdance sweep load [dict get $b index]]
 check "  load the best" [expr {[dict get $i k] == [dict get $b k] && [dict get $i algorithm] eq [dict get $b algorithm]}]
-check "  eQUAL is not swept" [string match "*not given k*" [err {vmdance sweep -mol $m -sel all -algorithms equal}]]
+check "  eQual is not swept" [string match "*not given k*" [err {vmdance sweep -mol $m -sel all -algorithms equal}]]
 
 # --- questions after a clustering -----------------------------------------------------------
 vmdance -mol $m -sel all -k 2 -first 4 -last 19 -step 2 -kinit KmeansPP -quiet 1

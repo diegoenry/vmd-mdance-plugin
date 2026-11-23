@@ -22,7 +22,7 @@ run() {
         grep SKIP "$OUT/$name.result"
     fi
 }
-run core-tclsh tclsh tests/test_core.tcl
+run core-tclsh tclsh -encoding utf-8 tests/test_core.tcl
 # (and the second round's fixes, a suite each: tests/test_hardening2_<group>.tcl)
 for t in core jobs results session reference hardening hardening2 \
          hardening2_fx_g1 hardening2_fx_g2 hardening2_fx_g3 hardening2_fx_g4 hardening2_fx_g5 \

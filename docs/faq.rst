@@ -61,7 +61,7 @@ between two structures, and MDANCE's MSD of a cluster (Å²). **Plot options
 ▸ All plots ▸ Distances as ▸ Lengths** shows their square roots, in Å, in
 the plots and the table of clusters: RMSD and √MSD, the unit RMSD cut-offs
 are given in. The exported tables keep the values as measured, and their
-columns' names say which they are. eQUAL's radius stays MDANCE's MSD (Å²:
+columns' names say which they are. eQual's radius stays MDANCE's MSD (Å²:
 half the RMSD² of a frame and its seed); Setup writes the RMSD it stands
 for, √(2 × radius), under the field.
 
@@ -96,7 +96,7 @@ its clusters by size** (``vmdance renumber``) makes a new run numbered
 from the largest, and leaves the original as it was.
 
 **A cluster has a large MSD and few frames.** It is often a bin of
-outliers, not a state: Compactness ▸ MSD against size shows it; eQUAL at a
+outliers, not a state: Compactness ▸ MSD against size shows it; eQual at a
 radius leaves such frames as noise instead.
 
 **My clusters differ from MDANCE's Python.** Compare the same atoms first:
@@ -127,11 +127,11 @@ frame holds NaN or an infinity (a simulation that blew up, a file damaged
 or converted): leave it out (``-first``, ``-last``, ``-step``) or delete it
 (``animate delete beg 5 end 5 0``).
 
-**"-metric BUB with -kinit CompSim …"** — the seedings, eQUAL's seeds and
+**"-metric BUB with -kinit CompSim …"** — the seedings, eQual's seeds and
 the pick that use CPP-MDANCE's diversity selection read past its data with
 an index other than MSD: use MSD, or another seeding.
 
-**"-metric BUB with eQUAL …"** — eQUAL takes MSD only: by the other
+**"-metric BUB with eQual …"** — eQual takes MSD only: by the other
 indices every frame is within any radius of the seed on coordinates, and
 all land in one cluster.
 
@@ -148,7 +148,7 @@ A docker or podman container runs under their daemon, not under the
 script: run it with ``--init``, which passes Cancel's stop on to its
 program (an Apptainer or Singularity container is the script's own).
 
-**Colour by cluster shows grey.** The frame is noise (eQUAL), or outside
+**Colour by cluster shows grey.** The frame is noise (eQual), or outside
 the clustered frames (before the first, after the last).
 
 **My representations changed colour.** They did not: the plugin draws with

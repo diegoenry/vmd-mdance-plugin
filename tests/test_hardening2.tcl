@@ -106,7 +106,7 @@
 #   lib-notrun  the library's refusal of DIVINE seeded by CompSim below 50% is
 #               a scan's "not run" (a sweep where nothing ran replaced the one
 #               there with failures)
-#   equal-msd   eQUAL takes MSD only in the table (Algo::A), as DIVINE does:
+#   equal-msd   eQual takes MSD only in the table (Algo::A), as DIVINE does:
 #               the window, the request and the docs follow it
 #   seedless    a sweep makes one configuration of HELM from a label file (and
 #               of DIVINE's pair anchors), not one a seeding: the same
@@ -775,15 +775,15 @@ set ::seen {}
 set ::VMDance::Job::progress_cb {apply {{f msg} { lappend ::seen $msg }}}
 set ::VMDance::Job::inner {0.4 0.95}
 foreach {msg line} {
-    eQUAL "Running eQUAL (threshold=0.2, metric=MSD)..."
+    eQual "Running eQUAL (threshold=0.2, metric=MSD)..."
     PRIME "Running PRIME (metric=RR, trim=0.1, weighted=true)..."
     HELM "Building cluster tree..."
     PRIME "Reading input: /tmp/vmdance-u-0badf00d-1-0badf00d/f1-1791146317250.csv"
 } { ::VMDance::Job::_line $msg $line }
 set ::VMDance::Job::progress_cb ""
 set ::VMDance::Job::inner {0.0 1.0}
-check "F43: the progress keeps the backend's numbers (threshold=0.2, trim=0.1), not the private files' names" [expr {$::seen eq
-    {{eQUAL: running eQUAL (threshold=0.2, metric=MSD)} {PRIME: running PRIME (metric=RR, trim=0.1, weighted=true)} {HELM: building cluster tree} {PRIME: reading input}}}]
+check "F43: the progress keeps the backend's numbers (threshold=0.2, trim=0.1), not the private files' names; eQUAL as eQual" [expr {$::seen eq
+    {{eQual: running eQual (threshold=0.2, metric=MSD)} {PRIME: running PRIME (metric=RR, trim=0.1, weighted=true)} {HELM: building cluster tree} {PRIME: reading input}}}]
 
 ::VMDance::Backend::cleanup
 if {$tmp0 eq ""} { unset -nocomplain ::env(TMPDIR) } else { set ::env(TMPDIR) $tmp0 }
@@ -861,7 +861,7 @@ check "F11: the program's message naming its row 3 names VMD frame 8 (-first 4 -
 use_fake
 
 # F53: a number the backend cannot read is refused with its option:
-# mdance-cli read HELM's as C floats and failed with a bare "stof" (eQUAL's
+# mdance-cli read HELM's as C floats and failed with a bare "stof" (eQual's
 # and PRIME's: "stod"), where the library rounded them and answered. VMD
 # takes 1e-320 for 0: a zero is told by its digits.
 set specs {}
@@ -886,7 +886,7 @@ check "  a stored request keeps its number (a run made with -eps 1e39, before)" 
 # (a clustering to ask PRIME of)
 vmdance -mol $m2 -sel all -k 2 -kinit KmeansPP -quiet 1
 set c0 $::VMDance::Backend::counter
-check "  the command: -eps 1e39, eQUAL's -threshold 1e-320, PRIME's -trim-frac 1e-320 refused before any job" [expr {
+check "  the command: -eps 1e39, eQual's -threshold 1e-320, PRIME's -trim-frac 1e-320 refused before any job" [expr {
     [string match "vmdance: -eps must be 0, or between*" [err {vmdance -mol $m2 -sel all -algorithm helm -k 0 -initial 6 -initial-kinit KmeansPP -eps 1e39 -quiet 1}]] &&
     [string match "vmdance: -threshold must be 0, or between*" [err {vmdance -mol $m2 -sel all -algorithm equal -threshold 1e-320 -quiet 1}]] &&
     [string match "vmdance prime: -trim-frac must be 0, or between*" [err {vmdance prime -trim-frac 1e-320}]] &&
@@ -918,7 +918,7 @@ set m2 [load_system two_state]
 set req2 [::VMDance::Job::check_cluster [list mol $m2 sel all k 2 params {kinit KmeansPP}]]
 
 # F02: with an index other than MSD, CPP-MDANCE's diversity selection read
-# past its data (the CompSim and DivSelect seedings, eQUAL's comp_sim
+# past its data (the CompSim and DivSelect seedings, eQual's comp_sim
 # seeds, the diversity pick): mdance-cli crashed, or every frame landed in
 # one cluster published as k. Refused before the backend runs.
 set kp [${A}::defaults kmeans]
@@ -932,9 +932,9 @@ check "  HELM's first clustering seeded by DivSelect, with RR: refused; started 
     [string match "-metric RR with -initial-kinit DivSelect: *" [err {${A}::check_combination helm 5 $hp2 100 "" RR}]] &&
     [err {${A}::check_combination helm 5 [dict replace $hp2 initial-labels x.csv] 100 20 RR}] eq ""}]
 set ep [dict replace [${A}::defaults equal] threshold 1]
-check "  eQUAL with SM: refused, its comp_sim seeds and its medoid alike (every frame in one cluster)" [expr {
-    [string match "-metric SM with eQUAL: *" [err {${A}::check_combination equal "" [dict replace $ep seed-method comp_sim] 100 "" SM}]] &&
-    [string match "-metric SM with eQUAL: *use -metric MSD" [err {${A}::check_combination equal "" $ep 100 "" SM}]]}]
+check "  eQual with SM: refused, its comp_sim seeds and its medoid alike (every frame in one cluster)" [expr {
+    [string match "-metric SM with eQual: *" [err {${A}::check_combination equal "" [dict replace $ep seed-method comp_sim] 100 "" SM}]] &&
+    [string match "-metric SM with eQual: *use -metric MSD" [err {${A}::check_combination equal "" $ep 100 "" SM}]]}]
 check "  DIVINE with CompSim and BUB: refused for its metric (it splits by MSD: h1's N09), not as the diversity selection" [string match "-metric BUB: DIVINE splits by MSD*" [err {
     ${A}::check_combination divine 3 [dict replace [${A}::defaults divine] kinit CompSim] 100 "" BUB}]]
 check "  the diversity pick with BUB: refused; the outliers with BUB: taken" [expr {
@@ -1513,9 +1513,9 @@ check "F75: the sweep's table names each algorithm's fixed parameters (the seedi
     [regexp {\n# parameters of KMeans NANI: percentage 40\n} $tsw] && [regexp {\n# parameters of HELM: initial 12, [^\n]*merge-scheme Intra[^\n]*\n} $tsw] &&
     ![regexp {\n# parameters of [^\n]*kinit} $tsw] && [first_row [file join $G4 sc_sweep.csv]] eq "algorithm,k,k_actual,metric,seeding,calinski_harabasz,davies_bouldin,status"}]
 check "  the sweep's, the elbow scan's and the picks' tables name the backend, and when" [expr {
-    [regexp {\n# backend: cli [^\n]*fake_mdance_cli; scanned [0-9]{4}-[0-9]{2}-[0-9]{2}T[^\n]*\n} $tsw] &&
-    [regexp {\n# backend: cli [^\n]*fake_mdance_cli; scanned } [slurp [file join $G4 sc_elbow.csv]]] &&
-    [regexp {\n# backend: cli [^\n]*fake_mdance_cli; picked } [slurp [file join $G4 sc_picks.csv]]]}]
+    [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; scanned [0-9]{4}-[0-9]{2}-[0-9]{2}T[^\n]*\n} $tsw] &&
+    [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; scanned } [slurp [file join $G4 sc_elbow.csv]]] &&
+    [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; picked } [slurp [file join $G4 sc_picks.csv]]]}]
 set sf [file join $G4 sc.vmdance]
 vmdance session save $sf
 vmdance session load $sf -mol none
@@ -1524,7 +1524,7 @@ set sw $::VMDance::Results::sweep
 ${R}::set_sweep [dict remove $sw backend]
 vmdance export $G4 -prefix sc2 -items sweep
 ${R}::set_sweep $sw
-check "  a sweep saved before scans kept it: its first clustering's backend" [regexp {\n# backend: cli [^\n]*fake_mdance_cli; scanned } [slurp [file join $G4 sc2_sweep.csv]]]
+check "  a sweep saved before scans kept it: its first clustering's backend" [regexp {\n# backend: cli [^\n]*fake_mdance_cli(?:\.bat)?; scanned } [slurp [file join $G4 sc2_sweep.csv]]]
 set d [::VMDance::Session::read_file $sf]
 dict set d sweep backend "a \{b"
 write_session [file join $G4 bad.vmdance] $d
@@ -2181,10 +2181,10 @@ vmdance run clear
 
 # --- the final review: equal-msd -------------------------------------------------------------------
 set A ::VMDance::Algo
-check "equal-msd: eQUAL takes MSD only in the table, as DIVINE (the others every metric)" [expr {
+check "equal-msd: eQual takes MSD only in the table, as DIVINE (the others every metric)" [expr {
     [${A}::metrics_of equal] eq {MSD} && [${A}::metrics_of divine] eq {MSD} && [${A}::metrics_of kmeans] eq $::VMDance::Algo::metrics &&
     [${A}::metric_why equal] ne "" && [${A}::metric_why kmeans] eq ""}]
-check "  another metric refused as before, saying why" [string match "-metric SM with eQUAL: *every frame lands in one cluster; use -metric MSD" [err {
+check "  another metric refused as before, saying why" [string match "-metric SM with eQual: *every frame lands in one cluster; use -metric MSD" [err {
     ${A}::check_combination equal 0 [dict replace [${A}::defaults equal] threshold 1] 100 "" SM}]]
 set fh [open [file join $::root docs parameters.rst] r]; fconfigure $fh -encoding utf-8; set doc [read $fh]; close $fh
 check "  the parameters' page says so (made from the table)" [expr {

@@ -17,7 +17,7 @@ The algorithms
   R. A. Miranda-Quintana. Hierarchical Extended Linkage Method (HELM)'s Deep
   Dive into Hybrid Clustering Strategies. *J. Chem. Inf. Model.* **2025**,
   65, 6209–6220. https://doi.org/10.1021/acs.jcim.5c00539
-- **eQUAL** — L. Chen, M. Smith, D. R. Roe, R. A. Miranda-Quintana. Extended
+- **eQual** — L. Chen, M. Smith, D. R. Roe, R. A. Miranda-Quintana. Extended
   Quality (eQual): Radial Threshold Clustering Based on n-ary Similarity.
   *J. Chem. Inf. Model.* **2025**, 65, 5062–5070.
   https://doi.org/10.1021/acs.jcim.4c02341

@@ -548,7 +548,7 @@ proc ::VMDance::Export::table_elbow {} {
     set q [dict get $e request]
     set radius [::VMDance::Results::by_radius $e]
     set over [expr {$radius ? "radius (MDANCE's MSD, Å²) [join [dict get $q radii] { }]" : "k [join [dict get $q ks] { }]"}]
-    # (eQUAL's -threshold is the radius scanned: not an empty parameter)
+    # (eQual's -threshold is the radius scanned: not an empty parameter)
     set params [dict get $q params]
     if {$radius} { set params [dict remove $params threshold] }
     set head [scan_header "elbow scan of [::VMDance::Algo::label [dict get $q algorithm]] (metric [dict get $q metric]), $over" \

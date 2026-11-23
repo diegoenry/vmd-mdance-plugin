@@ -48,7 +48,7 @@ new CPP-MDANCE, or before a release.
       when the frame changes cluster; the Timeline's red line follows.
 - [ ] Cancel a clustering of a long trajectory (the program): the window
       answers at once, the previous clustering stays.
-- [ ] eQUAL at a small radius (thousands of clusters): the status says how
+- [ ] eQual at a small radius (thousands of clusters): the status says how
       far the measures are, the window answers, Cancel stops them; the
       Distances and Tree plots, and Export, say why there are none.
 - [ ] The library: a clustering runs (VMD is busy meanwhile, and the line at
@@ -73,7 +73,7 @@ new CPP-MDANCE, or before a release.
 - [ ] An unaligned trajectory clustered with and without *Fit to the first
       frame*: without it, frames of a drifting molecule separate by their
       position; with it, by their shape.
-- [ ] eQUAL at a radius that leaves noise: the noise frames are the ones
+- [ ] eQual at a radius that leaves noise: the noise frames are the ones
       you expect far from every cluster.
 - [ ] HELM from a label file of MDANCE's (its `labels_*.csv`), and PRIME on
       the result: the predicted frame is native-like.

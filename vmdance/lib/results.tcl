@@ -1020,12 +1020,12 @@ proc ::VMDance::Results::_inherit_map {a} {
     return $a
 }
 
-# A scan record's value: its k, or (an elbow scan of eQUAL) its radius.
+# A scan record's value: its k, or (an elbow scan of eQual) its radius.
 proc ::VMDance::Results::scan_x {r} {
     if {[dict exists $r radius]} { return [dict get $r radius] }
     dict get $r k
 }
-# Whether an elbow scan is of eQUAL's radius.
+# Whether an elbow scan is of eQual's radius.
 proc ::VMDance::Results::by_radius {e} { expr {[llength [::VMDance::_get [dict get $e request] radii {}]] > 0} }
 # The record of an elbow scan e at value x (k or radius), {} when none.
 # (x as typed or held by a file: a k a whole number, ::VMDance::whole, a
@@ -1057,7 +1057,7 @@ proc ::VMDance::Results::explained {r} {
     set f [expr {double([dict get $r ch]) * ($k - 1)}]
     expr {$f / ($n - $k + $f)}
 }
-# What an elbow scan e suggests (each a k, or a radius of an eQUAL scan;
+# What an elbow scan e suggests (each a k, or a radius of an eQual scan;
 # "" when the scan does not say):
 #   db_lowest db_second   the lowest Davies–Bouldin score, and the next
 #   db_dip db_dip2        its local minimum that bends most (the second
@@ -1395,7 +1395,7 @@ proc ::VMDance::Results::too_many {what} {
             set name "the tree of the clusters' mean structures is made"
         }
     }
-    return "$name for $maxk clusters or fewer, and this clustering has $K: cluster into fewer (a smaller k, a larger eQUAL radius)"
+    return "$name for $maxk clusters or fewer, and this clustering has $K: cluster into fewer (a smaller k, a larger eQual radius)"
 }
 
 #---------------------------------------------------------------------------

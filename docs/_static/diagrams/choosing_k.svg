@@ -55,7 +55,7 @@
 <g id="node5" class="node">
 <title>eq</title>
 <path fill="#e9f1ec" stroke="#93b39e" stroke-width="1.1" d="M464.5,-168C464.5,-168 434.5,-168 434.5,-168 428.5,-168 422.5,-162 422.5,-156 422.5,-156 422.5,-144 422.5,-144 422.5,-138 428.5,-132 434.5,-132 434.5,-132 464.5,-132 464.5,-132 470.5,-132 476.5,-138 476.5,-144 476.5,-144 476.5,-156 476.5,-156 476.5,-162 470.5,-168 464.5,-168"/>
-<text text-anchor="start" x="432.5" y="-148.5" font-family="Inter" font-weight="bold" font-size="10.00" fill="#1d2733">eQUAL</text>
+<text text-anchor="start" x="432.5" y="-148.5" font-family="Inter" font-weight="bold" font-size="10.00" fill="#1d2733">eQual</text>
 </g>
 <!-- q&#45;&gt;eq -->
 <g id="edge4" class="edge">

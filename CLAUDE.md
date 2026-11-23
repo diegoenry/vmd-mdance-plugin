@@ -4,7 +4,7 @@ A VMD Tcl/Tk plugin (package `vmdance`, command `vmdance`, namespace
 `::VMDance`) that clusters a trajectory's frames with MDANCE's
 algorithms, run by CPP-MDANCE (`../CPP-MDANCE`: `mdance-cli` and the
 `mdance_tcl` library). It replaces, rewritten from scratch, the MDANCE VMD
-plugin this repository held before (its last version: commit bf6fd41; the
+plugin this repository held before (its last version: commit 6257a8a; the
 rewrite was called MDANCEView, in its own repository ../MDANCEView, until it
 took its place on 2026-10-09; MDANCEView's sessions and preferences are
 still read), following the design of
@@ -29,14 +29,16 @@ docs/internals.rst describe it.
 - The parameters are one table (Algo::A in algorithms.tcl): the command's
   options, the window's fields, the checks and the backend's arguments are
   made from it. A parameter has mdance-cli's name. The plugin's own
-  (HELM's `initial*`) are listed in `local` and never passed on. An
+  (HELM's `initial*`) are listed in `local` and never passed on. One the
+  window does not show (`window_hides`: DIVINE's end-mode) is the
+  command's only; the window sends its default. An
   algorithm's metrics are there too (`metrics`, `metric_why`: DIVINE's and
-  eQUAL's MSD only), and the seeding a sweep sets (Algo::seeding_of: none
+  eQual's MSD only), and the seeding a sweep sets (Algo::seeding_of: none
   for HELM from a label file and DIVINE's pair anchors, run once a k).
 - Every check that can be made before the backend runs is made there, with
   the option's name and what to change (Algo::check_combination: NANI's
   seeds, HELM's starting clusters and trim, DIVINE's metric, first split,
-  smallest share and points, the diversity selection or eQUAL with
+  smallest share and points, the diversity selection or eQual with
   any index but MSD; check_starting: HELM's starting clusters as the
   backend gets them, once its first clustering is made; check_trimmed: what
   -trim-val's cut left, once HELM has run; check_value: a number the
@@ -165,6 +167,17 @@ docs/internals.rst describe it.
   overlay and the picked frames drew one frame each until 2026-11-09, and
   the tests, which compared the text, passed. A test counts what VMD draws
   (`frames_drawn` in tests/common.tcl: the scene exported), never the text.
+- VMD frees a selection's values one by one: past about 100 000 single
+  values (a range "a to b" is one) its stack overflows and VMD crashes
+  deleting the selection, or adding it as a representation (VMD 2.0 on
+  Windows, a 2 MB stack: between 100 000 and 120 000; Linux: about
+  700 000). Making it works, so the crash comes later, in `free`.
+  Every text handed to VMD goes through Mol::vmd_text (Mol::sel, Viz::_add):
+  a long one has its lists of whole numbers after index, serial and residue
+  written as ranges (Mol::compact; "all or index 0 0 …" is "all or index 0"),
+  the plugin's own index list still too long is named ("name CA and index
+  4 to 99990", where that selects exactly its atoms now), else it is
+  refused. drawframes takes ranges too (b:e, b:s:e: Viz::_drawframes).
 - Widget names cannot start with a capital letter (`$f.MSD`): prefix them.
 - Coordinates moved in place change no molecule attribute: the kept rows
   carry every frame's fingerprint (Coords::_print: centre, radius of
@@ -293,7 +306,7 @@ docs/internals.rst describe it.
   is fixed at its start, and the package is loaded once
   (::VMDance::loaded).
 - MDANCE's MSD of two frames is half their RMSD² (the mean over the pairs,
-  self-pairs included): the backend's "msd", eQUAL's radius and the
+  self-pairs included): the backend's "msd", eQual's radius and the
   similarity ceiling are MDANCE's; the plugin's own measures are RMSD².
 - NANI's seedings by extended similarity (StratAll, StratReduced, CompSim,
   DivSelect) draw k seeds from floor(n × percentage / 100) frames:
@@ -389,7 +402,7 @@ docs/internals.rst describe it.
 - The backend's placeholders are not numbers: an empty cluster's MSD and
   iSIM are 0 (the tightest), every cluster a frame alone gives CH 1 and DB
   0 (the best of a sweep; scikit-learn refuses k = n), and its HELM scores
-  the trimmed frames (-1) as a cluster of its own, where its eQUAL and
+  the trimmed frames (-1) as a cluster of its own, where its eQual and
   MDANCE leave noise out. Job::output blanks them (_scored), HELM's clustered
   frames are scored by the plugin (Job::_clustered_scores, Measure::scores:
   a scan's every k together, in two passes; a pass per k made a HELM elbow
@@ -423,12 +436,12 @@ docs/internals.rst describe it.
   a stored one (sessions: `stored`) is kept. It reads `-eps -0.99999999` as
   -1, a diversity pick's `-param` below 1 as a share (0.5: half the frames)
   and makes HELM's `-min-samples` a C int (3e9 overflows).
-- CPP-MDANCE's diversity selection (CompSim, DivSelect, eQUAL's comp_sim,
+- CPP-MDANCE's diversity selection (CompSim, DivSelect, eQual's comp_sim,
   the diversity pick) starts from -1 and reads past its data when no
   frame's 1 − index is above it: with any index but MSD, on coordinates
   (`mdance-cli` crashed; every frame in one cluster, published as k).
-  eQUAL's radius by such an index holds every frame (1 − index below 0):
-  one cluster whatever the seeds, so eQUAL takes MSD only. A
+  eQual's radius by such an index holds every frame (1 − index below 0):
+  one cluster whatever the seeds, so eQual takes MSD only. A
   representative sample's share is one frame at least (the outliers' may
   be none).
 - Non-finite coordinates: VMD reads "nan" in a PDB's coordinate as NaN;
@@ -487,7 +500,7 @@ docs/internals.rst describe it.
   and says how far it is; the window shows the progress message its 250 ms
   throttle held back when they are up (else the last line stays up).
 - A list of doubles costs ~235 bytes a value in Tcl, kept until VMD quits:
-  k × k values for the thousands of clusters eQUAL makes at a small radius
+  k × k values for the thousands of clusters eQual makes at a small radius
   took gigabytes. The distances between clusters and their average-linkage
   tree are made for Measure::maxk (300) clusters or fewer (none above, in
   a result too: a session made before has them, left out before they are
@@ -625,7 +638,7 @@ the backend was built with (h1), the MDANCE plugin's sessions imported
 Merged, then the final review's fixes (test_hardening2's and test_gui's
 last checks): a session whose scan has a record with an empty cluster
 opens again, the library's refusal of DIVINE's CompSim splits is a scan's
-*not run*, eQUAL's MSD only is the table's (the window, the request and the
+*not run*, eQual's MSD only is the table's (the window, the request and the
 parameters page follow), the 3D figure alone takes back the folders it
 made, Setup follows a run or a session a script opens right after a job of
 the command's, a sweep runs HELM from a label file and DIVINE's pair
@@ -642,7 +655,7 @@ from ≤ 500 frames, all projected; checked against numpy), the profiles
 (`profiles`: each group's and cluster's RMSF, each cluster's mean structure
 against the largest's), all kept with the run (Results `extras`) and in
 sessions; the elbow's stability (`-stability`: the mean pairwise ARI of
-NANI's four deterministic seedings), eQUAL's elbow by radius (`-radii`),
+NANI's four deterministic seedings), eQual's elbow by radius (`-radii`),
 HELM's merges' heights (`measures merge_msd`; the Tree's heights view),
 figures' `-text`. Three plots (Make-up, Map, Profiles: plots_groups.tcl),
 and the Results page's "Groups, map and profiles". Kept by
@@ -661,7 +674,7 @@ highest; the values the seedings agree on) and the variance explained
 (`Results::explained`, from CH); the groups by blocks and how unlike they
 are (`groups -blocks`, `groups compare`: the Jensen–Shannon divergence);
 the clusters numbered by size as a new run (`renumber`); a range for
-eQUAL's radius from the frames (`radii`); the plots' time per frame and
+eQual's radius from the frames (`radii`); the plots' time per frame and
 distances as lengths (`plot_time`, `plot_len`); figures sized for a column
 or a slide, in mm (`figures -size`, `-width 85mm`); structures as the
 models of a PDB; a cancelled elbow scan's values kept (`Job::partial`);

@@ -11,7 +11,7 @@
 #   cd <VMDance>; MDANCE_CLI=../CPP-MDANCE/build/cli/mdance-cli TMPDIR=/tmp \
 #     vmd -dispdev text -e tests/fixtures/make_old_sessions.tcl < /dev/null
 # (MDANCE_PLUGIN: the old plugin's mdance.tcl, which is in this repository's
-# history: `git worktree add ../mdance-old bf6fd41` puts it where it is
+# history: `git worktree add ../mdance-old 6257a8a` puts it where it is
 # looked for otherwise, ../mdance-old/mdance/mdance.tcl.)
 # With MDANCE_CLI_OLD, an mdance-cli built from CPP-MDANCE before 4042c24
 # (ed2a076, the one the plugin was made with), old_helm_eps.mdance too: HELM

@@ -380,15 +380,19 @@ proc ::VMDance::GUI::min_size {} {
 # 12 pt with the text's, never narrower than its panels and the toolbar
 # need nor shorter than the smallest; medium (a new user's) and large,
 # tall enough for every left page too, so that none scrolls where the
-# screen has room; compact is the small one. As far as the screen has
-# room.
+# screen has room; compact is the small one. Medium and large are wider
+# than compact by as much as their sizes are, beyond the width the panels
+# need too: where that is above their sizes (a large text, a wide
+# toolbar), all three were that width and only their heights differed.
+# As far as the screen has room.
 proc ::VMDance::GUI::window_size {key} {
     variable window_sizes
     lassign [dict get $window_sizes $key] pw ph
+    set cw [lindex [dict get $window_sizes compact] 0]
     set s [expr {$::VMDance::Fonts::size / 12.0}]
     lassign [needed_size] nw nh
     lassign [min_size] mw mh
-    set W [expr {max(round($pw * $s), $nw)}]
+    set W [expr {max(round($pw * $s), $nw + round(($pw - $cw) * $s))}]
     set H [expr {max(round($ph * $s), $mh)}]
     if {$key ne "compact"} { set H [expr {max($H, $nh)}] }
     _fit_screen $W $H
@@ -683,7 +687,7 @@ proc ::VMDance::GUI::_build_toolbar {} {
     _tb_button $f figure figure  Figures "Create figures… ($k+P)\nPDF, PNG or EPS of the plots" {::VMDance::GUI::act figures}
     _tb_sep $f s2
     _tb_button $f cluster cluster Cluster "Cluster ($k+R)\nwith the algorithm and parameters of Setup, in the background (with the library, VMD waits until it ends)" {::VMDance::GUI::act cluster}
-    _tb_button $f elbow   elbow   Elbow   "Elbow scan\nthe same clustering at every k of Scans ▸ Elbow (eQUAL: at every radius)" {::VMDance::GUI::act elbow}
+    _tb_button $f elbow   elbow   Elbow   "Elbow scan\nthe same clustering at every k of Scans ▸ Elbow (eQual: at every radius)" {::VMDance::GUI::act elbow}
     _tb_button $f cancel  cancel  Cancel  "Cancel the running job (what was there is kept)" {::VMDance::GUI::act cancel}
     $f.cancel state disabled
     canvas $f.prog -width 22 -height 22 -highlightthickness 0 -borderwidth 0
@@ -1233,7 +1237,8 @@ proc ::VMDance::GUI::_build_params {B a} {
     _row $f $r "Metric" $mf "The distance or similarity between frames: the mean square deviation (MSD) for Cartesian coordinates.\nThe other indices are for binary or fingerprint data (Settings ▸ Unlock the metrics)."
     set ::VMDance::GUI::metric_rows($a) $mf
     incr r
-    foreach p [::VMDance::Algo::params $a] {
+    # (a parameter the window hides is the command's only: Algo::window_hides)
+    foreach p [::VMDance::Algo::window_params $a] {
         lassign $p name type def lim label tip
         set var ${V}(p_${a}_$name)
         set wd $f.p[string map {- _} $name]
@@ -1294,7 +1299,7 @@ proc ::VMDance::GUI::_browse_labels {var} {
 # The fields that do not apply are greyed: HELM's trim values without
 # Trim first, its first clustering with a label file, DIVINE's seeding
 # with anchors other than NANI and its Refine with NANI (a NANI split is a
-# k-means already), eQUAL's values of the options that are off.
+# k-means already), eQual's values of the options that are off.
 # When a parameter's field is live (greyed out otherwise: the others' values
 # make it mean nothing).
 variable ::VMDance::GUI::param_rules {
@@ -1339,9 +1344,9 @@ proc ::VMDance::GUI::_algorithm_changed {} {
     $parambox\_title configure -text "[::VMDance::Algo::label $a] parameters"
     catch {$page(setup).alg.about configure -text [string totitle [::VMDance::Algo::get $a about] 0 0]}
     # (off while a job runs, as _busy left it: the algorithm can be chosen
-    # meanwhile; eQUAL is scanned by radius)
+    # meanwhile; eQual is scanned by radius)
     catch {$w.tb.elbow state [expr {[busy] ? "disabled" : "!disabled"}]}
-    # (the scan's box: the k of the algorithms that take one, eQUAL's
+    # (the scan's box: the k of the algorithms that take one, eQual's
     # radii; the stability is of K-means NANI's seedings)
     if {[info exists page(scans)] && [winfo exists $page(scans).eb.r]} {
         if {$a eq "equal"} {
@@ -1789,7 +1794,7 @@ proc ::VMDance::GUI::_build_scans {P} {
     pack $r.l $r.a $r.t $r.b $r.e $r.c -side left -padx {0 4}
     grid $r -row 0 -column 0 -sticky w
     set q [ttk::frame $E.q]
-    ttk::label $q.l -text "eQUAL: radius from"
+    ttk::label $q.l -text "eQual: radius from"
     ttk::entry $q.a -width 5 -textvariable ${V}(eb_rfrom)
     ttk::label $q.t -text "to"
     ttk::entry $q.b -width 5 -textvariable ${V}(eb_rto)
@@ -1798,9 +1803,9 @@ proc ::VMDance::GUI::_build_scans {P} {
     ttk::button $q.s -text "Suggest" -command {::VMDance::GUI::act radii}
     pack $q.l $q.a $q.t $q.b $q.e $q.c $q.s -side left -padx {0 4}
     grid $q -row 1 -column 0 -sticky w -pady {4 0}
-    ::VMDance::Tip::add $q.l "eQUAL is given no k: with eQUAL in Setup, the scan runs it at these radii (MDANCE's MSD, Å²)"
+    ::VMDance::Tip::add $q.l "eQual is given no k: with eQual in Setup, the scan runs it at these radii (MDANCE's MSD, Å²)"
     ::VMDance::Tip::add $q.s "A range of radii from the frames themselves: the distances between 150 or so of them, from the 2% nearest pairs to the median (Setup's atoms and frames)"
-    ttk::label $E.note -text "The algorithm and parameters of Setup, at every k (eQUAL: at every radius). Elbow plot: hover a value for the clusters' shares; double-click to make it the clustering." \
+    ttk::label $E.note -text "The algorithm and parameters of Setup, at every k (eQual: at every radius). Elbow plot: hover a value for the clusters' shares; double-click to make it the clustering." \
         -style Muted.TLabel -wraplength 280 -justify left
     grid $E.note -row 2 -column 0 -sticky w -pady {2 0}
     ttk::checkbutton $E.st -text "Stability: compare NANI's four seedings at each k" -variable ${V}(eb_stab)
@@ -2398,11 +2403,17 @@ proc ::VMDance::GUI::_mol_chosen {} {
 
 # The parameters of algorithm a from the Setup fields.
 # (a greyed-out field is not sent: a switch as off, a value left to its
-# default; DIVINE's Refine, greyed with NANI's anchors, off)
+# default; DIVINE's Refine, greyed with NANI's anchors, off; a parameter the
+# window hides, its default: DIVINE's end-mode k, whatever a run Setup
+# follows was made with)
 proc ::VMDance::GUI::_params_of {a} {
     variable S
     set out {}
     foreach n [::VMDance::Algo::param_names $a] {
+        if {[::VMDance::Algo::window_hides $a $n]} {
+            dict set out $n [lindex [::VMDance::Algo::param $a $n] 2]
+            continue
+        }
         if {![_param_on $a $n]} {
             if {[lindex [::VMDance::Algo::param $a $n] 1] eq "bool"} { dict set out $n 0 }
             continue
@@ -2433,7 +2444,7 @@ proc ::VMDance::GUI::request {} {
     set k ""
     if {[::VMDance::Algo::takes_k $a]} { set k [string trim $S(k_$a)] }
     dict set req k $k
-    # (the metric unlocked for the others: DIVINE's and eQUAL's is MSD)
+    # (the metric unlocked for the others: DIVINE's and eQual's is MSD)
     set metric $S(metric)
     if {$metric ni [::VMDance::Algo::metrics_of $a]} { set metric [lindex [::VMDance::Algo::metrics_of $a] 0] }
     dict set req metric $metric
@@ -2514,18 +2525,18 @@ proc ::VMDance::GUI::elbow {} {
         }}]
 }
 
-# eQUAL's radii of Scans ▸ Elbow: from, to, every (numbers above 0; 200
+# eQual's radii of Scans ▸ Elbow: from, to, every (numbers above 0; 200
 # values at most).
 proc ::VMDance::GUI::_radii {} {
     variable S
     foreach k {eb_rfrom eb_rto eb_rby} {
         set v [string trim $S($k)]
-        if {![string is double -strict $v] || [regexp -nocase {nan|inf} $v] || $v <= 0} { error "eQUAL's radii: from, to and every are numbers above 0 (got \"$v\")" }
+        if {![string is double -strict $v] || [regexp -nocase {nan|inf} $v] || $v <= 0} { error "eQual's radii: from, to and every are numbers above 0 (got \"$v\")" }
         set $k $v
     }
-    if {$eb_rto < $eb_rfrom} { error "eQUAL's radii: \"to\" is below \"from\"" }
+    if {$eb_rto < $eb_rfrom} { error "eQual's radii: \"to\" is below \"from\"" }
     set n [expr {int(floor(($eb_rto - $eb_rfrom) / $eb_rby + 1e-9)) + 1}]
-    if {$n > 200} { error "eQUAL's radii: $n values; at most 200" }
+    if {$n > 200} { error "eQual's radii: $n values; at most 200" }
     set out {}
     for {set i 0} {$i < $n} {incr i} { lappend out [format %.6g [expr {$eb_rfrom + $i * $eb_rby}]] }
     return $out
@@ -2665,7 +2676,7 @@ proc ::VMDance::GUI::_ref_chosen {cb} {
     set v [$cb get]
     set S(pf_reference) [expr {[regexp {^cluster ([0-9]+)$} $v -> c] ? $c : -1}]
 }
-# Under eQUAL's Radius: the RMSD it stands for (the radius is MDANCE's
+# Under eQual's Radius: the RMSD it stands for (the radius is MDANCE's
 # MSD, half the RMSD² of two frames).
 proc ::VMDance::GUI::_eq_note {args} {
     variable S
@@ -2676,7 +2687,7 @@ proc ::VMDance::GUI::_eq_note {args} {
         set S(eq_note) "No radius yet. It is MDANCE's MSD (Å²): half the RMSD² of two frames."
     }
 }
-# A radius for eQUAL, and a range of them for the scan, from the distances
+# A radius for eQual, and a range of them for the scan, from the distances
 # between a sample of Setup's frames (vmdance radii).
 proc ::VMDance::GUI::radii {} {
     variable S
@@ -2688,7 +2699,10 @@ proc ::VMDance::GUI::radii {} {
         set pc [dict get $r percentiles]
         set S(eb_rfrom) [dict get $r from]; set S(eb_rto) [dict get $r to]; set S(eb_rby) [dict get $r by]
         set said ""
-        if {[string trim $S(p_equal_threshold)] eq ""} {
+        # (Setup's Radius replaced while it holds no radius of the user's:
+        # none, or the default, 2)
+        set r0 [string trim $S(p_equal_threshold)]
+        if {$r0 eq "" || $r0 eq [lindex [::VMDance::Algo::param equal threshold] 2]} {
             set S(p_equal_threshold) [dict get $pc 10]
             set said " Setup's Radius: [dict get $pc 10] (a tenth of the pairs)."
         }
@@ -2714,7 +2728,7 @@ proc ::VMDance::GUI::_fields {msg} {
     # (the algorithms' parameters by their labels in Setup, the algorithm's of now first)
     set cur [set ::VMDance::GUI::S(algorithm)]
     foreach a [concat [list $cur] [::VMDance::Algo::all]] {
-        foreach p [::VMDance::Algo::params $a] {
+        foreach p [::VMDance::Algo::window_params $a] {
             if {![dict exists $names -[lindex $p 0]]} { dict set names -[lindex $p 0] "\"[lindex $p 4]\"" }
         }
     }
@@ -3887,7 +3901,7 @@ proc ::VMDance::GUI::help {} {
     $d.t tag configure code -font {Courier 11}
     foreach {tag txt} {
         h "What it does\n"
-        {} "VMDance clusters the frames of a trajectory with MDANCE's algorithms (KMeans NANI, DIVINE, HELM, eQUAL, run by CPP-MDANCE), and shows the clusters: how many frames each holds, when the trajectory visits it, how it moves between them, how tight and how far apart they are, their representative structures. PRIME predicts the native-like frame; the extended similarity (iSIM) measures each cluster; frames can be picked without clustering.\n"
+        {} "VMDance clusters the frames of a trajectory with MDANCE's algorithms (KMeans NANI, DIVINE, HELM, eQual, run by CPP-MDANCE), and shows the clusters: how many frames each holds, when the trajectory visits it, how it moves between them, how tight and how far apart they are, their representative structures. PRIME predicts the native-like frame; the extended similarity (iSIM) measures each cluster; frames can be picked without clustering.\n"
         h "First\n"
         {} "Load a trajectory in VMD (a structure, then its frames). The molecule appears in Setup with its atoms and frames.\n"
         h "Cluster\n"
@@ -3897,7 +3911,7 @@ proc ::VMDance::GUI::help {} {
         h "Plots\n"
         {} "Populations: frames per cluster. Make-up: each cluster's frames by group. Timeline: where the trajectory is, frame by frame, or each cluster's share along it. Transitions: from one cluster to the next. Residence: how long the trajectory stays. Compactness: how tight each cluster is. Distances: between the clusters. Tree: how they join (HELM's merges, or average linkage). Silhouette: how well each frame sits in its cluster. Map: the frames on their two main directions of motion. Profiles: residue by residue, what moves and what differs. Elbow and Sweep: the scans' scores. A tab says its name when the pointer rests on it. The Plot options panel (toolbar, right) holds every setting of a plot: the time between two frames (the axes then read in ns), distances in Å or Å².\n"
         h "How many clusters\n"
-        {} "Scans ▸ Elbow clusters at every k of a range with the Setup's algorithm (eQUAL: at every radius; Suggest proposes them). The Elbow plot rings where the scores point: Davies–Bouldin's lowest value and its sharpest dip (MDANCE's two criteria), Calinski–Harabasz's highest. With Stability, each k is clustered from four seedings: a k whose clusters they agree on (near 1) is reproducible. The criteria need not agree: the Map shows whether the frames gather in groups at all. Double-click a k to make it the clustering. Scans ▸ Sweep runs every combination of algorithms, k, metrics and seedings.\n"
+        {} "Scans ▸ Elbow clusters at every k of a range with the Setup's algorithm (eQual: at every radius; Suggest proposes them). The Elbow plot rings where the scores point: Davies–Bouldin's lowest value and its sharpest dip (MDANCE's two criteria), Calinski–Harabasz's highest. With Stability, each k is clustered from four seedings: a k whose clusters they agree on (near 1) is reproducible. The criteria need not agree: the Map shows whether the frames gather in groups at all. Double-click a k to make it the clustering. Scans ▸ Sweep runs every combination of algorithms, k, metrics and seedings.\n"
         h "Compare parts of the frames\n"
         {} "Results ▸ Groups: say where the frames came from — Halves, Blocks, or names and frames typed (first 0-2999 second 3000-6000), for replicas, conditions or methods. Make-up then shows each cluster's frames by group, and the line under the box how unlike the groups are; Map and Profiles colour by them.\n"
         h "Tools\n"
@@ -3931,7 +3945,7 @@ proc ::VMDance::GUI::references {} {
         {} "k-means NANI: J. Chem. Theory Comput. (2024), doi:10.1021/acs.jctc.4c00308.\nStratified NANI: J. Chem. Inf. Model. (2025), doi:10.1021/acs.jcim.5c02741.\n"
         h "HELM\n"
         {} "J. Chem. Inf. Model. (2025), doi:10.1021/acs.jcim.5c00539.\n"
-        h "DIVINE, eQUAL, PRIME, iSIM\n"
+        h "DIVINE, eQual, PRIME, iSIM\n"
         {} "See MDANCE's documentation (https://mdance.readthedocs.io) for the references of these methods.\n"
         h "VMD\n"
         {} "Humphrey W, Dalke A, Schulten K. VMD: visual molecular dynamics. J. Mol. Graph. 14:33–38 (1996).\n"
@@ -3947,7 +3961,7 @@ proc ::VMDance::GUI::about {} {
     set b [::VMDance::Backend::status]
     set bk [expr {[dict get $b error] eq "" ? "[lindex [dict get $b using] 0] [lindex [dict get $b using] 1]" : "none found"}]
     tk_messageBox -parent $w -title "About VMDance" -icon info -message "VMDance $::VMDance::version" \
-        -detail "MDANCE clustering of a trajectory, in VMD: KMeans NANI, DIVINE, HELM and eQUAL; PRIME, extended similarity, frame picks; scans of k and parameters.\n\nThe algorithms are MDANCE's, run by CPP-MDANCE (backend: $bk).\n\nTcl [info patchlevel], VMD [vmdinfo version]."
+        -detail "MDANCE clustering of a trajectory, in VMD: KMeans NANI, DIVINE, HELM and eQual; PRIME, extended similarity, frame picks; scans of k and parameters.\n\nThe algorithms are MDANCE's, run by CPP-MDANCE (backend: $bk).\n\nTcl [info patchlevel], VMD [vmdinfo version]."
 }
 
 #---------------------------------------------------------------------------

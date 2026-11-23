@@ -262,7 +262,7 @@ proc ::VMDance::Session::check_scan {s kind} {
             }
         }
         if {$kind eq "elbow" && [llength [::VMDance::_get [dict get $s request] radii {}]]} {
-            # (an elbow scan of eQUAL: a radius, no k)
+            # (an elbow scan of eQual: a radius, no k)
             if {![dict exists $r radius] || [catch {::VMDance::Results::_numlist "the radius" [list [dict get $r radius]] 1}] ||
                 [dict get $r radius] eq "" || [dict get $r k] ne ""} { error "the $kind's record $i has no radius" }
         } elseif {($kind eq "elbow" || [dict get $r status] eq "ok") && ![regexp {^[1-9][0-9]{0,5}$} [dict get $r k]]} { error "the $kind's record $i has no k" }

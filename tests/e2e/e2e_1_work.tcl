@@ -1,7 +1,7 @@
 # End to end, phase 1 of 4 (text mode, the real backend): a session of
 # work with the command on the heptapeptide (6001 frames) and 3ptb (a
 # range, a step and a fit): elbow scan with the seedings' stability, a k
-# of it made the clustering, HELM and its merges' heights, eQUAL and its
+# of it made the clustering, HELM and its merges' heights, eQual and its
 # scan by radius, DIVINE, PRIME, the similarity, picks, a sweep, the
 # selection, 3D, the user field, the frames' groups, the make-up, the map
 # and the profiles; every export checked against the command's answers and
@@ -176,9 +176,9 @@ for {set c 0} {$c < 5} {incr c} {
     mol delete $mt
 }
 check "  PDB trajectories of the protein: each cluster's VMD frames, not fitted" $ok
-timed "eQUAL on 3ptb Cα (radius 1.5)" { vmdance -mol $mp -sel "name CA" -algorithm equal -threshold 1.5 -quiet 1 }
-check "  eQUAL: clusters and noise add up to the frames" [expr {[::tcl::mathop::+ {*}[${R}::sizes]] + [${R}::noise] == 100}]
-set rr [timed "eQUAL's scan by radius (0.8, 1, 1.5, 2)" { vmdance elbow -mol $mp -sel "name CA" -algorithm equal -radii {0.8 1 1.5 2} -quiet 1 }]
+timed "eQual on 3ptb Cα (radius 1.5)" { vmdance -mol $mp -sel "name CA" -algorithm equal -threshold 1.5 -quiet 1 }
+check "  eQual: clusters and noise add up to the frames" [expr {[::tcl::mathop::+ {*}[${R}::sizes]] + [${R}::noise] == 100}]
+set rr [timed "eQual's scan by radius (0.8, 1, 1.5, 2)" { vmdance elbow -mol $mp -sel "name CA" -algorithm equal -radii {0.8 1 1.5 2} -quiet 1 }]
 check "  its scan by radius: every radius clustered, as many clusters as the radius alone gives" [expr {[llength $rr] == 4 &&
     [lsort -unique [lmap r $rr {dict get $r status}]] eq "ok" && [dict get [lindex $rr 2] nclusters] == [${R}::nclusters]}]
 

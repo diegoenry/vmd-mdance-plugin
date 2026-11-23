@@ -339,7 +339,7 @@ namespace eval ::VMDance::GUI {
 proc ::VMDance::GUI::status {msg} { variable S; set S(status) $msg }
 proc ::VMDance::GUI::busy {} { return 0 }
 proc ::VMDance::GUI::_error {msg {parent ""}} { tk_messageBox -message $msg }
-source [file join $::root vmdance lib gui_io.tcl]
+source -encoding utf-8 [file join $::root vmdance lib gui_io.tcl]
 set G ::VMDance::GUI
 set pd [file join $H picks]
 file mkdir $pd

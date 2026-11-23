@@ -17,7 +17,7 @@ namespace eval ::VMDance::GUI {
         populations {
             {combo po_show "Show" {count "Frames" percent "Share of the frames"}}
             {combo po_sort "Order" {cluster "Cluster" size "Size, largest first"}}
-            {check po_noise "Noise (eQUAL's frames outside every cluster)"}
+            {check po_noise "Noise (eQual's frames outside every cluster)"}
         }
         makeup {
             {combo mu_view "Bars" {clusters "Clusters by group" groups "Groups by cluster"}}

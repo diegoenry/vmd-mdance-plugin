@@ -115,7 +115,194 @@ proc ::VMDance::Coords::_open {m atoms fitatoms f0} {
     if {$fs ne ""} { set wf [_weights [$fs num]] }
     list $s $fs $ref [_weights [$s num]] $wf $r0
 }
-proc ::VMDance::Coords::_close {h} { ::VMDance::Mol::free {*}[lrange $h 0 2] [lindex $h 5] }
+proc ::VMDance::Coords::_close {h} {
+    variable fitref
+    array unset fitref [lindex $h 2]
+    ::VMDance::Mol::free {*}[lrange $h 0 2] [lindex $h 5]
+}
+
+# The fit, computed here: the rotation and translation that superpose
+# moving coordinates on the reference's with the least RMSD (every atom
+# weighing the same), by Horn's quaternion — the eigenvector of the largest
+# eigenvalue λ of a symmetric 4×4 matrix K. λ is found by Newton's method on
+# K's characteristic polynomial from above (Theobald's QCP: (Gx + Gy) / 2
+# bounds it), its eigenvector from the adjugate of K − λ; where λ is nearly
+# a double root (atoms in a line, symmetric ones) by Jacobi rotations. Both
+# to the last digit. VMD's `measure fit` stops after 1000 iterations of its
+# own, says "Matrix: Warning: no convergence", and returns a rotation that
+# is not always the best: up to 11% above the least RMSD on the tests'
+# fixtures (0.19 Å where 0.17 can be had; on MDANCE's tau peptide within
+# 1e-4 Å).
+#
+# The reference once: its rows centred, its centre, the sum of their
+# squares, and the centred rows as one flat list ({Yc c Gy flat}).
+proc ::VMDance::Coords::fit_ref {Y} {
+    set n [llength $Y]
+    set cx 0.0; set cy 0.0; set cz 0.0
+    foreach {a b c} [concat {*}$Y] { set cx [expr {$cx + $a}]; set cy [expr {$cy + $b}]; set cz [expr {$cz + $c}] }
+    set cx [expr {$cx / $n}]; set cy [expr {$cy / $n}]; set cz [expr {$cz / $n}]
+    set Yc {}; set flat {}; set g 0.0
+    foreach {a b c} [concat {*}$Y] {
+        set d [expr {$a - $cx}]; set e [expr {$b - $cy}]; set f [expr {$c - $cz}]
+        lappend Yc [list $d $e $f]
+        lappend flat $d $e $f
+        set g [expr {$g + $d * $d + $e * $e + $f * $f}]
+    }
+    list $Yc [list $cx $cy $cz] $g $flat
+}
+# The 4×4 matrix (VMD's form, for vectrans and coordtrans) that moves the
+# rows X onto the reference (fit_ref's), as `measure fit` returns it.
+proc ::VMDance::Coords::fit_matrix {X ref} {
+    lassign $ref - yc gy Yf
+    set n [llength $X]
+    set sx 0.0; set sy 0.0; set sz 0.0; set gx 0.0
+    set xx 0.0; set xy 0.0; set xz 0.0; set yx 0.0; set yy 0.0; set yz 0.0; set zx 0.0; set zy 0.0; set zz 0.0
+    # (the reference centred: the sums of X times it are those of X centred)
+    foreach {a b c} [concat {*}$X] {d e f} $Yf {
+        set sx [expr {$sx + $a}]; set sy [expr {$sy + $b}]; set sz [expr {$sz + $c}]
+        set gx [expr {$gx + $a * $a + $b * $b + $c * $c}]
+        set xx [expr {$xx + $a * $d}]; set xy [expr {$xy + $a * $e}]; set xz [expr {$xz + $a * $f}]
+        set yx [expr {$yx + $b * $d}]; set yy [expr {$yy + $b * $e}]; set yz [expr {$yz + $b * $f}]
+        set zx [expr {$zx + $c * $d}]; set zy [expr {$zy + $c * $e}]; set zz [expr {$zz + $c * $f}]
+    }
+    set mx [expr {$sx / $n}]; set my [expr {$sy / $n}]; set mz [expr {$sz / $n}]
+    set gx [expr {max(0.0, $gx - $n * ($mx * $mx + $my * $my + $mz * $mz))}]
+    set K [list \
+        [list [expr {$xx + $yy + $zz}] [expr {$yz - $zy}] [expr {$zx - $xz}] [expr {$xy - $yx}]] \
+        [list [expr {$yz - $zy}] [expr {$xx - $yy - $zz}] [expr {$xy + $yx}] [expr {$zx + $xz}]] \
+        [list [expr {$zx - $xz}] [expr {$xy + $yx}] [expr {-$xx + $yy - $zz}] [expr {$yz + $zy}]] \
+        [list [expr {$xy - $yx}] [expr {$zx + $xz}] [expr {$yz + $zy}] [expr {-$xx - $yy + $zz}]]]
+    set q [_qcp $K [expr {$gx + $gy}]]
+    if {$q eq ""} { set q [_eigmax4 $K] }
+    lassign $q q0 q1 q2 q3
+    set r00 [expr {$q0*$q0 + $q1*$q1 - $q2*$q2 - $q3*$q3}]
+    set r01 [expr {2.0 * ($q1*$q2 - $q0*$q3)}]
+    set r02 [expr {2.0 * ($q1*$q3 + $q0*$q2)}]
+    set r10 [expr {2.0 * ($q2*$q1 + $q0*$q3)}]
+    set r11 [expr {$q0*$q0 - $q1*$q1 + $q2*$q2 - $q3*$q3}]
+    set r12 [expr {2.0 * ($q2*$q3 - $q0*$q1)}]
+    set r20 [expr {2.0 * ($q3*$q1 - $q0*$q2)}]
+    set r21 [expr {2.0 * ($q3*$q2 + $q0*$q1)}]
+    set r22 [expr {$q0*$q0 - $q1*$q1 - $q2*$q2 + $q3*$q3}]
+    # (the moving centre onto the reference's)
+    lassign $yc cx cy cz
+    list [list $r00 $r01 $r02 [expr {$cx - ($r00*$mx + $r01*$my + $r02*$mz)}]] \
+         [list $r10 $r11 $r12 [expr {$cy - ($r10*$mx + $r11*$my + $r12*$mz)}]] \
+         [list $r20 $r21 $r22 [expr {$cz - ($r20*$mx + $r21*$my + $r22*$mz)}]] \
+         {0.0 0.0 0.0 1.0}
+}
+# The unit eigenvector of the largest eigenvalue of Horn's K (traceless,
+# symmetric), g = Gx + Gy bounding twice that eigenvalue: Newton's method
+# on det(K − λ) = λ⁴ − tr(K²)/2 λ² − tr(K³)/3 λ + det K, from g / 2, where
+# the polynomial rises to its largest root; then a column of the adjugate
+# of K − λ, the one of the largest diagonal (the adjugate is a multiple of
+# q qᵀ: a turn near 180° makes q0 small). "" where λ is nearly a double
+# root, or Newton does not settle: the caller uses Jacobi.
+proc ::VMDance::Coords::_qcp {K g} {
+    if {$g <= 0.0} { return {1.0 0.0 0.0 0.0} }
+    lassign $K r0 r1 r2 r3
+    lassign $r0 k00 k01 k02 k03
+    lassign $r1 - k11 k12 k13
+    lassign $r2 - - k22 k23
+    set k33 [lindex $r3 3]
+    # tr(K²), tr(K³) (K² first) and det K
+    set p2 [expr {$k00*$k00 + $k11*$k11 + $k22*$k22 + $k33*$k33 + 2.0 * ($k01*$k01 + $k02*$k02 + $k03*$k03 + $k12*$k12 + $k13*$k13 + $k23*$k23)}]
+    set m00 [expr {$k00*$k00 + $k01*$k01 + $k02*$k02 + $k03*$k03}]
+    set m11 [expr {$k01*$k01 + $k11*$k11 + $k12*$k12 + $k13*$k13}]
+    set m22 [expr {$k02*$k02 + $k12*$k12 + $k22*$k22 + $k23*$k23}]
+    set m33 [expr {$k03*$k03 + $k13*$k13 + $k23*$k23 + $k33*$k33}]
+    set m01 [expr {$k00*$k01 + $k01*$k11 + $k02*$k12 + $k03*$k13}]
+    set m02 [expr {$k00*$k02 + $k01*$k12 + $k02*$k22 + $k03*$k23}]
+    set m03 [expr {$k00*$k03 + $k01*$k13 + $k02*$k23 + $k03*$k33}]
+    set m12 [expr {$k01*$k02 + $k11*$k12 + $k12*$k22 + $k13*$k23}]
+    set m13 [expr {$k01*$k03 + $k11*$k13 + $k12*$k23 + $k13*$k33}]
+    set m23 [expr {$k02*$k03 + $k12*$k13 + $k22*$k23 + $k23*$k33}]
+    set p3 [expr {$m00*$k00 + $m11*$k11 + $m22*$k22 + $m33*$k33 + 2.0 * ($m01*$k01 + $m02*$k02 + $m03*$k03 + $m12*$k12 + $m13*$k13 + $m23*$k23)}]
+    set det [expr {$k00 * [_det3 $k11 $k12 $k13 $k12 $k22 $k23 $k13 $k23 $k33]
+        - $k01 * [_det3 $k01 $k12 $k13 $k02 $k22 $k23 $k03 $k23 $k33]
+        + $k02 * [_det3 $k01 $k11 $k13 $k02 $k12 $k23 $k03 $k13 $k33]
+        - $k03 * [_det3 $k01 $k11 $k12 $k02 $k12 $k22 $k03 $k13 $k23]}]
+    set c2 [expr {-$p2 / 2.0}]; set c1 [expr {-$p3 / 3.0}]
+    set l [expr {$g / 2.0}]
+    set done 0
+    for {set i 0} {$i < 60} {incr i} {
+        set p [expr {(($l * $l + $c2) * $l + $c1) * $l + $det}]
+        set dp [expr {(4.0 * $l * $l + 2.0 * $c2) * $l + $c1}]
+        if {$dp == 0.0} break
+        set d [expr {$p / $dp}]
+        set l [expr {$l - $d}]
+        if {abs($d) <= 1e-14 * $g} { set done 1; break }
+    }
+    if {!$done} { return "" }
+    # A = K − λ; the adjugate's diagonal, its largest column
+    set a00 [expr {$k00 - $l}]; set a11 [expr {$k11 - $l}]; set a22 [expr {$k22 - $l}]; set a33 [expr {$k33 - $l}]
+    set A [list [list $a00 $k01 $k02 $k03] [list $k01 $a11 $k12 $k13] [list $k02 $k12 $a22 $k23] [list $k03 $k13 $k23 $a33]]
+    set best -1; set big 0.0
+    foreach j {0 1 2 3} {
+        set v [expr {abs([_cofactor $A $j $j])}]
+        if {$v > $big} { set big $v; set best $j }
+    }
+    # (λ nearly a double root: the adjugate, (λ − λ2)(λ − λ3)(λ − λ4) q qᵀ,
+    # nearly 0 and its column off by λ's rounding over the gap; Jacobi where
+    # the gap is below about g / 1000, so that the column is good to 1e-11)
+    if {$best < 0 || $big <= 2.5e-4 * $g * $g * $g} { return "" }
+    set q [lmap i {0 1 2 3} {_cofactor $A $i $best}]
+    set n [expr {sqrt([lindex $q 0]**2 + [lindex $q 1]**2 + [lindex $q 2]**2 + [lindex $q 3]**2)}]
+    lmap v $q {expr {$v / $n}}
+}
+proc ::VMDance::Coords::_det3 {a b c d e f g h i} {
+    expr {$a * ($e * $i - $f * $h) - $b * ($d * $i - $f * $g) + $c * ($d * $h - $e * $g)}
+}
+# The cofactor (i, j) of a 4×4 matrix (a list of rows).
+proc ::VMDance::Coords::_cofactor {A i j} {
+    set m {}
+    foreach r [lsearch -all -inline -not -exact {0 1 2 3} $i] {
+        set row [lindex $A $r]
+        foreach c [lsearch -all -inline -not -exact {0 1 2 3} $j] { lappend m [lindex $row $c] }
+    }
+    expr {(($i + $j) % 2 ? -1.0 : 1.0) * [_det3 {*}$m]}
+}
+# The unit eigenvector of a symmetric 4×4 matrix's largest eigenvalue
+# (cyclic Jacobi: each sweep squares the error, a few reach the last digit).
+proc ::VMDance::Coords::_eigmax4 {A} {
+    set V {{1.0 0.0 0.0 0.0} {0.0 1.0 0.0 0.0} {0.0 0.0 1.0 0.0} {0.0 0.0 0.0 1.0}}
+    set scale 0.0
+    foreach r $A { foreach v $r { set scale [expr {max($scale, abs($v))}] } }
+    if {$scale == 0.0} { return {1.0 0.0 0.0 0.0} }
+    for {set sweep 0} {$sweep < 50} {incr sweep} {
+        set off 0.0
+        foreach {p q} {0 1 0 2 0 3 1 2 1 3 2 3} { set off [expr {$off + abs([lindex $A $p $q])}] }
+        if {$off <= 1e-15 * $scale} break
+        foreach {p q} {0 1 0 2 0 3 1 2 1 3 2 3} {
+            set apq [lindex $A $p $q]
+            if {abs($apq) <= 1e-300} continue
+            set th [expr {([lindex $A $q $q] - [lindex $A $p $p]) / (2.0 * $apq)}]
+            set t [expr {($th >= 0.0 ? 1.0 : -1.0) / (abs($th) + sqrt($th * $th + 1.0))}]
+            set c [expr {1.0 / sqrt($t * $t + 1.0)}]
+            set s [expr {$t * $c}]
+            foreach k {0 1 2 3} {
+                set akp [lindex $A $k $p]; set akq [lindex $A $k $q]
+                lset A $k $p [expr {$c * $akp - $s * $akq}]
+                lset A $k $q [expr {$s * $akp + $c * $akq}]
+            }
+            foreach k {0 1 2 3} {
+                set apk [lindex $A $p $k]; set aqk [lindex $A $q $k]
+                lset A $p $k [expr {$c * $apk - $s * $aqk}]
+                lset A $q $k [expr {$s * $apk + $c * $aqk}]
+            }
+            foreach k {0 1 2 3} {
+                set vkp [lindex $V $k $p]; set vkq [lindex $V $k $q]
+                lset V $k $p [expr {$c * $vkp - $s * $vkq}]
+                lset V $k $q [expr {$s * $vkp + $c * $vkq}]
+            }
+        }
+    }
+    set best 0
+    foreach i {1 2 3} { if {[lindex $A $i $i] > [lindex $A $best $best]} { set best $i } }
+    set q [lmap k {0 1 2 3} {lindex $V $k $best}]
+    set l [expr {sqrt([lindex $q 0]**2 + [lindex $q 1]**2 + [lindex $q 2]**2 + [lindex $q 3]**2)}]
+    lmap v $q {expr {$v / $l}}
+}
 # A frame's fingerprint, from VMD's coordinates by VMD's own C code (no
 # list of numbers made): the atoms' centre, their radius of gyration, their
 # centre weighted by their place, and their RMSD from the first frame (r).
@@ -153,7 +340,11 @@ proc ::VMDance::Coords::_row {h f} {
     set ff [_print $fs $wf $ref]
     if {[regexp -nocase {nan|inf} $ff]} { _not_finite $fs $f "the fit selection" }
     lappend fp {*}$ff
-    set M [measure fit $fs $ref]
+    # (the fit computed here, not by VMD's measure fit: fit_matrix; the
+    # reference's rows once a handle)
+    variable fitref
+    if {![info exists fitref($ref)]} { set fitref($ref) [fit_ref [$ref get {x y z}]] }
+    set M [fit_matrix [$fs get {x y z}] $fitref($ref)]
     # (a point: as coordtrans does it, vectrans of {x y z 1} — a vector of 3
     # would drop the translation — without its procedure call per atom)
     set out {}
@@ -476,6 +667,7 @@ proc ::VMDance::Coords::alignment {m idx frames} {
             error "the first frame's coordinates cannot be fitted on"
         }
         set sa 0.0; set sf 0.0; set n 0
+        set refc [fit_ref $r0]
         foreach f [lrange $fl 1 end] {
             $cur frame $f
             set xyz [$cur get {x y z}]
@@ -484,7 +676,7 @@ proc ::VMDance::Coords::alignment {m idx frames} {
             }
             set qa 0.0
             foreach a $xyz b $r0 { set v [veclength [vecsub $a $b]]; set qa [expr {$qa + $v * $v}] }
-            set M [measure fit $cur $ref]
+            set M [fit_matrix $xyz $refc]
             set qf 0.0
             foreach a $xyz b $r0 { set v [veclength [vecsub [coordtrans $M $a] $b]]; set qf [expr {$qf + $v * $v}] }
             set sa [expr {$sa + sqrt($qa / $na)}]; set sf [expr {$sf + sqrt($qf / $na)}]

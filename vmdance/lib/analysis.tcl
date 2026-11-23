@@ -171,14 +171,14 @@ proc ::VMDance::Job::check_elbow {req} {
     dict set q stability $stab
     return $q
 }
-# An elbow scan of eQUAL: its radius at every value of radii (eQUAL is
+# An elbow scan of eQual: its radius at every value of radii (eQual is
 # given no k: the number of clusters follows from the radius). Each a
-# radius eQUAL takes (above 0), at least two, at most 200; the request is
+# radius eQual takes (above 0), at least two, at most 200; the request is
 # checked with the smallest.
 proc ::VMDance::Job::_check_radii {req} {
     set rs [::VMDance::_get $req radii {}]
-    if {[dict exists $req ks] && [llength [dict get $req ks]]} { error "-ks: eQUAL is given no k; scan its radius (-radii {0.5 1 2})" }
-    if {![string is list $rs] || ![llength $rs]} { error "-radii: an elbow scan of eQUAL is made at several radii (-radii {0.5 1 2})" }
+    if {[dict exists $req ks] && [llength [dict get $req ks]]} { error "-ks: eQual is given no k; scan its radius (-radii {0.5 1 2})" }
+    if {![string is list $rs] || ![llength $rs]} { error "-radii: an elbow scan of eQual is made at several radii (-radii {0.5 1 2})" }
     if {[llength $rs] > 200} { error "-radii: at most 200 values (got [llength $rs])" }
     set spec [::VMDance::Algo::param equal threshold]
     set out {}
@@ -540,6 +540,8 @@ proc ::VMDance::Job::_line {msg line} {
         # (the line without its closing dots: "threshold=0.2" has a dot of
         # its own; and without the private files' names, which say nothing)
         if {$v in {Reading Writing}} { regsub {: .*$} $rest "" rest }
+        # (CPP-MDANCE writes eQUAL; the plugin's name is eQual)
+        set rest [string map {eQUAL eQual} $rest]
         _progress $lo "$msg: [string tolower $v] [string trimright $rest {. }]"
     }
 }
@@ -892,7 +894,7 @@ proc ::VMDance::Job::_cluster {c req lo hi {initial ""}} {
 }
 # HELM clusterings' scores, of their clustered frames: CPP-MDANCE's HELM
 # (the program's and the library's) scores the trimmed frames as one more
-# cluster, where MDANCE, and CPP-MDANCE's eQUAL, leave them out. Those of
+# cluster, where MDANCE, and CPP-MDANCE's eQual, leave them out. Those of
 # a scan are made together, once its clusterings are made: two passes over
 # the frames, not two at every k.
 proc ::VMDance::Job::_clustered_scores {c cls at} {
@@ -1063,7 +1065,7 @@ proc ::VMDance::Job::_do_elbow {req} {
     # (what the library cannot take refuses the scan, not each k)
     if {[lindex $backend 0] eq "library"} { _library_takes $c }
     set ks [dict get $req ks]
-    # (eQUAL: its radius at each value, no k)
+    # (eQual: its radius at each value, no k)
     set radii [::VMDance::_get $req radii {}]
     if {[llength $radii]} { set ks $radii }
     set initial ""
@@ -1374,7 +1376,7 @@ proc ::VMDance::Job::_do_map {req} {
     dict merge [dict create params $p] $m
 }
 
-# The distances between frames, for eQUAL's radius: req an input (checked;
+# The distances between frames, for eQual's radius: req an input (checked;
 # its frames a sample, 150 or so). {sample pairs percentiles {2 v 5 v 10 v
 # 25 v 50 v} from to by}: MDANCE's MSD (Å², half the RMSD² of two frames:
 # what the radius is compared with) of every two of the frames, the values

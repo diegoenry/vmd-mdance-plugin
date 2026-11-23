@@ -147,8 +147,8 @@ set ${S}(p_helm_trim-start) 0
 set ${S}(algorithm) equal
 ${G}::_algorithm_changed
 update
-# (the Elbow was off for eQUAL: it scans eQUAL's radius now)
-check "eQUAL: no k, and the toolbar's Elbow on (a scan by radius)" [expr {![winfo exists $pb.equal.k] && [$w.tb.elbow instate !disabled]}]
+# (the Elbow was off for eQual: it scans eQual's radius now)
+check "eQual: no k, and the toolbar's Elbow on (a scan by radius)" [expr {![winfo exists $pb.equal.k] && [$w.tb.elbow instate !disabled]}]
 set ${S}(algorithm) divine
 ${G}::_algorithm_changed
 set ${S}(p_divine_anchors) OutlierPair
@@ -172,7 +172,7 @@ set ${S}(metric) JT
 check "  h1 N09: the metrics unlocked: DIVINE's still MSD (shown, and sent), KMeans's chosen" [expr {
     [winfo manager $pb.divine.met.l] eq "pack" && [winfo manager $pb.divine.met.c] eq "" && [winfo manager $pb.kmeans.met.c] eq "pack" &&
     [dict get [${G}::request] metric] eq "MSD" && ![catch {::VMDance::Job::check_cluster [${G}::request]}]}]
-# (the final review: eQUAL takes MSD only too, which check_combination
+# (the final review: eQual takes MSD only too, which check_combination
 # alone said: the chooser offered it every metric, and Cluster refused all
 # but MSD)
 set ${S}(algorithm) equal
@@ -180,17 +180,19 @@ ${G}::_algorithm_changed
 set ${S}(metric) SM
 set th0 [set ${S}(p_equal_threshold)]
 set ${S}(p_equal_threshold) 1
-check "  the metrics unlocked: eQUAL's MSD too (shown, saying why, and sent), as the table has it" [expr {
+check "  the metrics unlocked: eQual's MSD too (shown, saying why, and sent), as the table has it" [expr {
     [winfo manager $pb.equal.met.l] eq "pack" && [winfo manager $pb.equal.met.c] eq "" &&
-    [$pb.divine.met.l cget -text] eq "MSD (DIVINE splits by MSD)" && [$pb.equal.met.l cget -text] eq "MSD (eQUAL's radius is an MSD)" &&
+    [$pb.divine.met.l cget -text] eq "MSD (DIVINE splits by MSD)" && [$pb.equal.met.l cget -text] eq "MSD (eQual's radius is an MSD)" &&
     [dict get [${G}::request] metric] eq "MSD" && ![catch {::VMDance::Job::check_cluster [${G}::request]}]}]
 set ${S}(p_equal_threshold) $th0
 set ${S}(unlock_metrics) 0
 ${G}::_metric_lock
 set ${S}(algorithm) equal
 ${G}::_algorithm_changed
+set ${S}(p_equal_threshold) ""
 ${G}::cluster
-check "  eQUAL without a radius is refused (the message says why)" [expr {![set ${S}(busy)] && [string match "*-threshold is needed*" [lindex $::messages end]]}]
+check "  eQual with its radius cleared is refused (the message says why)" [expr {![set ${S}(busy)] && [string match "*-threshold is needed*" [lindex $::messages end]]}]
+set ${S}(p_equal_threshold) $th0
 set ${S}(algorithm) kmeans
 ${G}::_algorithm_changed
 set ${S}(k_kmeans) 30
@@ -199,8 +201,21 @@ check "  k above the frames: refused" [string match "*-k must be from 1*" [linde
 set ${S}(k_kmeans) 2
 set ${S}(p_kmeans_kinit) CompSim
 ${G}::param_defaults
-check "Defaults" [expr {[set ${S}(k_kmeans)] == 10 && [set ${S}(p_kmeans_kinit)] eq "StratAll"}]
+check "Defaults" [expr {[set ${S}(k_kmeans)] == 6 && [set ${S}(p_kmeans_kinit)] eq "StratAll"}]
 set ${S}(k_kmeans) 2
+# (the review of 13 November: k 6 for every algorithm given one, HELM's
+# Merge Intra, eQual's radius 2, DIVINE's "Stop when" not in the window)
+check "  k 6 for KMeans NANI, DIVINE and HELM; HELM's Merge Intra; eQual's radius 2" [expr {
+    [set ${S}(k_divine)] == 6 && [set ${S}(k_helm)] == 6 && [set ${S}(p_helm_merge-scheme)] eq "Intra" && [set ${S}(p_equal_threshold)] eq "2"}]
+set ${S}(p_divine_end-mode) points
+set ${S}(algorithm) divine
+${G}::_algorithm_changed
+check "  DIVINE: no Stop when field; the window stops at k, whatever its state holds (a run Setup follows)" [expr {
+    ![winfo exists $pb.divine.pend_mode] && [dict get [${G}::request] params end-mode] eq "k" &&
+    ![string match "*Stop when*" [${G}::_fields "-end-mode points: DIVINE does not use k"]]}]
+set ${S}(p_divine_end-mode) k
+set ${S}(algorithm) kmeans
+${G}::_algorithm_changed
 
 # --- clustering in the background --------------------------------------------------------
 fake_env MDANCE_FAKE_SLEEP 1.5
@@ -326,7 +341,7 @@ update
 check "h1 review N10: the Results summary says why DIVINE has fewer clusters than asked" [string match "DIVINE, k 6 of * frames × * atoms, not fitted: 2 clusters — fewer than the 6 asked: no split left * frames or more on each side (-threshold 0.3). Calinski–Harabasz *" [set ${S}(summary)]]
 set o [load_system outlier]
 vmdance -mol $o -sel all -algorithm equal -threshold 1.0 -quiet 1
-check "eQUAL with noise: every plot" [expr {[every_plot_ok] && ![llength $::bgerrors]}]
+check "eQual with noise: every plot" [expr {[every_plot_ok] && ![llength $::bgerrors]}]
 set s1 [load_system single_state]
 vmdance -mol $s1 -sel all -k 1 -quiet 1
 check "one cluster: every plot (no silhouette, no tree)" [expr {[every_plot_ok] && ![llength $::bgerrors]}]
@@ -345,11 +360,11 @@ check "  vmdance figures: those two" [expr {[lmap f $figs {file rootname [file t
 if {[real_cli] ne ""} {
     use_cli
     vmdance -mol $o -sel all -algorithm equal -threshold 0.0001 -reject-lowd 1 -min-samples 3 -quiet 1
-    check "  the backend's own (eQUAL, a tiny radius: [${R}::noise] of [${R}::nframes] frames noise): every plot" [expr {
+    check "  the backend's own (eQual, a tiny radius: [${R}::noise] of [${R}::nframes] frames noise): every plot" [expr {
         [${R}::nclusters] == 0 && [every_plot_ok] && ![llength $::bgerrors]}]
     use_fake
 } else {
-    skip "  the backend's own all-noise eQUAL" "no mdance-cli (set MDANCE_CLI)"
+    skip "  the backend's own all-noise eQual" "no mdance-cli (set MDANCE_CLI)"
 }
 vmdance run 1
 set ::VMDance::Measure::maxk 1
@@ -1111,8 +1126,8 @@ set texts [lmap key {distances tree} {join [lmap i [$w.pw.right.nb.$key.c find a
 check "  review: This plot's data on those tabs says why, and what to change, and so do the plots ([join $said { | }])" [expr {
     [string match "Not saved: the distances between the clusters are measured for 1 clusters or fewer, and this clustering has 2: cluster into fewer*" [lindex $said 0]] &&
     [string match "Not saved: the tree of the clusters' mean structures is made for 1 clusters or fewer, and this clustering has 2: cluster into fewer*" [lindex $said 1]] &&
-    [string match "*cluster into fewer (a smaller k, a larger eQUAL radius).*" [lindex $texts 0]] &&
-    [string match "*cluster into fewer (a smaller k, a larger eQUAL radius).*" [lindex $texts 1]]}]
+    [string match "*cluster into fewer (a smaller k, a larger eQual radius).*" [lindex $texts 0]] &&
+    [string match "*cluster into fewer (a smaller k, a larger eQual radius).*" [lindex $texts 1]]}]
 ${G}::status ""
 vmdance run delete $big
 set ::VMDance::Measure::maxk 300

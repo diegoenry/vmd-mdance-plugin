@@ -11,7 +11,8 @@ proc ::_env {name default} { expr {[info exists ::env($name)] && $::env($name) n
 set ::systems [_env VMDANCE_SYSTEMS /home/dgomes/github/myprojects/vmd-plugin-projects/vmd-interactions-v2/VMD-testsystems/systems]
 set ::fixtures [file join $::root tests fixtures]
 set ::refruns [_env MDANCE_REF_RUNS /home/dgomes/Downloads/mdance_vmd_runs]
-set ::fake [file join $::root tests fake_mdance_cli]
+# (on Windows a wrapper: Tcl runs no script by its #! line there)
+set ::fake [file join $::root tests fake_mdance_cli[expr {$::tcl_platform(platform) eq "windows" ? ".bat" : ""}]]
 set ::out [_env VMDANCE_OUT [file join $::root tests out]]
 file mkdir $::out
 set ::fails 0
@@ -51,7 +52,7 @@ proc csv_rows {f} {
 # compared with the plugin's answers)
 proc real_cli {} {
     set p [file normalize [_env MDANCE_CLI [file join $::root .. CPP-MDANCE build cli mdance-cli]]]
-    expr {[file executable $p] && [file tail $p] ne "fake_mdance_cli" ? $p : ""}
+    expr {[file executable $p] && [file rootname [file tail $p]] ne "fake_mdance_cli" ? $p : ""}
 }
 proc real_lib {} {
     set p [file normalize [_env MDANCE_LIB [file join $::root .. CPP-MDANCE build tcl mdance_tcl[info sharedlibextension]]]]
@@ -108,6 +109,20 @@ proc load_ref {name} {
 # the text it was given, whatever VMD made of it (it stops reading at a
 # comma, with no error), so the scene is counted: the spheres of the
 # representation as VDW, with its frames, with one frame, and hidden.
+# The frames a drawframes text names, sorted ("0:2 9 10:2:14": 0 1 2 9 10
+# 12 14): what the plugin asked VMD to draw, whichever way it wrote them.
+proc spec_frames {spec} {
+    set out {}
+    foreach w $spec {
+        set p [split $w :]
+        switch [llength $p] {
+            1 { lappend out $w }
+            2 { for {set f [lindex $p 0]} {$f <= [lindex $p 1]} {incr f} { lappend out $f } }
+            3 { for {set f [lindex $p 0]} {$f <= [lindex $p 2]} {incr f [lindex $p 1]} { lappend out $f } }
+        }
+    }
+    lsort -integer -unique $out
+}
 proc frames_drawn {m rep} {
     set spec [mol drawframes $m $rep]
     set style [lindex [molinfo $m get "{rep $rep}"] 0]

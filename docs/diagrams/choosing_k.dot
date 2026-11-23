@@ -8,7 +8,7 @@ digraph choosing_k {
     km [label=<<b>KMeans NANI</b>>, fillcolor="#e8edf5", color="#8ea3c0"]
     dv [label=<<b>DIVINE</b>>, fillcolor="#f6ebe8", color="#c99a8f"]
     hl [label=<<b>HELM</b>>, fillcolor="#f7f0e1", color="#d0b47a"]
-    eq [label=<<b>eQUAL</b>>, fillcolor="#e9f1ec", color="#93b39e"]
+    eq [label=<<b>eQual</b>>, fillcolor="#e9f1ec", color="#93b39e"]
     q -> {km dv hl eq}
     elbow [label=<<b>Elbow scan</b> over k<br/><font point-size="8.5" color="#5a6573">Calinski–Harabasz: highest;<br/>Davies–Bouldin: lowest</font>>]
     stab  [label=<<b>Stability</b><br/><font point-size="8.5" color="#5a6573">the four seedings agree<br/>(mean adjusted Rand → 1)</font>>]

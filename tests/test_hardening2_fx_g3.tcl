@@ -1,7 +1,7 @@
 # What the review of "what reaches the backend, and the library mode" (g3)
 # found in its fixes, each kept from coming back (text mode; the fake
 # backend, and the real one where it is found):
-#   F02  eQUAL with an index other than MSD is refused whatever its seeds:
+#   F02  eQual with an index other than MSD is refused whatever its seeds:
 #        on coordinates every frame is within any radius of the seed, and
 #        all landed in one cluster published as a success (only its
 #        comp_sim seeds were refused, and the message sent users to its
@@ -31,7 +31,7 @@ use_fake
 fake_env
 set m2 [load_system two_state]
 
-# F02: eQUAL's radius by an index other than MSD holds every frame on
+# F02: eQual's radius by an index other than MSD holds every frame on
 # coordinates (1 − the index falls below 0): with its medoid seeds too,
 # every frame landed in one cluster, published as a success (CPP-MDANCE,
 # program and library, on 3ptb, the fixtures and the constructed
@@ -42,25 +42,25 @@ set bad {}
 foreach met [lrange $::VMDance::Algo::metrics 1 end] {
     foreach seeds {medoid comp_sim} {
         set e [err {${A}::check_combination equal "" [dict replace $ep seed-method $seeds] 100 "" $met}]
-        if {![string match "-metric $met with eQUAL: *every frame lands in one cluster; use -metric MSD" $e]} { lappend bad "$met $seeds: <$e>" }
+        if {![string match "-metric $met with eQual: *every frame lands in one cluster; use -metric MSD" $e]} { lappend bad "$met $seeds: <$e>" }
     }
 }
 set why ""
 if {[llength $bad]} { set why ": [join $bad {; }]" }
-check "F02: eQUAL with each index other than MSD ([expr {[llength $::VMDance::Algo::metrics] - 1}]), medoid or comp_sim seeds: refused, saying to use MSD$why" [expr {![llength $bad]}]
-check "  eQUAL with MSD, either seeds: taken" [expr {[err {${A}::check_combination equal "" $ep 100 "" MSD}] eq "" &&
+check "F02: eQual with each index other than MSD ([expr {[llength $::VMDance::Algo::metrics] - 1}]), medoid or comp_sim seeds: refused, saying to use MSD$why" [expr {![llength $bad]}]
+check "  eQual with MSD, either seeds: taken" [expr {[err {${A}::check_combination equal "" $ep 100 "" MSD}] eq "" &&
     [err {${A}::check_combination equal "" [dict replace $ep seed-method comp_sim] 100 "" MSD}] eq ""}]
 vmdance -mol $m2 -sel all -k 2 -kinit KmeansPP -quiet 1
 set nruns [llength [vmdance runs]]
 set c0 $::VMDance::Backend::counter
 set e [err {vmdance -mol $m2 -sel all -algorithm equal -threshold 1 -seed-method medoid -metric BUB -quiet 1}]
-check "  the command: eQUAL's medoid with BUB refused before any job, nothing published ($e)" [expr {
-    [string match "vmdance: -metric BUB with eQUAL: *" $e] && $::VMDance::Backend::counter == $c0 && [llength [vmdance runs]] == $nruns}]
+check "  the command: eQual's medoid with BUB refused before any job, nothing published ($e)" [expr {
+    [string match "vmdance: -metric BUB with eQual: *" $e] && $::VMDance::Backend::counter == $c0 && [llength [vmdance runs]] == $nruns}]
 set nruns [llength [vmdance runs]]
 check "  KMeans with BUB and k-means++ seeds (the metric only seeds it): still taken" [expr {
     ![catch {vmdance -mol $m2 -sel all -k 2 -kinit KmeansPP -metric BUB -quiet 1}] && [llength [vmdance runs]] == $nruns + 1}]
 if {[real_cli] eq ""} {
-    skip "F02: what the real program gives eQUAL's medoid with BUB" "no mdance-cli"
+    skip "F02: what the real program gives eQual's medoid with BUB" "no mdance-cli"
 } else {
     # (the backend is the reference: with the index, every frame is in one
     # cluster; were that to change, the refusal could be lifted)
@@ -70,7 +70,7 @@ if {[real_cli] eq ""} {
         --threshold 1 --seed-method medoid --n-seeds 1 --percentage 10 2>@1}
     set labels {}
     catch {set labels [dict get [::VMDance::Json::parse [read_text $jout]] labels]}
-    check "  the real program's eQUAL with BUB, as the refusal says: every frame in one cluster ([lsort -unique $labels])" [expr {
+    check "  the real program's eQual with BUB, as the refusal says: every frame in one cluster ([lsort -unique $labels])" [expr {
         [llength $labels] == 24 && [lsort -unique $labels] eq "0"}]
 }
 

@@ -4,7 +4,7 @@
 # shares, the Silhouette's two kinds and its axis, the Elbow's strip, rings
 # and words, the Map's representatives and scale, the Profiles of many
 # clusters, the groups by halves and how unlike they are, the clusters
-# numbered by size, eQUAL's radius from the frames, the time per frame and
+# numbered by size, eQual's radius from the frames, the time per frame and
 # the distances as lengths, a cancelled scan's values kept, the figures'
 # sizes, the messages' fields, the tabs' tips.
 #   cd <VMDance>
@@ -255,22 +255,30 @@ check "Number its clusters by size: a new run, the largest 0, said" [expr {
 ${G}::renumber
 check "  already by size: said, no run made" [expr {[llength [${R}::run_list]] == $nruns + 1 && [string match "*numbered by size already*" [set ${S}(status)]]}]
 
-# --- eQUAL's radius from the frames -----------------------------------------------------------
+# --- eQual's radius from the frames -----------------------------------------------------------
 set ${S}(algorithm) equal
 ${G}::_algorithm_changed
 update
 set E [set ${G}::page(scans)].eb
 ${G}::show_pane scans
 update
-check "eQUAL chosen: the scan's box shows its radii, not k; the stability is NANI's" [expr {
+check "eQual chosen: the scan's box shows its radii, not k; the stability is NANI's" [expr {
     [winfo manager $E.q] ne "" && [lsearch [grid slaves $E] $E.r] < 0 && [$E.st instate disabled]}]
-check "  no radius yet: the note under it says what it is" [string match "No radius yet*half the RMSD² of two frames." [set ${S}(eq_note)]]
+check "  the radius 2 by default: the note under it gives the RMSD it stands for (2 Å)" [expr {
+    [set ${S}(p_equal_threshold)] eq "2" && [string match "A frame joins a cluster when it is within 2 Å (RMSD) of its seed*" [set ${S}(eq_note)]]}]
 ${G}::radii
 wait_idle
-check "  Suggest: a range for the scan and a radius for Setup, from the frames; the radius in RMSD" [expr {
-    [set ${S}(eb_rfrom)] > 0 && [set ${S}(eb_rfrom)] < [set ${S}(eb_rto)] && [set ${S}(p_equal_threshold)] > 0 &&
-    [string match "Radii from 100 frames: scan * to * every *" [set ${S}(status)]] &&
+check "  Suggest: a range for the scan and a radius for Setup in place of the default, from the frames; the radius in RMSD" [expr {
+    [set ${S}(eb_rfrom)] > 0 && [set ${S}(eb_rfrom)] < [set ${S}(eb_rto)] && [set ${S}(p_equal_threshold)] > 0 && [set ${S}(p_equal_threshold)] ne "2" &&
+    [string match "Radii from 100 frames: scan * to * every *Setup's Radius: *" [set ${S}(status)]] &&
     [string match "A frame joins a cluster when it is within * Å (RMSD) of its seed*" [set ${S}(eq_note)]]}]
+set ${S}(p_equal_threshold) 0.7
+${G}::radii
+wait_idle
+check "  a radius typed is kept" [expr {[set ${S}(p_equal_threshold)] eq "0.7" && ![string match "*Setup's Radius*" [set ${S}(status)]]}]
+set ${S}(p_equal_threshold) ""
+check "  none: the note says what it is" [string match "No radius yet*half the RMSD² of two frames." [set ${S}(eq_note)]]
+set ${S}(p_equal_threshold) 2
 set ${S}(algorithm) kmeans
 ${G}::_algorithm_changed
 update

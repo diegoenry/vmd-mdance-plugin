@@ -6,7 +6,7 @@ VMDance
 VMDance is a Tcl/Tk plugin for `VMD <https://www.ks.uiuc.edu/Research/vmd/>`_.
 It clusters the frames of a trajectory with the algorithms of
 `MDANCE <https://github.com/mqcomplab/MDANCE>`_ — KMeans NANI, DIVINE, HELM
-and eQUAL, run by their C++ port
+and eQual, run by their C++ port
 `CPP-MDANCE <https://github.com/mqcomplab/CPP-MDANCE>`_ — and shows the
 clusters in 13 linked plots and on the structure in VMD's 3D window.
 
@@ -14,7 +14,7 @@ clusters in 13 linked plots and on the structure in VMD's 3D window.
    :alt: The VMDance window: the table of clusters, the groups, and the Populations plot.
    :width: 100%
 
-   MDANCE's tau peptide (6001 frames, the backbone): KMeans NANI at k 3;
+   MDANCE's tau peptide (6001 frames; resid 3 to 12 and name CA N C O H): KMeans NANI at k 3;
    the trajectory's two halves as groups.
 
 .. figure:: _static/diagrams/workflow.svg
@@ -28,14 +28,14 @@ clusters in 13 linked plots and on the structure in VMD's 3D window.
    * - **Cluster**
      - A molecule's frames — all, a range, every n-th — by the coordinates
        of the same atoms, with KMeans NANI, DIVINE, HELM (from a first NANI
-       clustering or a label file) or eQUAL (clusters within a radius, and
+       clustering or a label file) or eQual (clusters within a radius, and
        noise); optionally fitted to the first frame, on the values, with a
        warning when the frames do not look superposed.
    * - **Choose k**
      - An elbow scan of the Calinski–Harabasz and Davies–Bouldin scores,
        ringed where they point (MDANCE's two criteria), with the variance
        the clusters explain and their **stability** across seedings; HELM's
-       merges' heights; eQUAL's scan by radius, the radii suggested from
+       merges' heights; eQual's scan by radius, the radii suggested from
        the frames; a sweep over algorithms, k,
        metrics and seedings. Any of them made the clustering with a
        double-click.
