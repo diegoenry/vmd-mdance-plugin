@@ -16,7 +16,7 @@ check "no clustering: the questions say so" [expr {[string match "*no clustering
 check "an unknown subcommand names the valid ones" [string match "*unknown subcommand \"clusterz\" (valid: help, info*" [err {vmdance clusterz}]]
 set al [vmdance algorithms]
 check "algorithms: labels, defaults, availability" [expr {[dict get $al kmeans label] eq "KMeans NANI" && [dict get $al equal k] == 0 && [dict get $al divine available]}]
-check "parameters: the catalog" [expr {[lindex [dict get [vmdance parameters helm] -merge-scheme] 1] eq "Inter" &&
+check "parameters: the catalog" [expr {[lindex [dict get [vmdance parameters helm] -merge-scheme] 1] eq "Intra" &&
     [dict exists [vmdance parameters prime] -trim-frac] && [string match "*no algorithm*" [err {vmdance parameters xyz}]]}]
 set b [vmdance backend]
 check "backend: which is used" [expr {[lindex [dict get $b using] 0] eq "cli" && [dict get $b error] eq ""}]
@@ -59,8 +59,8 @@ check "  what was made from the last clustering is made again from this one (the
     [llength [dict get [vmdance tree] leaves]] == [llength [lmap v [${R}::sizes] {expr {$v ? 1 : [continue]}}]]}]
 vmdance run 1
 check "  run 1 again" [expr {[${R}::nclusters] == 2 && [dict get [vmdance info] molid] == $m}]
-vmdance run label 2 "eQUAL, noise"
-check "  renamed" [expr {[lindex [vmdance runs] 1 1] eq "eQUAL, noise"}]
+vmdance run label 2 "eQual, noise"
+check "  renamed" [expr {[lindex [vmdance runs] 1 1] eq "eQual, noise"}]
 check "  an unknown run" [string match "*no run \"9\"*" [err {vmdance run 9}]]
 for {set k 0} {$k < 26} {incr k} { vmdance -mol $m -sel all -k 2 -kinit KmeansPP -quiet 1 }
 check "  the last 25 are kept" [expr {[llength [vmdance runs]] == 25 && [lindex [vmdance runs] 0 0] == 4}]
@@ -214,6 +214,53 @@ mol drawframes $m $nr [::VMDance::Viz::_drawframes $fl]
 check "frames as ranges: \"[mol drawframes $m $nr]\" draws the 8 frames" [expr {
     [mol drawframes $m $nr] eq "0:3 10:2:14 20" && [frames_drawn $m $nr] == 8}]
 mol delrep $nr $m
+
+# --- the fit: the plugin's (Coords::fit_matrix) against VMD's measure fit ----------
+# (VMD's stops after 1000 iterations, "Matrix: Warning: no convergence", with
+# a rotation that is not the best)
+proc fit_rmsd_vmd {M X Y} {
+    set s 0.0
+    foreach p $X q $Y { set s [expr {$s + [veclength2 [vecsub [coordtrans $M $p] $q]]}] }
+    expr {sqrt($s / [llength $X])}
+}
+set worse 0; set gain 0.0; set nfits 0
+foreach fx {two_state outlier single_state} {
+    set mf [load_system $fx]
+    set rf [atomselect $mf all frame 0]
+    set cf [atomselect $mf all frame 0]
+    set Y [$rf get {x y z}]
+    set refc [::VMDance::Coords::fit_ref $Y]
+    for {set f 0} {$f < [molinfo $mf get numframes]} {incr f} {
+        $cf frame $f
+        set X [$cf get {x y z}]
+        set ours [fit_rmsd_vmd [::VMDance::Coords::fit_matrix $X $refc] $X $Y]
+        set vmds [fit_rmsd_vmd [measure fit $cf $rf] $X $Y]
+        if {$ours > $vmds + 1e-6} { incr worse }
+        set gain [expr {max($gain, $vmds - $ours)}]
+        incr nfits
+    }
+    $rf delete; $cf delete
+    mol delete $mf
+}
+check "fit: the plugin's at least as close as VMD's measure fit on the fixtures' $nfits frames (VMD's up to [format %.3f $gain] Å RMSD above)" [expr {
+    $nfits == 46 && $worse == 0 && $gain > 0.01}]
+# a clustering with a fit reads rows superposed by it: each frame's row as
+# close to the first's as a fit can make it
+set mf [load_system two_state]
+set c [::VMDance::Coords::extract [::VMDance::Job::check_input [list mol $mf sel all fit all]]]
+set rows [lmap r [csv_rows [::VMDance::Coords::csv $c]] {
+    set p {}; foreach {x y z} $r { lappend p [list $x $y $z] }; set p}]
+set r0 [lindex $rows 0]
+set refc [::VMDance::Coords::fit_ref $r0]
+set far 0.0
+foreach r [lrange $rows 1 end] {
+    set best [fit_rmsd_vmd [::VMDance::Coords::fit_matrix $r $refc] $r $r0]
+    set s 0.0; foreach p $r q $r0 { set s [expr {$s + [veclength2 [vecsub $p $q]]}] }
+    set far [expr {max($far, sqrt($s / [llength $r]) - $best)}]
+}
+check "  a clustering with -fit: its rows superposed on the first as closely as a fit can ([format %.1e $far] Å from the least RMSD)" [expr {
+    [llength $rows] == 24 && $far < 1e-4}]
+mol delete $mf
 done
 } err]} { puts "FAIL test_results crashed: $err\n$::errorInfo"; puts "RESULT checks=$::checks fails=[incr ::fails] skips=$::skips" }
 ::VMDance::Backend::cleanup

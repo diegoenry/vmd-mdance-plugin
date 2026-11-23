@@ -71,7 +71,7 @@ mol delete all
 
 # no molecule at all
 set w [vmdance session load $sf -mol none]
-check "-mol none: the tables and the scans without molecules (eQUAL's scan by radius the last)" [expr {[llength [vmdance runs]] == $nruns &&
+check "-mol none: the tables and the scans without molecules (eQual's scan by radius the last)" [expr {[llength [vmdance runs]] == $nruns &&
     [llength [vmdance clusters]] == 6 && [llength [vmdance elbow show]] == 4}]
 check "  the groups, make-up, map and profiles without the molecule" [expr {[dict get [vmdance groups] names] eq {first second} &&
     [dict size [vmdance makeup]] == 6 && [dict size [vmdance map show]] == 6001 && [dict get [vmdance profiles show] reference] ne ""}]

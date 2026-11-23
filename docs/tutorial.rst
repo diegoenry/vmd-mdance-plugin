@@ -25,7 +25,8 @@ says where it is).
 **File ▸ New Molecule** in VMD: the PDB, then the DCD into the same
 molecule. The PDB brings a frame of its own, which is not part of the
 trajectory MDANCE clusters: delete it (in the **Main** window's frame
-list, or with the command below). The frames are already superposed on the
+list, or with the command below), so that the molecule has **6001 frames**
+(6002 with it; Setup's frame count says which). The frames are already superposed on the
 peptide's backbone, so no fit is needed (Setup says so itself: step 2).
 
 .. code-block:: tcl
@@ -48,11 +49,13 @@ in VMD 1.9 it is **Extensions ▸ Analysis ▸ VMDance**).
 2. Choose what to cluster
 -------------------------
 
-**Setup ▸ What to cluster**: the molecule, the atoms ``backbone`` (48
-atoms), every frame. The atoms decide what "alike" means: the backbone
-compares the peptide's folds, its side chains are left out. *Fit to the
+**Setup ▸ What to cluster**: the molecule, the atoms ``resid 3 to 12 and
+name CA N C O H`` (50 atoms: the backbone of residues 3 to 12 and its amide
+hydrogens, those MDANCE's own tutorial clusters), every frame (6001). The
+atoms decide what "alike" means: the backbone compares the peptide's folds,
+its side chains are left out, and so are the two flexible ends. *Fit to the
 first frame* stays off, and the note under it says why it can: *Not fitted.
-From the first frame: 4.15 Å as they are, 3.96 Å fitted: the frames look
+From the first frame: 3.71 Å as they are, 3.30 Å fitted: the frames look
 superposed.* (A trajectory that was not aligned is far from its first
 frame as it is and near it once fitted: the note then turns red-brown and
 says to tick Fit.) The algorithm:
@@ -63,7 +66,8 @@ frames, algorithm — shape every number that follows (:doc:`algorithms`).
 3. How many clusters?
 ---------------------
 
-**Scans ▸ Elbow**, k from 2 to 12, *Stability* ticked, **Scan** (21 s):
+**Scans ▸ Elbow**, k from 2 to 12, *Stability* ticked, **Scan** (a minute
+or two):
 the same clustering at every k, and the same again from NANI's four
 seedings that draw no random number, to see whether the clusters depend on
 the seeding.
@@ -85,77 +89,77 @@ the seeding.
      - Variance explained
      - Stability (1: the same clusters)
    * - 2
-     - 2364
-     - 1.56
-     - 28%
+     - 2109
+     - 1.65
+     - 26%
      - 1.00
    * - 3
-     - 1654
+     - 1525
      - 2.02
-     - 36%
-     - 0.99
+     - 34%
+     - 0.98
    * - 4
-     - 1333
-     - 2.10
-     - 40%
-     - 0.75
+     - 1263
+     - 2.09
+     - 39%
+     - 0.85
    * - 5
-     - 1147
-     - 2.20
+     - 1109
+     - 1.97
      - 43%
-     - 0.68
-   * - 6
-     - 1036
-     - 2.04
-     - 46%
-     - 0.69
-   * - 7
-     - 903
-     - 2.24
-     - 47%
      - 0.63
+   * - 6
+     - 1006
+     - 2.01
+     - 46%
+     - 0.67
+   * - 7
+     - 916
+     - 2.06
+     - 48%
+     - 0.67
    * - 8
-     - 850
-     - 2.07
+     - 840
+     - 2.04
      - 50%
-     - 0.52
+     - 0.59
    * - 12
-     - 673
-     - 1.96
+     - 675
+     - 1.84
      - 55%
-     - 0.53
+     - 0.57
 
 The Elbow plot rings the values the scores point to, and the Scans box
 (and ``vmdance elbow suggest``) says them in words: *Davies–Bouldin: lowest
-at k 2, sharpest dip at k 6; Calinski–Harabasz: highest at k 2; seedings
+at k 2, sharpest dip at k 5; Calinski–Harabasz: highest at k 2; seedings
 agree (0.9 or more) at k 2, 3* (the line above the plot says the same,
 shorter). These are three readings, and they do not agree:
 
-- **The scores are best at k 2.** Davies–Bouldin is lowest there (1.56)
+- **The scores are best at k 2.** Davies–Bouldin is lowest there (1.65)
   and Calinski–Harabasz highest (it falls at every k, as it does on
   structures that form no well-separated states). Two clusters are the
   best-separated partition, and a coarse one.
-- **Davies–Bouldin dips most sharply at k 6**: 2.04, between 2.20 at k 5
-  and 2.24 at k 7. This is MDANCE's second criterion (the largest second
-  derivative of Davies–Bouldin; its first is the lowest value), and 6 is
-  the k MDANCE's own tutorial goes on with. It says where the score bends:
-  six clusters are better separated than five or seven.
-- **The seedings agree only at k 2 and 3** (stability 1.00 and 0.99). At
-  k 4 it is 0.75, at k 6 0.69, and about 0.5 from k 8: there the clusters
+- **Davies–Bouldin dips most sharply at k 5**: 1.97, between 2.09 at k 4
+  and 2.01 at k 6. This is MDANCE's second criterion (the largest second
+  derivative of Davies–Bouldin; its first is the lowest value); MDANCE's
+  own tutorial goes on with k 6, next to it. It says where the score bends:
+  five clusters are better separated than four or six.
+- **The seedings agree only at k 2 and 3** (stability 1.00 and 0.98). At
+  k 4 it is 0.85, and from k 5 between 0.57 and 0.67: there the clusters
   change with the seeding.
 
-Neither reading is wrong; they answer different questions. k 6 is where
+Neither reading is wrong; they answer different questions. k 5 is where
 the score bends. Only up to k 3 are the clusters the same whatever the
-seeding: at k 6 another seeding gives other clusters. The variance the
+seeding: at k 5 or 6 another seeding gives other clusters. The variance the
 clusters explain (*Scores ▸ Variance explained*) settles nothing here: it
-rises ever more slowly, from 28% at k 2 to 55% at k 12, with no sharp
+rises ever more slowly, from 26% at k 2 to 55% at k 12, with no sharp
 bend.
 
 This tutorial goes on with **k 3**, for that reason: what it reads off the
 clusters below — their populations, their make-up by half — should not
 depend on how k-means was started. To follow MDANCE's tutorial, or for a
-finer partition, take k 6 (``vmdance elbow load 6``: 691, 1178, 985, 1177,
-1149 and 821 frames), and say with it that its clusters depend on the
+finer partition, take k 6 (``vmdance elbow load 6``: 699, 1093, 1223, 1292,
+721 and 973 frames), and say with it that its clusters depend on the
 seeding.
 
 4. Cluster
@@ -170,15 +174,15 @@ made the clustering, a run of its own in **Results**.
 
    The clusters, and the Timeline: the cluster of every frame.
 
-The clusters hold 2391, 1633 and 1977 frames (40%, 27% and 33%). The mean
+The clusters hold 2412, 1508 and 2081 frames (40%, 25% and 35%). The mean
 silhouette is 0.25 — the clusters are loose, their frames not much closer
 to their own cluster than to the next. That is the silhouette from the
 clusters' mean structures, which is never below zero for k-means; from
 every frame (the Silhouette's option *From*: *Every frame*) the mean is
-0.27, and 537 frames (9%) are below zero: nearer another cluster's frames
+0.27, and 586 frames (10%) are below zero: nearer another cluster's frames
 than their own's. The trajectory stays about two
-frames in a cluster before it moves on (**Residence**: 2.15, 1.94 and 2.09
-frames on average, 20, 12 and 14 at most): the 6001 frames
+frames in a cluster before it moves on (**Residence**: 2.19, 1.91 and 2.17
+frames on average, 22, 12 and 17 at most): the 6001 frames
 are far apart in time, and the peptide changes between any two. The
 **Timeline** shows it: with more frames than pixels its lanes are shaded
 by each cluster's share of the frames there, and its view *Each cluster's
@@ -205,9 +209,9 @@ Two other algorithms answer "how many" their own way.
 *initial* 60): the Tree plot's *merges' heights* draws how far apart the
 clusters each merge joins. A merge far above the one before marks a
 natural k. Here the heights climb gently — the last eight merges, from 11
-clusters to 4, are all between 17 and 22 Å² — and the plot says so: *no
-merge stands out from the one before it*. (The largest step, 2.3 times the
-merge before, is from 53 clusters to 52, among the first, finest merges:
+clusters to 4, are all between 13.6 and 16.4 Å² — and the plot says so: *no
+merge stands out from the one before it*. (The largest step, 1.6 times the
+merge before, is from 57 clusters to 56, among the first, finest merges:
 it says nothing of a small k, and is not marked.)
 
 .. figure:: _static/figures/plot_tree_heights.png
@@ -216,11 +220,11 @@ it says nothing of a small k, and is not marked.)
 
    HELM's merges' heights: no jump at a small k.
 
-**eQUAL** finds as many clusters as a radius makes (Scans ▸ Elbow, with
-eQUAL chosen in Setup: the box then asks for radii, and **Suggest** proposes
-a range from the frames themselves — 4.4 to 14 every 1.1 here, from the
-distances between 147 of them): 384 clusters at a radius of 4 Å², 121 at 6,
-47 at 8, 20 at 10, 10 at 12 — no plateau, where several radii would give the
+**eQual** finds as many clusters as a radius makes (Scans ▸ Elbow, with
+eQual chosen in Setup: the box then asks for radii, and **Suggest** proposes
+a range from the frames themselves — 3.4 to 10 every 0.73 here, from the
+distances between 147 of them): 194 clusters at a radius of 4 Å², 55 at 6,
+19 at 8, 9 at 10, 7 at 12 — no plateau, where several radii would give the
 same clusters. (The radius is MDANCE's MSD: 8 Å² is an RMSD of 4 Å to the
 seed, √(2 × 8).)
 
@@ -244,14 +248,14 @@ each cluster by half.
    Each cluster by the half of the trajectory its frames came from.
 
 Both halves visit all three clusters — no state is missing from either —
-but not equally: cluster 1 holds 964 frames of the first half and 669 of
+but not equally: cluster 1 holds 909 frames of the first half and 599 of
 the second. The line under the Groups box says it in a number: *First and
-second: divergence 0.006 (0: the same shares of the clusters; 0.69: no
-cluster in common); cluster 1 differs most, 32.1% of first against 22.3%
+second: divergence 0.007 (0: the same shares of the clusters; 0.69: no
+cluster in common); cluster 1 differs most, 30.3% of first against 20.0%
 of second.* The halves are alike, not the same: the populations have not
 settled to better than ten points of a share, and a longer run, or more
 replicas, would change them. **Map** places every frame on the first two
-principal components (39% and 13% of the variance), coloured by half, each
+principal components (36% and 13% of the variance), coloured by half, each
 cluster's representative ringed; and
 **Profiles** says, residue by residue, where the clusters differ from the
 most populated one (:doc:`groups`).
@@ -276,26 +280,27 @@ VMD (``vmd -dispdev text -e tau.tcl``):
    package require vmdance
    set m [mol new aligned_tau.pdb]
    mol addfile aligned_original_tau_6K.dcd waitfor all
-   animate delete beg 0 end 0 $m
-   vmdance alignment -mol $m -sel backbone  ;# as_is 4.146 fitted 3.956 … superposed 1
+   animate delete beg 0 end 0 $m           ;# 6001 frames
+   set sel "resid 3 to 12 and name CA N C O H"
+   vmdance alignment -mol $m -sel $sel      ;# as_is 3.711 fitted 3.304 … superposed 1
    # how many clusters: the scores and the stability at k 2 to 12
-   vmdance elbow -mol $m -sel backbone -kinit CompSim -from 2 -to 12 -stability 1
-   vmdance elbow suggest                    ;# db_lowest 2 … db_dip 6 … ch_highest 2 … stable {2 3} …
+   vmdance elbow -mol $m -sel $sel -kinit CompSim -from 2 -to 12 -stability 1
+   vmdance elbow suggest                    ;# db_lowest 2 … db_dip 5 … ch_highest 2 … stable {2 3} …
    vmdance elbow load 3                     ;# k 3: the clustering
    vmdance clusters                         ;# the table
    vmdance silhouette                       ;# mean 0.25 (from the clusters' mean structures)
    vmdance silhouette -kind pairs           ;# mean 0.27 (from every frame)
    # the two halves as groups
    vmdance groups -blocks 2                 ;# first 0-2999, second 3000-6000
-   vmdance makeup                           ;# 0 {1122 1269} 1 {964 669} 2 {914 1063}
-   vmdance groups compare                   ;# pairs {{first second 0.006155 0.09841 1}} words {…}
+   vmdance makeup                           ;# 0 {1123 1289} 1 {909 599} 2 {968 1113}
+   vmdance groups compare                   ;# pairs {{first second 0.007143 0.1034 1}} words {…}
    vmdance map
    vmdance profiles
-   # a second opinion: HELM's merges' heights, eQUAL's radius
-   vmdance -mol $m -sel backbone -algorithm helm -k 3 -initial 60
+   # a second opinion: HELM's merges' heights, eQual's radius
+   vmdance -mol $m -sel $sel -algorithm helm -k 3 -initial 60
    dict get [vmdance tree] heights
-   vmdance radii -mol $m -sel backbone      ;# … from 4.4 to 14 by 1.1
-   vmdance elbow -mol $m -sel backbone -algorithm equal -radii {4 6 8 10 12}
+   vmdance radii -mol $m -sel $sel          ;# … from 3.4 to 10 by 0.73
+   vmdance elbow -mol $m -sel $sel -algorithm equal -radii {4 6 8 10 12}
    # keep it
    vmdance run 1
    vmdance session save tau.vmdance

@@ -7,7 +7,10 @@ Parameters
 Every parameter is an option of the command (``-name value``), a field of
 the window's Setup tab, and — but for the few that are the plugin's own —
 an option of ``mdance-cli`` of the same name (``--name``). Its default is
-the MDANCE plugin's. ``vmdance parameters algorithm`` lists them in a
+the MDANCE plugin's, but for k (6 for every algorithm given one), HELM's
+*Merge* (``Intra``) and eQual's radius (2; it had none). A few are the
+command's only: the window does not show them, and sends their default.
+``vmdance parameters algorithm`` lists them in a
 script. A number is 0, or between 1.2e-38 and 3.4e38 in size:
 ``mdance-cli`` reads HELM's as C floats, the others as doubles, and fails
 on one beyond (a session's run that holds one still opens).
@@ -17,7 +20,7 @@ KMeans NANI
 
 K-means with N-ary natural initiation: k clusters, seeded by extended similarity.
 
-``-k``: the number of clusters (default 10). ``-metric``: see :doc:`algorithms`.
+``-k``: the number of clusters (default 6). ``-metric``: see :doc:`algorithms`.
 
 .. list-table::
    :header-rows: 1
@@ -41,7 +44,7 @@ DIVINE
 
 Divisive hierarchical clustering: the trajectory split in two, cluster by cluster, until k clusters.
 
-``-k``: the number of clusters (default 3). ``-metric``: MSD only (see :doc:`algorithms`).
+``-k``: the number of clusters (default 6). ``-metric``: MSD only (see :doc:`algorithms`).
 
 .. list-table::
    :header-rows: 1
@@ -74,7 +77,7 @@ Divisive hierarchical clustering: the trajectory split in two, cluster by cluste
    * - ``-end-mode``
      - ``k``
      - ``k``, ``points``
-     - **Stop when**: k clusters are reached, or (points: k not used) no cluster can be split leaving the smallest share on each side
+     - **Stop when**: k clusters are reached, or (points: k not used) no cluster can be split leaving the smallest share on each side (the command's only: the window does not show it, and sends ``k``)
    * - ``-percentage``
      - ``10``
      - whole number, 1 to 100
@@ -85,7 +88,7 @@ HELM
 
 Hierarchical agglomerative clustering: the many small clusters of a first NANI clustering merged until k remain.
 
-``-k``: the number of clusters (default 10; 0: stop by ``-eps`` only). ``-metric``: see :doc:`algorithms`.
+``-k``: the number of clusters (default 6; 0: stop by ``-eps`` only). ``-metric``: see :doc:`algorithms`.
 
 .. list-table::
    :header-rows: 1
@@ -112,7 +115,7 @@ Hierarchical agglomerative clustering: the many small clusters of a first NANI c
      - a file
      - **Or from a file**: Start from the clusters of a label file instead (one label per clustered frame, or frame,label rows; # comments) (the plugin's own: not passed to the backend)
    * - ``-merge-scheme``
-     - ``Inter``
+     - ``Intra``
      - ``Inter``, ``Intra``, ``Half``
      - **Merge**: Which two clusters merge next: the most similar pair (Inter), the pair whose union stays most compact (Intra), or a mix (Half)
    * - ``-eps``
@@ -136,7 +139,7 @@ Hierarchical agglomerative clustering: the many small clusters of a first NANI c
      - number, at least 0
      - **And smaller than**: Trim: also leave out starting clusters smaller than this (below 1: a share of the frames)
 
-eQUAL
+eQual
 -----
 
 Extended quality clustering: clusters grown within a radius, their number following from it; frames outside every one are noise.
@@ -152,9 +155,9 @@ No ``-k``: the number of clusters follows from the radius. ``-metric``: MSD only
      - Values
      - Meaning
    * - ``-threshold``
-     - (needed)
+     - ``2``
      - number, at least 0
-     - **Radius**: MDANCE's MSD (Å²) within which a frame joins a cluster's seed — for two frames half their RMSD²: a frame joins when its RMSD² to the seed is at most twice the radius; the number of clusters follows from it (try 1)
+     - **Radius**: MDANCE's MSD (Å²) within which a frame joins a cluster's seed — for two frames half their RMSD²: a frame joins when its RMSD² to the seed is at most twice the radius; the number of clusters follows from it (Suggest a radius proposes one from the frames)
    * - ``-seed-method``
      - ``medoid``
      - ``medoid``, ``comp_sim``

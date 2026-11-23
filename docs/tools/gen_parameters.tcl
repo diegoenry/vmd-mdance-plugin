@@ -35,7 +35,10 @@ lappend out ".. This page is written by docs/tools/gen_parameters.tcl from the p
     "Every parameter is an option of the command (``-name value``), a field of" \
     "the window's Setup tab, and — but for the few that are the plugin's own —" \
     "an option of ``mdance-cli`` of the same name (``--name``). Its default is" \
-    "the MDANCE plugin's. ``vmdance parameters algorithm`` lists them in a" \
+    "the MDANCE plugin's, but for k (6 for every algorithm given one), HELM's" \
+    "*Merge* (``Intra``) and eQual's radius (2; it had none). A few are the" \
+    "command's only: the window does not show them, and sends their default." \
+    "``vmdance parameters algorithm`` lists them in a" \
     "script. A number is 0, or between 1.2e-38 and 3.4e38 in size:" \
     "``mdance-cli`` reads HELM's as C floats, the others as doubles, and fails" \
     "on one beyond (a session's run that holds one still opens)." ""
@@ -55,6 +58,7 @@ foreach a [${A}::all] {
     foreach p [${A}::params $a] {
         lassign $p name type def lim label tip
         set local [expr {$name in [${A}::get $a local] ? " (the plugin's own: not passed to the backend)" : ""}]
+        if {[${A}::window_hides $a $name]} { append local " (the command's only: the window does not show it, and sends ``$def``)" }
         lappend out "   * - ``-$name``" "     - [default_cell $p]" "     - [lim $type $def $lim]" \
             "     - **$label**: $tip$local"
     }

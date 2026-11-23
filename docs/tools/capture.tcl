@@ -172,7 +172,7 @@ update
 set ::VMDance::GUI::E(cli) /opt/CPP-MDANCE/build/cli/mdance-cli
 foreach c [${G}::_descendants $w.settings] {
     if {[winfo class $c] eq "TLabel" && [string match "In use:*" [$c cget -text]]} {
-        $c configure -text "In use: the program /opt/CPP-MDANCE/build/cli/mdance-cli\nAlgorithms: KMeans NANI, DIVINE, HELM, eQUAL"
+        $c configure -text "In use: the program /opt/CPP-MDANCE/build/cli/mdance-cli\nAlgorithms: KMeans NANI, DIVINE, HELM, eQual"
     }
 }
 shot dialog_settings $w.settings

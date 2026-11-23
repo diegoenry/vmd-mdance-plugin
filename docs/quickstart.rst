@@ -23,7 +23,7 @@ In the window
 3. **Setup ▸ What to cluster**: the molecule; the atoms (``name CA`` by
    default; the line under the field says how many); the frames, and every
    n-th.
-4. **Setup ▸ Algorithm**: KMeans NANI, with k 10 by default. Press
+4. **Setup ▸ Algorithm**: KMeans NANI, with k 6 by default. Press
    **Cluster** (Ctrl+R). It runs in the background, and the ring in the
    toolbar shows how far it is (with the library, VMD waits until it ends).
 5. **Results**: the table of clusters. Click a cluster: it is drawn on top
@@ -61,7 +61,8 @@ In a script
    set m [mol new aligned_tau.pdb]
    mol addfile aligned_original_tau_6K.dcd waitfor all
    animate delete beg 0 end 0 $m     ;# the PDB's own frame: cluster the DCD's 6001
-   vmdance elbow -mol $m -sel backbone -kinit CompSim -from 2 -to 12 -stability 1
+   set sel "resid 3 to 12 and name CA N C O H"   ;# the atoms MDANCE's tutorial clusters
+   vmdance elbow -mol $m -sel $sel -kinit CompSim -from 2 -to 12 -stability 1
    vmdance elbow suggest             ;# where the scores point, and the k the seedings agree on
    vmdance elbow load 3              ;# the stable k: the clustering
    vmdance clusters

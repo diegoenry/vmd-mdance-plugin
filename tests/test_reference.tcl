@@ -93,7 +93,8 @@ check "  the CSV holds VMD's coordinates, in the selection's order" [expr {
 $s delete
 set labels_cli [${R}::labels]
 
-foreach {a args} {helm {-k 4 -initial 20 -initial-kinit KmeansPP} equal {-threshold 1.5}} {
+# (HELM named Inter: the program is run with it below; the plugin's default is Intra)
+foreach {a args} {helm {-k 4 -initial 20 -initial-kinit KmeansPP -merge-scheme Inter} equal {-threshold 1.5}} {
     if {$a ni $have} { skip "$a against the program" "not in this build"; continue }
     vmdance -mol $m -sel "name CA" -algorithm $a {*}$args -quiet 1
     set ok [expr {[llength [${R}::labels]] == 100 && [${R}::nclusters] >= 1}]
@@ -396,7 +397,7 @@ if {![file isdirectory [file join $::refruns results]]} {
     set lf [file join $::refruns results helm 1_betaheptapeptide labels_60_comp_sim.csv]
     set hs [file join $::refruns results helm 1_betaheptapeptide inter_6 inter_helm_summary_6.csv]
     if {"helm" in [::VMDance::Backend::algorithms] && [file exists $lf]} {
-        vmdance -mol $mh -sel $ca -algorithm helm -k 6 -initial-labels $lf -quiet 1
+        vmdance -mol $mh -sel $ca -algorithm helm -k 6 -initial-labels $lf -merge-scheme Inter -quiet 1
         check "HELM from MDANCE's 60 starting clusters (its label file read as is): 6 clusters of every frame" [expr {
             [${R}::nclusters] == 6 && [::tcl::mathop::+ {*}[${R}::sizes]] == 6001 && [llength [${R}::get zmatrix]] == 54 &&
             [llength [lsort -unique [${R}::get initial]]] == 60}]

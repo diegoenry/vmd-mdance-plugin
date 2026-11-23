@@ -40,9 +40,9 @@ numbers behind the note, for any input:
 .. code-block:: tcl
 
    vmdance alignment ?-mol top? ?-sel "name CA"? ?-first 0? ?-last -1? ?-step 1?
-       ;# as_is 4.146 fitted 3.956 frames 21 atoms 48 superposed 1 words {the frames are …}
+       ;# as_is 3.711 fitted 3.304 frames 21 atoms 50 superposed 1 words {the frames are …}
    vmdance radii ?-mol top? ?-sel "name CA"? ?-fit ""? ?-first 0? ?-last -1? ?-step 1?
-       ;# sample 147 pairs 10731 percentiles {2 4.39 5 5.86 10 7.17 25 9.83 50 13.5} from 4.4 to 14 by 1.1
+       ;# sample 147 pairs 10731 percentiles {2 3.42 5 4.5 10 5.57 25 7.56 50 10.3} from 3.4 to 10 by 0.73
 
 ``alignment`` takes a sample of the frames (the first and 20 others at
 most, evenly taken; 300 of the atoms at most) and gives their mean RMSD
@@ -50,7 +50,7 @@ from the first frame (Å), as they are (``as_is``) and once each is fitted
 on it by those atoms (``fitted``). ``superposed`` is 0 when a fit halves
 the distance and takes an ångström off it: such frames were not aligned,
 and clustered as they are they separate by where the molecule is, not by
-its shape. ``radii`` proposes a range to scan eQUAL's radius over
+its shape. ``radii`` proposes a range to scan eQual's radius over
 (``vmdance elbow -algorithm equal -radii``): it measures MDANCE's MSD (Å²,
 half the RMSD²) of every two of about 150 frames, evenly taken, and gives
 the values that 2, 5, 10, 25 and 50% of the pairs are within, and a range
@@ -119,7 +119,7 @@ Reading the clustering
 The tables are the clustering's record, in its own frame numbers: they
 answer whether or not its molecule is loaded. ``distances`` and the average
 linkage ``tree`` are made for 300 clusters or fewer: with more, they say so
-(a smaller k, a larger eQUAL radius); HELM's tree is its merges, at any
+(a smaller k, a larger eQual radius); HELM's tree is its merges, at any
 number. ``heights`` is each merge's height, the Tree plot's heights view:
 HELM's, the MSD (MDANCE's, Å²) of the cluster the merge makes; the
 linkage's, the RMSD² between the mean structures it joins (its distance).
@@ -168,7 +168,7 @@ A scan takes its own input and clustering options, as a clustering does:
 an option not given is the command's default (``-mol top -sel "name CA"``,
 no fit, every frame, KMeans NANI with its defaults), never the current
 run's. To scan what a run clustered, give its options again
-(``vmdance elbow -sel backbone -kinit CompSim -from 2 -to 12``). A scan
+(``vmdance elbow -sel $sel -kinit CompSim -from 2 -to 12``). A scan
 says what it reads (unless ``-quiet 1``), and notes when that is not what
 the current run clustered. A record's ``nclusters`` counts the clusters
 with frames. A sweep's seedings are ``-seedings`` (HELM's: its first
@@ -183,7 +183,7 @@ every two of them (1: the same clusters whatever the seeding; 0: as alike as
 chance); k-means NANI only. A seeding that cannot seed k (StratAll draws k
 seeds from the densest share of the frames) is left out at that k:
 ``compared`` says how many were compared, and with fewer than two the
-stability is ``""``. eQUAL is given no k: its elbow scans its radius
+stability is ``""``. eQual is given no k: its elbow scans its radius
 (``-radii``, MDANCE's MSD, two values at least; each radius is the
 clustering's ``-threshold``, which is not given), and a record's
 ``nclusters`` is what that radius gave (:doc:`scans`). ``elbow load`` takes a

@@ -99,7 +99,7 @@ The **Make-up** plot stacks each cluster's frames by group; or each group's
 frames by cluster; as counts or as shares (each bar's frames written above
 it: as shares every bar is as tall). ``vmdance makeup`` gives the
 counts (``-by cluster`` or ``-by group``), and the export a row per cluster
-and group, with both shares. Noise (eQUAL's, HELM's trimmed frames) and
+and group, with both shares. Noise (eQual's, HELM's trimmed frames) and
 frames of no group are left out.
 
 Map

@@ -4,6 +4,28 @@ Changes
 1.0 alpha 1, as it grew
 -----------------------
 
+**22 November 2026: the review of 13 November.**
+
+- Defaults: k is 6 for KMeans NANI, DIVINE and HELM (10, 3 and 10 before);
+  HELM merges ``Intra`` (``Inter`` before; both and ``Half`` still
+  offered); eQual's radius is 2 (it had none, and had to be typed).
+  **Suggest a radius** replaces the default, and keeps a radius typed.
+- DIVINE: the window has no *Stop when*: it stops at k.
+  ``-end-mode points`` stays the command's (``Algo::window_hides``).
+- The name is written eQual, as MDANCE writes it (eQUAL before), in the
+  window, the messages, the docs and the backend's progress lines.
+- Settings ▸ window size: medium and large are wider than compact by 200
+  and 400 pixels (at 12 pt) beyond what the panels need. Where the panels
+  needed more than the sizes' widths, the three were as wide as the
+  panels, and only their heights differed.
+- The fit (*Fit to the first frame*) is the plugin's own, exact (Horn's
+  quaternion: Newton's method on its polynomial, Jacobi where its root is
+  nearly double). VMD's ``measure fit`` stopped after 1000 iterations
+  (*Matrix: Warning: no convergence*) with a rotation up to 11% above the
+  least RMSD on the tests' fixtures; on the tau peptide within 0.0001 Å.
+- An empty number is "needed", whatever its default (eQual's Radius
+  cleared in the window says so).
+
 **22 November 2026: long selections, and the tests on Windows.**
 
 - VMD crashes freeing a selection of about 100 000 single values (VMD 2.0
@@ -34,7 +56,7 @@ Changes
   range after a scan's k was made the clustering, or a session opened, and
   the range was kept for the next molecule, clustering part of it);
   choosing another molecule puts a range back to all frames.
-- eQUAL: under the radius, the RMSD it stands for (√(2 × radius));
+- eQual: under the radius, the RMSD it stands for (√(2 × radius));
   *Suggest a radius*, and *Suggest* in Scans ▸ Elbow, propose a radius and
   a scan's range from the distances between about 150 frames (``vmdance
   radii``). The Scans box shows the k row or the radius row by the
@@ -63,7 +85,7 @@ Changes
   ``metric="sqeuclidean"``), beside the one from the clusters' mean
   structures, which stays the default (``vmdance silhouette -kind``; both
   in the export). The axis starts at the lowest value.
-- Elbow: the stability (eQUAL's clusters found) in a strip of its own
+- Elbow: the stability (eQual's clusters found) in a strip of its own
   under the scores, with a scale; rings on Davies–Bouldin's lowest value
   and its sharpest dip (MDANCE's two criteria) and on Calinski–Harabasz's
   highest, and a line of words (``vmdance elbow suggest``); a third choice
@@ -122,7 +144,7 @@ Changes
 - ``vmdance tree`` gives each merge's height (``heights``), and the tree
   export a column of them, as the Tree plot's heights view draws them.
 - The stability scan says how many seedings each k compared; ``elbow
-  load`` takes a k as a whole number; an eQUAL scan refuses ``-threshold``
+  load`` takes a k as a whole number; an eQual scan refuses ``-threshold``
   (each radius is it).
 - Groups: a file with a header naming its columns (the plugin's own groups
   export) reads back; quoted names; a file of a group per frame reads in a
@@ -131,7 +153,7 @@ Changes
   many atoms) and VMD stays responsive while it is made.
 - The window: the Export dialog offers the groups, make-up, map and
   profiles; the Figures dialog has a text size, and names the plots it left
-  out; the toolbar's Elbow scans eQUAL by radius; the groups' controls are
+  out; the toolbar's Elbow scans eQual by radius; the groups' controls are
   off while a job runs; hints for the Tree's heights view and a scan by
   radius.
 - Fixed: HELM's merges' heights after a trim (all blank); the Make-up and
@@ -150,7 +172,7 @@ Changes
   on two principal components); the profiles (each group's and cluster's
   RMSF) — three new plots, 13 in all (:doc:`groups`).
 - The elbow scan's stability (NANI's four deterministic seedings compared);
-  eQUAL's scan by radius; HELM's merges' heights (:doc:`scans`).
+  eQual's scan by radius; HELM's merges' heights (:doc:`scans`).
 - Figures take a text size (``-text``).
 
 **October 2026: VMDance.** The plugin took the MDANCE plugin's place in its

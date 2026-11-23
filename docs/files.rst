@@ -215,7 +215,7 @@ Export
        (``distance_cluster_c_from_r``), atom by atom (Å)
    * - ``elbow``, ``sweep``
      - every k or configuration and its scores (the elbow's stability, when
-       it was measured; an eQUAL scan's radius in place of k)
+       it was measured; an eQual scan's radius in place of k)
    * - ``picks``
      - the picked frames
 

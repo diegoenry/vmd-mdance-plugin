@@ -12,6 +12,8 @@ set data [expr {[info exists env(MDANCE_DATA)] ? $env(MDANCE_DATA) : [file join 
 set out [file join $root docs _static data]
 file mkdir $out
 set rows {}
+# the atoms MDANCE's own tau example clusters (its tutorials' selection)
+set sel "resid 3 to 12 and name CA N C O H"
 proc keep {key value what} { lappend ::rows [list $key $value $what]; puts [format "%-24s %-14s %s" $key $value $what] }
 
 if {[catch {
@@ -19,14 +21,14 @@ if {[catch {
     mol addfile [file join $data aligned_original_tau_6K.dcd] waitfor all molid $m
     animate delete beg 0 end 0 $m
     keep frames [molinfo $m get numframes] "the frames clustered (the DCD's)"
-    set n [[atomselect $m backbone] num]
-    keep atoms $n "the backbone's atoms"
+    set n [[atomselect $m $sel] num]
+    keep atoms $n "the atoms of \"$sel\""
     # whether the frames look superposed (the note under Setup's Fit box)
-    set al [vmdance alignment -mol $m -sel backbone]
+    set al [vmdance alignment -mol $m -sel $sel]
     keep alignment "[dict get $al as_is] [dict get $al fitted] [dict get $al superposed]" "the frames from the first: Å as they are, Å fitted, superposed (1) or not"
     # the elbow scan, with the stability of NANI's four seedings
     set t0 [clock milliseconds]
-    set rec [vmdance elbow -mol $m -sel backbone -kinit CompSim -from 2 -to 12 -stability 1 -quiet 1]
+    set rec [vmdance elbow -mol $m -sel $sel -kinit CompSim -from 2 -to 12 -stability 1 -quiet 1]
     keep elbow_seconds [format %.0f [expr {([clock milliseconds] - $t0) / 1000.0}]] "the elbow scan with the stability, k 2-12"
     foreach r $rec {
         set k [dict get $r k]
@@ -65,17 +67,20 @@ if {[catch {
     set pf [vmdance profiles]
     keep profiles_reference [dict get $pf reference] "the profiles' reference: the most populated cluster"
     # HELM, and its merges' heights
-    vmdance -mol $m -sel backbone -algorithm helm -k 3 -initial 60 -quiet 1
+    vmdance -mol $m -sel $sel -algorithm helm -k 3 -initial 60 -quiet 1
     set hs [dict get [vmdance tree] heights]
     keep helm_merges [llength $hs] "HELM's merges, from its starting clusters to 3"
     set last [lrange $hs end-7 end]
     keep helm_last_heights [join [lmap h $last {format %.3g $h}] " "] "the last eight merges' heights (k 11 to 4)"
-    # eQUAL's radius: a range from the frames, and the clusters at five radii
-    set rd [vmdance radii -mol $m -sel backbone]
+    # the README's example: KMeans NANI at k 6, seeded by CompSim
+    vmdance -mol $m -sel $sel -algorithm kmeans -k 6 -kinit CompSim -quiet 1
+    keep readme_k6 "[join [::VMDance::Results::sizes] { }] [format %.1f [::VMDance::Results::get ch]] [format %.2f [::VMDance::Results::get db]]" "README: KMeans NANI, k 6, CompSim: sizes, Calinski-Harabasz, Davies-Bouldin"
+    # eQual's radius: a range from the frames, and the clusters at five radii
+    set rd [vmdance radii -mol $m -sel $sel]
     keep radii_suggested "[dict get $rd from] [dict get $rd to] [dict get $rd by] [dict get $rd sample]" "vmdance radii: from, to, by, and the frames sampled"
     set radii {4 6 8 10 12}
-    set rr [vmdance elbow -mol $m -sel backbone -algorithm equal -radii $radii -quiet 1]
-    keep equal_radii [join [lmap r $rr {dict get $r nclusters}] " "] "eQUAL's clusters at radius [join $radii {, }]"
+    set rr [vmdance elbow -mol $m -sel $sel -algorithm equal -radii $radii -quiet 1]
+    keep equal_radii [join [lmap r $rr {dict get $r nclusters}] " "] "eQual's clusters at radius [join $radii {, }]"
 } err]} { puts "ERROR $err\n$::errorInfo" }
 set fh [open [file join $out tutorial_numbers.txt] w]
 puts $fh "# The numbers of docs/tutorial.rst, made by docs/tools/tutorial_numbers.tcl."

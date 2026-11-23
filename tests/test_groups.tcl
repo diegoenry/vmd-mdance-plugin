@@ -1,4 +1,4 @@
-# The frames' groups, the map, the profiles, the scans' stability, eQUAL's
+# The frames' groups, the map, the profiles, the scans' stability, eQual's
 # radius scan and HELM's merge heights (text mode; the real backend):
 #   cd <VMDance>; vmd -dispdev text -e tests/test_groups.tcl < /dev/null
 # Each is checked against a direct computation: the map against numpy's PCA
@@ -309,9 +309,9 @@ check "elbow load: a k as a whole number (\"010\", \"0x2\", \"2e0\" are no k)" [
     [err {vmdance elbow load 2}] eq ""}]
 
 #---------------------------------------------------------------------------
-# eQUAL: the radius scan
+# eQual: the radius scan
 #---------------------------------------------------------------------------
-check "radius scan: -threshold refused (each radius is the threshold)" [string match "*-threshold: a scan of eQUAL runs each radius*" [err {
+check "radius scan: -threshold refused (each radius is the threshold)" [string match "*-threshold: a scan of eQual runs each radius*" [err {
     vmdance elbow -mol $p -sel "protein and name CA" -algorithm equal -radii {1 2} -threshold 7 -quiet 1}]]
 set recs [vmdance elbow -mol $p -sel "protein and name CA" -algorithm equal -radii {2 1 4} -quiet 1]
 check "radius scan: sorted, a record each" [expr {[lmap r $recs {dict get $r radius}] eq {1.0 2.0 4.0} || [lmap r $recs {dict get $r radius}] eq {1 2 4}}]
@@ -320,14 +320,14 @@ foreach r $recs {
     vmdance -mol $p -sel "protein and name CA" -algorithm equal -threshold [dict get $r radius] -quiet 1
     if {[dict get [vmdance info] nclusters] != [dict get $r nclusters]} { set ok 0 }
 }
-check "radius scan: each radius's clusters as eQUAL's alone" $ok
+check "radius scan: each radius's clusters as eQual's alone" $ok
 set info [vmdance elbow load 2]
 check "radius scan: elbow load a radius" [expr {[dict get $info algorithm] eq "equal" && [dict get $info params threshold] == 2}]
 check "radius scan: no such radius" [string match "*no radius 3*" [err {vmdance elbow load 3}]]
 check "radius scan: two radii at least" [string match "*two radii*" [err {vmdance elbow -mol $p -algorithm equal -radii {1} -quiet 1}]]
 check "radius scan: above 0" [string match "*above 0*" [err {vmdance elbow -mol $p -algorithm equal -radii {0 1} -quiet 1}]]
 check "radius scan: not k" [string match "*given no k*" [err {vmdance elbow -mol $p -algorithm equal -ks {2 3} -quiet 1}]]
-check "radius scan: -radii is eQUAL's" [string match "*-radii is eQUAL's*" [err {vmdance elbow -mol $p -radii {1 2} -quiet 1}]]
+check "radius scan: -radii is eQual's" [string match "*-radii is eQual's*" [err {vmdance elbow -mol $p -radii {1 2} -quiet 1}]]
 vmdance session save $s
 vmdance run clear
 vmdance session load $s

@@ -1,5 +1,5 @@
 # What the review found with many clusters (g6: thousands of clusters, which
-# eQUAL makes at a small radius), kept from coming back (text mode, the fake
+# eQual makes at a small radius), kept from coming back (text mode, the fake
 # backend):
 #   F04  the plugin's measures after the backend (every frame against every
 #        cluster, every two clusters) let VMD work and say how far they are:

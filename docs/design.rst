@@ -78,7 +78,7 @@ Choices of this plugin
 - **Checked before running.** What can be known before the backend runs is
   checked there (NANI's seeds, HELM's starting clusters and trim, DIVINE's
   crash, metric, first split and smallest share, the diversity selection
-  with an index other than MSD, eQUAL's
+  with an index other than MSD, eQual's
   radius, numbers the backend cannot read, the frames and atoms,
   coordinates that are not numbers, what the library can take), with the
   option's name and what to change: a message from the backend is the last

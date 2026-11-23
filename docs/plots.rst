@@ -37,7 +37,7 @@ Populations
    :width: 100%
 
 The frames of each cluster, or their share of the clustered frames; in the
-clusters' order or largest first; eQUAL's noise as a grey bar. Click a bar:
+clusters' order or largest first; eQual's noise as a grey bar. Click a bar:
 select the cluster (Shift: add or remove it). Double-click: go to its
 representative.
 
@@ -292,7 +292,7 @@ not choose between them (:doc:`scans`).
 
 The scan's stability is drawn in a strip of its own under the scores, with
 a scale from 0 to 1: a bar at each k, its value above it (how alike NANI's
-seedings cluster). An eQUAL scan
+seedings cluster). An eQual scan
 is by radius: the x axis is the radius, and the strip's bars say how many
 clusters each gave. Hover a k, over the scores or the strip: its clusters'
 shares, and in the readout its scores, the variance explained and its

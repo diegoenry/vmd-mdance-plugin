@@ -38,13 +38,13 @@ namespace eval ::VMDance::Measure {
     # the distances between the clusters (k × k) and the tree of their mean
     # structures are made for maxk clusters or fewer: 2k² numbers, about
     # 235 bytes each in Tcl (7.5 GB, and minutes, for the 4000 clusters
-    # eQUAL makes at a small radius), and no plot draws more (a cell or a
+    # eQual makes at a small radius), and no plot draws more (a cell or a
     # leaf a cluster)
     variable maxk 300
     # with more live clusters than near_min, a frame's nearest other mean
     # structure (its silhouette's b) is looked for among those the triangle
     # inequality leaves (_near_other): the same number, without k distances
-    # a frame (eQUAL's 1462 clusters of 4000 frames took 34 s)
+    # a frame (eQual's 1462 clusters of 4000 frames took 34 s)
     variable near_min 64
 }
 

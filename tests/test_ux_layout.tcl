@@ -108,10 +108,28 @@ foreach win {compact medium large} {
 lassign $sizes c12 m12 l12
 check "8: the window's sizes of Settings are three sizes ($sizes)" [expr {
     [lindex $c12 1] == 660 && [lindex $m12 1] >= 740 && [lindex $m12 1] >= $nh12 && [lindex $l12 1] >= 880 && [lindex $l12 1] >= $nh12 &&
-    [lindex $c12 0] >= $mw12 && [lindex $c12 0] <= [lindex $m12 0] && [lindex $m12 0] < [lindex $l12 0]}]
+    [lindex $c12 0] >= $mw12 && [lindex $c12 0] < [lindex $m12 0] && [lindex $m12 0] < [lindex $l12 0]}]
 check "  medium (a new user's) and large show every left page whole (no scroll bar)" [expr {[winfo manager [winfo parent $cv].sb] eq ""}]
 check "  their names have no number ([dict values [set ${G}::window_names]])" [expr {
     ![regexp {[0-9]} [dict values [set ${G}::window_names]]] && [dict keys [set ${G}::window_names]] eq [dict keys [set ${G}::window_sizes]]}]
+# (the review of 13 November: where the panels need more than the sizes'
+# widths, all three were as wide as the panels, only their heights
+# differing; sizes made narrower than the panels here, on a screen that
+# does not limit them)
+set sizes0 [set ${G}::window_sizes]
+set ${G}::window_sizes {compact {600 660} medium {700 740} large {800 880}}
+on_screen 4000 2400
+set ws {}
+foreach win {compact medium large} {
+    ${G}::set_appearance 12 $win
+    update
+    lappend ws [winfo width $w]
+}
+set ${G}::window_sizes $sizes0
+on_screen 1920 1200
+lassign [${G}::needed_size] nwn
+check "  the panels wider than the sizes: compact as wide as they need, medium and large wider by 100 and 200 ($ws; $nwn needed)" [expr {
+    abs([lindex $ws 0] - $nwn) <= 2 && abs([lindex $ws 1] - [lindex $ws 0] - 100) <= 2 && abs([lindex $ws 2] - [lindex $ws 0] - 200) <= 2}]
 ${G}::set_appearance 16 compact
 update
 lassign [wm minsize $w] mw16 mh16

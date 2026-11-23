@@ -11,7 +11,7 @@ VMD and MDANCE share their MD, molecular dynamics: VMDance is the two in
 one, as its logo draws it. A VMD Tcl/Tk plugin that clusters the frames of a
 trajectory with the algorithms of
 [MDANCE](https://github.com/mqcomplab/MDANCE) — KMeans NANI, DIVINE, HELM
-and eQUAL, run by their C++ port
+and eQual, run by their C++ port
 [CPP-MDANCE](https://github.com/mqcomplab/CPP-MDANCE) — and shows the
 clusters: how many frames each holds, when the trajectory visits it, how it
 moves between them, how tight and how far apart they are, how they join, and
@@ -25,7 +25,8 @@ and sweeps compare values of k and parameters.
 VMDance replaces, rewritten from scratch, the MDANCE VMD plugin this
 repository held before (its last version is commit `6257a8a`; the rewrite
 was called MDANCEView until it took its place). It keeps its science — the
-same backend, the same algorithms and defaults, the same kinds of measures
+same backend, the same algorithms and defaults (but for k, HELM's *Merge*
+and eQual's radius: see below), the same kinds of measures
 (the silhouette computed otherwise: see *Differences*) — and follows the
 design of the DihedralView, InteractionView and Molywood Studio plugins: one
 Tcl package with a single command that scripts everything the window does, a
@@ -112,12 +113,15 @@ turns into a warning, the command notes it as it clusters them, and
 | **KMeans NANI** | k-means with N-ary natural initiation: the seeds from MDANCE's extended-similarity schemes (stratified, complementary similarity, diversity selection) or k-means++ | k (10), the seeding (stratified, all frames), the high-density share (10%) |
 | **DIVINE** | divisive hierarchical: the trajectory split in two, cluster by cluster, until k | k (3), the split criterion, the anchors (a 2-cluster NANI, or the two most distant frames), the smallest share a split leaves, when to stop |
 | **HELM** | agglomerative hierarchical: the many small clusters of a first NANI clustering (or of a label file, such as MDANCE's own) merged until k remain | k (10), the starting clusters (50, stratified), the merge scheme, the trim |
-| **eQUAL** | extended quality: clusters grown within a radius; their number follows from it, and frames outside every one are noise | the radius (MDANCE's MSD, Å²: half the RMSD² to the seed), the seeds, the rejection of small or loose clusters |
+| **eQual** | extended quality: clusters grown within a radius; their number follows from it, and frames outside every one are noise | the radius (MDANCE's MSD, Å²: half the RMSD² to the seed), the seeds, the rejection of small or loose clusters |
 
 The metric is the mean square deviation (MSD) of the coordinates; the ten
 binary and extended-similarity indices of MDANCE are there for
 fingerprint-like data (**Settings ▸ Unlock the metrics**). The defaults are
-those of the MDANCE plugin's window. Checks come
+those of the MDANCE plugin's window, but for three: k is 6 for every
+algorithm given one, HELM merges `Intra`, and eQual's radius is 2 (it had
+none); and DIVINE stops at k in the window (`-end-mode points` is the
+command's). Checks come
 before the backend runs, and say what to change: NANI's seedings by
 extended similarity draw k seeds from the densest share of the frames, so
 k 10 at 10% needs 100 frames; DIVINE refining an OutlierPair split of
@@ -131,10 +135,10 @@ HELM merges more starting clusters than k (those its first clustering
 leaves with frames; what `-min-samples` and `-trim-k` leave too; what
 `-trim-val`'s cut, an MSD the backend computes, leaves once HELM has run),
 stops at k or at `-eps` (one of the two),
-and trims by a number of clusters or an MSD, not both; eQUAL's similarity
+and trims by a number of clusters or an MSD, not both; eQual's similarity
 ceiling is above 0; a metric other than MSD with the seedings that use the
 diversity selection (CompSim, DivSelect) makes CPP-MDANCE read past its
-data, and with eQUAL puts every frame in one cluster: both are refused; a
+data, and with eQual puts every frame in one cluster: both are refused; a
 number is 0, or 1.2e-38 to 3.4e38 in size (what the backend can read).
 Coordinates that are not numbers (NaN, infinite: a run that blew up) are
 refused as they are read, naming the frame.
@@ -171,7 +175,7 @@ help). The left panel has five tabs:
   without one, whether the frames look superposed: a warning when they do
   not); the algorithm, with a note of those the backend
   lacks (and of the library, when it is the one in use); its parameters
-  (greyed when they do not apply; under eQUAL's radius the RMSD it stands
+  (greyed when they do not apply; under eQual's radius the RMSD it stands
   for, and **Suggest a radius**, from the frames); **Cluster** runs in the
   background (with
   the library, VMD waits for it).
@@ -185,7 +189,7 @@ help). The left panel has five tabs:
   **Blocks…**, from a file) with how unlike they are, the map and the
   profiles. The run's menu numbers its clusters by size, as a new run.
 - **Scans**: the **Elbow** scan (the Setup's clustering at every k of a
-  range; eQUAL's at every radius of one, **Suggest** proposing it), with
+  range; eQual's at every radius of one, **Suggest** proposing it), with
   what it points to in words, and the **Sweep** (every combination of
   algorithms, k, metrics and
   seedings), with its table, the best configurations' rows coloured.
@@ -225,7 +229,7 @@ the selection.
 
 | Tab | Shows |
 |---|---|
-| **Populations** | the frames of each cluster, or their share; in order or largest first; eQUAL's noise; click to select, double-click to go to the representative |
+| **Populations** | the frames of each cluster, or their share; in order or largest first; eQual's noise; click to select, double-click to go to the representative |
 | **Make-up** | each cluster's frames by group (the method, replica or condition each came from), or each group's by cluster; counts or shares, each bar's frames written above it |
 | **Timeline** | the cluster of every frame, a lane per cluster (noise at the bottom), shaded by the cluster's share of the frames where a pixel holds several; each cluster's share window by window, or so far (with the frame by which every cluster has been seen); or every frame's RMSD² from its representative, coloured by cluster (a dot a frame and their running median above 400 frames); click to go to a frame |
 | **Transitions** | from each cluster to the one lag frames later: probabilities (the share into noise left out of the columns) or counts; the diagonal (staying) on or off |
@@ -236,7 +240,7 @@ the selection.
 | **Silhouette** | every frame's silhouette, cluster by cluster, sorted, with the mean: from the clusters' mean structures, or from every frame (squared distances) |
 | **Map** | every frame on the first two principal components of the clustered coordinates, to one scale, by group or by cluster, each cluster's representative ringed |
 | **Profiles** | atom by atom: each group's or cluster's fluctuations (RMSF), or each cluster's mean structure against the most populated one's; of many clusters, the selected (or the largest) in colour |
-| **Elbow** | Calinski–Harabasz and Davies–Bouldin at every k of the scan, each on its own axis, or the variance the clusters explain; rings where the scores point (Davies–Bouldin's lowest value and sharpest dip, Calinski–Harabasz's highest), and in a strip under them the stability (how alike NANI's seedings cluster); eQUAL by radius; hover a k for its clusters' shares, double-click to make it the clustering |
+| **Elbow** | Calinski–Harabasz and Davies–Bouldin at every k of the scan, each on its own axis, or the variance the clusters explain; rings where the scores point (Davies–Bouldin's lowest value and sharpest dip, Calinski–Harabasz's highest), and in a strip under them the stability (how alike NANI's seedings cluster); eQual by radius; hover a k for its clusters' shares, double-click to make it the clustering |
 | **Sweep** | the chosen score of every configuration, a row per algorithm, metric and seeding and a column per k, the best outlined; double-click to make one the clustering |
 
 ## Scripting (works in text mode)
@@ -247,10 +251,11 @@ package require vmdance
 mol new aligned_tau.pdb
 mol addfile aligned_original_tau_6K.dcd waitfor all
 animate delete beg 0 end 0             ;# the PDB's own frame: cluster the DCD's 6001 (VMD's frame = MDANCE's)
-vmdance -sel backbone -algorithm kmeans -k 6 -kinit CompSim
-# -> run 1 molid 0 sel backbone fit {} frames 6001 ... nclusters 6 sizes {691 1178 985 1177 1149 821} noise 0 ch 1036.1 db 2.04 ...
+set sel "resid 3 to 12 and name CA N C O H"   ;# the atoms MDANCE's own tutorial clusters (50)
+vmdance -sel $sel -algorithm kmeans -k 6 -kinit CompSim
+# -> run 1 molid 0 sel {resid 3 to 12 and name CA N C O H} fit {} frames 6001 ... nclusters 6 sizes {699 1093 1223 1292 721 973} noise 0 ch 1005.6 db 2.01 ...
 vmdance help                        ;# the subcommands, a line each (vmdance help elbow: its usage)
-vmdance alignment -sel backbone     ;# do the frames look superposed? as_is 4.146 fitted 3.956 ... superposed 1
+vmdance alignment -sel $sel         ;# do the frames look superposed? as_is 3.711 fitted 3.304 ... superposed 1
 vmdance clusters                    ;# {cluster frames percent msd msd_to_representative representative} ...
 vmdance get 2                       ;# frames, share, representative, silhouette, visits, members ...
 vmdance labels                      ;# {frame cluster ...}
@@ -258,14 +263,14 @@ vmdance timeline -windows 20        ;# each cluster's frames window by window, a
 vmdance transitions -lag 10         ;# probabilities, k × k
 vmdance silhouette -kind pairs      ;# every frame's silhouette from every frame (-kind centroid: from the mean structures)
 vmdance renumber                    ;# the clusters numbered by size, the largest 0: a new run
-vmdance -sel backbone -algorithm helm -k 6 -initial-labels labels_60.csv
-vmdance radii -sel backbone         ;# a range for eQUAL's radius, from the frames: ... from 4.4 to 14 by 1.1
-vmdance -sel backbone -algorithm equal -threshold 10
-vmdance elbow -sel backbone -kinit CompSim -from 2 -to 15   ;# {index k nclusters ch db sizes status message} ...
-vmdance elbow -sel backbone -from 2 -to 15 -stability 1      ;# and each k's stability across NANI's seedings
+vmdance -sel $sel -algorithm helm -k 6 -initial-labels labels_60.csv
+vmdance radii -sel $sel             ;# a range for eQual's radius, from the frames: ... from 3.4 to 10 by 0.73
+vmdance -sel $sel -algorithm equal -threshold 10
+vmdance elbow -sel $sel -kinit CompSim -from 2 -to 15   ;# {index k nclusters ch db sizes status message} ...
+vmdance elbow -sel $sel -from 2 -to 15 -stability 1      ;# and each k's stability across NANI's seedings
 vmdance elbow suggest               ;# where the scores point: db_lowest, db_dip, ch_highest, stable ... and in words
 vmdance elbow load 6                ;# that k made the clustering
-vmdance sweep -sel backbone -algorithms {kmeans helm} -from 2 -to 10 -seedings {StratAll CompSim}
+vmdance sweep -sel $sel -algorithms {kmeans helm} -from 2 -to 10 -seedings {StratAll CompSim}
 vmdance sweep best db
 vmdance prime                       ;# {pairwise frame union frame ... medoidAll frame ...}
 vmdance similarity                  ;# {isim x clusters {...} least_similar {...}}
@@ -274,7 +279,7 @@ vmdance makeup                      ;# each cluster's frames by group
 vmdance groups compare              ;# how unlike the groups' shares of the clusters are (0: the same; 0.69: none in common)
 vmdance map                         ;# the frames on their first two principal components
 vmdance profiles                    ;# atom by atom: each group's and cluster's RMSF, each cluster against the largest
-vmdance pick -sel backbone -method diversity -param 10
+vmdance pick -sel $sel -method diversity -param 10
 vmdance select 0 3
 vmdance draw -colour 1 -overlay 1 -top 10
 vmdance goto 3                      ;# VMD's frame to cluster 3's representative
@@ -437,10 +442,17 @@ Choices of this plugin:
 - **Every clustering is kept** as a run (the old plugin kept one), with
   PRIME and the similarity asked of it; sessions keep every run, the scans
   and the picks (`.vmdance`; the old `.mdance` files are imported).
+- **The fit** (*Fit to the first frame*, `-fit`) is computed by the plugin,
+  exactly (Horn's quaternion), not by VMD's `measure fit`: that stops
+  after 1000 iterations, says *Matrix: Warning: no convergence*, and its
+  rotation is then not always the closest (up to 11% above the least RMSD
+  on the tests' fixtures; within 0.0001 Å on MDANCE's tau peptide, whose
+  clusters it does not change). Reading the tau peptide's 6001 frames
+  with a fit on 50 atoms takes 2.3 s, 1.4 s with VMD's.
 - **Checked before running**: NANI's seeding limit (k seeds from the
   densest share of the frames), HELM's starting clusters and trim, DIVINE's
   crashing combination, its first split's seeds, its metric, its smallest
-  share and `-end-mode points`, eQUAL's radius, a metric other than MSD
+  share and `-end-mode points`, eQual's radius, a metric other than MSD
   with the
   diversity selection, numbers the backend cannot read, the frames,
   coordinates that are not numbers, and a selection whose atoms could
@@ -450,7 +462,7 @@ Choices of this plugin:
   skipped the checks in library mode, in the sweep and in the elbow scan),
   by a JSON reader rather than regular expressions.
 - **HELM's scores with a trim** are those of its clustered frames, as
-  MDANCE's and eQUAL's are: CPP-MDANCE's, which the old plugin showed,
+  MDANCE's and eQual's are: CPP-MDANCE's, which the old plugin showed,
   count the trimmed frames as one more cluster.
 - **Scans**: the elbow scan uses the Setup's parameters (the old one always
   StratAll 10% and MSD), keeps every k's clustering, and runs HELM from the
@@ -555,7 +567,7 @@ tests/
   test_hardening2_*.tcl  what the reviews of the second round's fixes found, a suite each (fx_g1 to fx_g5, g6 to g9, h1, oi, h3,
                        h4: docs/tests.rst says what each keeps); g9's, what the window's fixes ask of the core
   test_groups.tcl      the groups and their colours, the make-up, the map (numpy's PCA), the profiles, the scans' stability,
-                       eQUAL's radius scan, HELM's merges' heights, each against a direct computation (the real backend)
+                       eQual's radius scan, HELM's merges' heights, each against a direct computation (the real backend)
   test_ux.tcl          what the review of the window's use added to the core and the command: alignment, timeline, the silhouette
                        from every frame, what a scan suggests, the variance explained, blocks and the groups' divergence,
                        renumber, radii, the structures as models, help (the real backend)
@@ -640,7 +652,7 @@ skipped). What no suite can decide is in
   file says so (free room there, or set `TMPDIR`).
 - The distances between the clusters (k × k: their mean structures and
   their representatives) and the tree of the mean structures are made for
-  300 clusters or fewer: the thousands of clusters eQUAL makes at a small
+  300 clusters or fewer: the thousands of clusters eQual makes at a small
   radius would take gigabytes of VMD's memory, kept until it quits
   (`vmdance distances` and `tree` then say so; HELM's tree is its
   merges, at any number). An export then leaves them out, and the
@@ -710,9 +722,9 @@ skipped). What no suite can decide is in
 - `-metric` other than MSD is passed on as it is: those indices are for
   binary or fingerprint data, not Cartesian coordinates. With the seedings
   and the pick that use the diversity selection (CompSim, DivSelect,
-  eQUAL's comp_sim, the most diverse frames) it is refused: on coordinates
+  eQual's comp_sim, the most diverse frames) it is refused: on coordinates
   CPP-MDANCE reads past its data there (`mdance-cli` crashed, or every
-  frame landed in one cluster), and MDANCE's Python stops. With eQUAL it is
+  frame landed in one cluster), and MDANCE's Python stops. With eQual it is
   refused whatever the seeds: on coordinates every frame is within any
   radius of the seed by those indices, and all landed in one cluster.
 - Only VMD 2.1 on Linux has been tried; the window's macOS and Windows looks
@@ -721,7 +733,7 @@ skipped). What no suite can decide is in
 ## Credits
 
 The clustering is not this plugin's: the algorithms — KMeans NANI, DIVINE,
-HELM, eQUAL, PRIME and the extended (n-ary) similarity — are
+HELM, eQual, PRIME and the extended (n-ary) similarity — are
 [MDANCE](https://github.com/mqcomplab/MDANCE)'s (the Miranda-Quintana
 group, MIT), run by [CPP-MDANCE](https://github.com/mqcomplab/CPP-MDANCE)
 (© 2025 Andrey Nikitin, MIT). The host is

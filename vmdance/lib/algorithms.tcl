@@ -12,7 +12,11 @@
 # An algorithm takes every metric unless its metrics say which, and why
 # (metric_why, the window's label): DIVINE MSD (MDANCE's DIVINE splits by
 # MSD, and CPP-MDANCE's uses another only to choose the representatives),
-# eQUAL MSD (its radius by any other index holds every frame).
+# eQual MSD (its radius by any other index holds every frame).
+#
+# Every algorithm that is given k starts from 6 clusters. A parameter the
+# window does not show (window_hides: DIVINE's end-mode, always k there) is
+# the command's only; the window sends its default.
 #
 # A parameter is {name type default limits label tip}:
 #   int {lo hi}, real {lo hi}   a number within the limits ("" hi: none);
@@ -41,7 +45,7 @@ namespace eval ::VMDance::Algo {
     variable order {kmeans divine helm equal}
     variable A {
         kmeans {
-            label "KMeans NANI" k 10
+            label "KMeans NANI" k 6
             about "k-means with N-ary natural initiation: k clusters, seeded by extended similarity"
             local {} trim {}
             params {
@@ -50,9 +54,9 @@ namespace eval ::VMDance::Algo {
             }
         }
         divine {
-            label "DIVINE" k 3
+            label "DIVINE" k 6
             about "divisive hierarchical clustering: the trajectory split in two, cluster by cluster, until k clusters"
-            local {} trim {} metrics {MSD} metric_why "DIVINE splits by MSD"
+            local {} trim {} metrics {MSD} metric_why "DIVINE splits by MSD" window_hides {end-mode}
             params {
                 {split choice WeightedMSD {WeightedMSD MSD Radius} "Split" "Which cluster is split next: the largest mean square deviation weighted by size, the largest one, or the widest"}
                 {anchors choice NANI {NANI OutlierPair SplinterPair} "Anchors" "How a cluster is split in two: by a 2-cluster NANI, or from its two most distant frames"}
@@ -64,7 +68,7 @@ namespace eval ::VMDance::Algo {
             }
         }
         helm {
-            label "HELM" k 10
+            label "HELM" k 6
             about "hierarchical agglomerative clustering: the many small clusters of a first NANI clustering merged until k remain"
             local {initial initial-kinit initial-percentage initial-labels}
             trim {min-samples trim-val trim-k}
@@ -73,7 +77,7 @@ namespace eval ::VMDance::Algo {
                 {initial-kinit choice StratAll {StratAll StratReduced CompSim DivSelect KmeansPP Random VanillaKmeansPP} "Their seeding" "The seeding of the first NANI clustering"}
                 {initial-percentage int 10 {1 100} "Their seeds from %" "The share of the frames the first NANI clustering's seeds are drawn from: the starting clusters must be at most this share of the frames (extended-similarity seedings)"}
                 {initial-labels file "" {} "Or from a file" "Start from the clusters of a label file instead (one label per clustered frame, or frame,label rows; # comments)"}
-                {merge-scheme choice Inter {Inter Intra Half} "Merge" "Which two clusters merge next: the most similar pair (Inter), the pair whose union stays most compact (Intra), or a mix (Half)"}
+                {merge-scheme choice Intra {Inter Intra Half} "Merge" "Which two clusters merge next: the most similar pair (Inter), the pair whose union stays most compact (Intra), or a mix (Half)"}
                 {eps real -1 {"" ""} "Stop at" "Stop merging when the closest pair is less similar than this, with k 0 (-1: merge until k; one of the two stops HELM, not both)"}
                 {trim-start bool 0 {} "Trim first" "Leave out the loosest starting clusters before merging"}
                 {trim-k int 0 {0 ""} "Leave out" "Trim: the number of loosest starting clusters (largest MSD) left out"}
@@ -82,11 +86,11 @@ namespace eval ::VMDance::Algo {
             }
         }
         equal {
-            label "eQUAL" k 0
+            label "eQual" k 0
             about "extended quality clustering: clusters grown within a radius, their number following from it; frames outside every one are noise"
-            local {} trim {} metrics {MSD} metric_why "eQUAL's radius is an MSD"
+            local {} trim {} metrics {MSD} metric_why "eQual's radius is an MSD"
             params {
-                {threshold real "" {0 ""} "Radius" "MDANCE's MSD (Å²) within which a frame joins a cluster's seed — for two frames half their RMSD²: a frame joins when its RMSD² to the seed is at most twice the radius; the number of clusters follows from it (try 1)"}
+                {threshold real 2 {0 ""} "Radius" "MDANCE's MSD (Å²) within which a frame joins a cluster's seed — for two frames half their RMSD²: a frame joins when its RMSD² to the seed is at most twice the radius; the number of clusters follows from it (Suggest a radius proposes one from the frames)"}
                 {seed-method choice medoid {medoid comp_sim} "Seeds" "Where each cluster starts: the medoid of what is left, or the frames of highest complementary similarity"}
                 {n-seeds real 1 {0 ""} "Seeds tried" "How many seeds are tried for each cluster (below 1: a share of the frames)"}
                 {percentage int 10 {1 100} "Seeds from %" "The share of the densest frames the seeds come from (comp_sim)"}
@@ -133,6 +137,16 @@ proc ::VMDance::Algo::label {a} {
 proc ::VMDance::Algo::takes_k {a} { variable A; expr {[dict get $A $a k] > 0} }
 proc ::VMDance::Algo::default_k {a} { variable A; dict get $A $a k }
 proc ::VMDance::Algo::params {a} { variable A; dict get $A $a params }
+# The parameters the window shows (all but window_hides: the command's only).
+proc ::VMDance::Algo::window_params {a} {
+    variable A
+    set hide [expr {[dict exists $A $a window_hides] ? [dict get $A $a window_hides] : {}}]
+    lmap p [params $a] {expr {[lindex $p 0] in $hide ? [continue] : $p}}
+}
+proc ::VMDance::Algo::window_hides {a n} {
+    variable A
+    expr {[dict exists $A $a window_hides] && $n in [dict get $A $a window_hides]}
+}
 proc ::VMDance::Algo::param_names {a} { lmap p [params $a] {lindex $p 0} }
 proc ::VMDance::Algo::param {a name} {
     foreach p [params $a] { if {[lindex $p 0] eq $name} { return $p } }
@@ -184,14 +198,16 @@ proc ::VMDance::Algo::check_value {spec v {stored 0}} {
     set v [string trim $v]
     # (expr would compare a mistyped number as a string, read 010 as
     # octal where the backend reads 10, and NaN is no number)
+    # (an empty number is needed, whatever its default: a field cleared in
+    # the window, eQual's Radius, says so)
     switch -- $type {
         int {
-            if {$v eq "" && $def eq ""} { error "$o is needed ($label)" }
+            if {$v eq ""} { error "$o is needed ($label)" }
             if {![regexp {^[-+]?(0|[1-9][0-9]*)$} $v]} { error "$o must be a whole number (got \"$v\")" }
             set v [string trimleft $v +]
         }
         real {
-            if {$v eq "" && $def eq ""} { error "$o is needed ($label)" }
+            if {$v eq ""} { error "$o is needed ($label)" }
             if {![regexp {^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$} $v -> mant] || [regexp {^[-+]?0[0-9]} $v]} {
                 error "$o must be a number (got \"$v\")"
             }
@@ -261,7 +277,7 @@ proc ::VMDance::Algo::divine_least {t n} {
 # error says why.
 proc ::VMDance::Algo::check_combination {a k params n {nstart ""} {metric MSD}} {
     # CPP-MDANCE's diversity selection (the seedings CompSim and DivSelect,
-    # eQUAL's comp_sim seeds) takes the frame of the largest 1 − index above
+    # eQual's comp_sim seeds) takes the frame of the largest 1 − index above
     # -1: with an index other than MSD, on coordinates, none is, and it reads
     # past its data (mdance-cli crashes, or every frame lands in one cluster
     # that looks a success). MDANCE's Python stops there too.
@@ -369,7 +385,7 @@ proc ::VMDance::Algo::check_combination {a k params n {nstart ""} {metric MSD}} 
             # seed, and all land in one cluster, whatever the seeds; with
             # comp_sim, the diversity selection reads past its data too)
             if {$metric ni [metrics_of equal]} {
-                error "-metric $metric with eQUAL: on coordinates, an index other than MSD puts every frame within any radius of the seed (1 − the index falls below 0), and every frame lands in one cluster; use -metric MSD"
+                error "-metric $metric with eQual: on coordinates, an index other than MSD puts every frame within any radius of the seed (1 − the index falls below 0), and every frame lands in one cluster; use -metric MSD"
             }
             # (the backend reads -min-samples only to reject small clusters)
             set qs n-seeds

@@ -54,7 +54,7 @@ core limit to one byte, so that no core is dumped.
        the preferences read as data
    * - ``test_reference``
      - with the real backend: the plugin's labels are the program's on the
-       same coordinates (KMeans NANI, HELM, eQUAL; DIVINE with every
+       same coordinates (KMeans NANI, HELM, eQual; DIVINE with every
        parameter at another value once, when the build has it), the
        library's are the program's, the measures are direct computations',
        MDANCE's own labels of 3ptb (``tests/fixtures/mdance_3ptb.txt``, made
@@ -104,7 +104,7 @@ core limit to one byte, so that no core is dumped.
        parameter; ``-eps -0.99999999``, which the backend reads as -1;
        HELM's ``-min-samples`` that overflows an int; a session's runs made
        with them still open), a metric other than MSD with the diversity
-       selection (the seedings, eQUAL with any seeds, the pick; a sweep keeps it as
+       selection (the seedings, eQual with any seeds, the pick; a sweep keeps it as
        not run; a frame picked twice), the picks' counts (a whole
        percentage; a share that holds no frame), the backend chosen in
        Settings in a script (read once, as values, nothing loaded; a FIFO
@@ -142,7 +142,7 @@ core limit to one byte, so that no core is dumped.
        branch found: a session holding a scan's record with an empty
        cluster opens, and saved again opens again (one saved before too);
        the library's refusal of DIVINE's CompSim splits a scan's *not run*
-       (a sweep where none ran refused, the one there kept); eQUAL's MSD in
+       (a sweep where none ran refused, the one there kept); eQual's MSD in
        the table, and on the parameters page; a sweep's HELM from a label
        file and DIVINE's pair anchors run once at each k (seeding none, not
        a seeding never used); the silhouette's nearest other mean structure
@@ -166,7 +166,7 @@ core limit to one byte, so that no core is dumped.
        clearing the probe's notes (in namespaces of the user's own, skipped
        where they cannot be made)
    * - ``test_hardening2_fx_g3``
-     - what the review of what reaches the backend found: eQUAL refused with
+     - what the review of what reaches the backend found: eQual refused with
        any index but MSD, whatever its seeds; an imported HELM run's summary;
        a representative sample's share that holds no frame (one frame, as the
        backend picks); a stored program ``~user/…`` of a user that does not
@@ -188,7 +188,7 @@ core limit to one byte, so that no core is dumped.
        they kept a digest; an import past a molecule whose frames cannot be
        read; the PDB's own frame read again (delete it, not cluster again)
    * - ``test_hardening2_g6``
-     - thousands of clusters (eQUAL at a small radius): the measures yield,
+     - thousands of clusters (eQual at a small radius): the measures yield,
        say how far they are and stop on Cancel; the distances between the
        clusters and their tree made for 300 clusters or fewer, each pair
        once; an export's defaults without them and the transitions; one lag
@@ -200,7 +200,7 @@ core limit to one byte, so that no core is dumped.
        backend gets them, and what ``-trim-val`` left; a cluster without
        frames with no MSD or iSIM; HELM's scores with a trim those of its
        clustered frames, a scan's together; no scores when every cluster is
-       a frame alone; eQUAL's ``-min-samples`` read with ``-reject-lowd``
+       a frame alone; eQual's ``-min-samples`` read with ``-reject-lowd``
        only; what a scan reads, and its refusals naming ``-ks``; a sweep
        where nothing ran refused; a seeding in a sweep's ``-params`` refused;
        the backend's placeholders in sessions made before (the real backend
@@ -265,7 +265,7 @@ core limit to one byte, so that no core is dumped.
        clusters; what an elbow scan suggests (MDANCE's two criteria), and
        the variance explained against the coordinates; the groups by blocks
        and their divergence (a worked example); the clusters numbered by
-       size; a range for eQUAL's radius; the structures as the models of a
+       size; a range for eQual's radius; the structures as the models of a
        PDB, read back by VMD; the summaries of clusters without frames;
        ``help`` for every subcommand
    * - ``test_ux_gui``
@@ -276,7 +276,7 @@ core limit to one byte, so that no core is dumped.
        representatives, and a map kept by a new clustering of the same
        frames; Halves, Blocks and the line that compares the groups; the
        profiles' reference by name, and many clusters' curves; the Tree's
-       upright labels; the clusters numbered by size; eQUAL's radius
+       upright labels; the clusters numbered by size; eQual's radius
        suggested; the time per frame and the distances as lengths; the
        Timeline's shading, shares and running median (the 6001 frames of
        MDANCE's reference runs, skipped without them); the figures' sizes
@@ -308,7 +308,7 @@ core limit to one byte, so that no core is dumped.
        a temporary's old name written through; a new folder made; ``-3d``
        with a renderer that writes no image refused before any figure, a
        render that fails said and its temporary removed, and the folders
-       made for the 3D view alone taken back), eQUAL's metric MSD with the
+       made for the 3D view alone taken back), eQual's metric MSD with the
        metrics unlocked (said why, and sent), the
        picks saved as a DCD (asked before the PDB of its name is replaced),
        the picks' list and **In 3D** on their molecule, frames deleted under

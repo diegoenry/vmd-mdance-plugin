@@ -77,7 +77,7 @@ check "cluster 010 is not cluster 8, nor frame 010 frame 8" [expr {[string match
 check "picks: a percentage above 100, more frames than there are: refused" [expr {
     [string match "*at most 100*" [err {vmdance pick -mol $m -sel all -method diversity -param 150}]] &&
     [string match "*at most the 24 frames*" [err {vmdance pick -mol $m -sel all -method outliers -param 3000}]]}]
-check "eQUAL: more seeds than frames refused" [string match "*-n-seeds 50: at most the 24 frames*" [err {vmdance -mol $m -sel all -algorithm equal -threshold 1 -n-seeds 50}]]
+check "eQual: more seeds than frames refused" [string match "*-n-seeds 50: at most the 24 frames*" [err {vmdance -mol $m -sel all -algorithm equal -threshold 1 -n-seeds 50}]]
 
 # --- scores of one cluster, a lone frame's silhouette ----------------------------------------------------
 set sw [vmdance sweep -mol $m -sel all -algorithms kmeans -ks {1 2 3} -seedings KmeansPP -quiet 1]

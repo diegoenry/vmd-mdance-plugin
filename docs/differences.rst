@@ -34,7 +34,7 @@ and defaults, and measures the same things; what changed, and why:
      - also NANI's seeding limit, HELM's starting clusters and trim,
        DIVINE's crash, metric, first split and smallest share, the
        diversity selection with an index other than
-       MSD, eQUAL's radius, numbers the backend cannot read, coordinates
+       MSD, eQual's radius, numbers the backend cannot read, coordinates
        that are not numbers, a selection whose atoms *could* change with
        the frame
    * - The backend's output
@@ -43,7 +43,7 @@ and defaults, and measures the same things; what changed, and why:
      - read as JSON and checked whole in every mode, scan and question
    * - HELM's scores with a trim
      - CPP-MDANCE's: the trimmed frames counted as one more cluster
-     - those of the clustered frames, as MDANCE's and eQUAL's
+     - those of the clustered frames, as MDANCE's and eQual's
    * - Elbow scan
      - always StratAll 10% and MSD; HELM pre-clustered once
      - the Setup's parameters; HELM from the same starting clusters; a k
@@ -54,7 +54,7 @@ and defaults, and measures the same things; what changed, and why:
      - rings and a sentence: Davies–Bouldin's lowest value and its sharpest
        dip (MDANCE's two criteria, as its ``analysis_db`` script finds
        them), Calinski–Harabasz's highest; the stability across NANI's
-       seedings; the variance the clusters explain; a radius for eQUAL
+       seedings; the variance the clusters explain; a radius for eQual
        suggested from the frames
    * - Sweep
      - KMeans NANI and DIVINE

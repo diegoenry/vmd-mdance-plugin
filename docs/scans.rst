@@ -3,10 +3,10 @@ How many clusters? Scans
 
 Most clusterings are given their number of clusters, and the number is
 the choice that matters most. A scan answers it by clustering the same
-frames many times: at every k (the **elbow**), at every radius (eQUAL), or
+frames many times: at every k (the **elbow**), at every radius (eQual), or
 over algorithms, metrics and seedings (the **sweep**). Three views beside
 the scores help where the scores alone do not decide: the **stability** of
-the clusters across seedings, HELM's **merges' heights**, and eQUAL's
+the clusters across seedings, HELM's **merges' heights**, and eQual's
 **radius**.
 
 .. figure:: _static/diagrams/choosing_k.svg
@@ -41,13 +41,13 @@ Elbow
 The Setup's algorithm and parameters at every k of a range. From the
 command a scan takes its own options, as a clustering does: one not given
 is the command's default (Cα, KMeans NANI seeded ``StratAll``), not the
-current run's — ``vmdance elbow -sel backbone -kinit CompSim -from 2 -to
-15 -by 1`` (or ``-ks {…}``) follows a backbone clustering seeded by
+current run's — ``vmdance elbow -sel $sel -kinit CompSim -from 2 -to
+15 -by 1`` (or ``-ks {…}``) follows a clustering of ``$sel`` seeded by
 CompSim; the scan says what it reads, and notes when that is not what the
 current run clustered. HELM starts from the same clusters at every k (its
 first NANI clustering is made once); a record's number of clusters counts
 those with frames. In the window's Scans box the k row is shown for the
-algorithms that take a k, and the radius row for eQUAL; *Stability* is
+algorithms that take a k, and the radius row for eQual; *Stability* is
 KMeans NANI's only. The Elbow
 plot shows the two scores; a peak of Calinski–Harabasz, or a low point of
 Davies–Bouldin, suggests a k. Hover a k for its clusters' shares — a k at
@@ -68,7 +68,7 @@ suggest`` say them:
   the scan measured it.
 
 ``elbow suggest`` returns them (``db_lowest db_second db_dip db_dip2
-ch_highest ch_peak stable most_stable``, each a k, or a radius of an eQUAL
+ch_highest ch_peak stable most_stable``, each a k, or a radius of an eQual
 scan; empty where the scan does not say) and the sentence (``words``). The
 readings need not agree, and the plugin does not choose: on MDANCE's tau
 peptide Davies–Bouldin is lowest at k 2 and dips most at k 6, and the
@@ -103,7 +103,7 @@ the range, and Calinski–Harabasz favours the smallest k. Three more views:
   only when it stands out — twice the merge before, half as much again as
   the next largest jump, among the coarser half of the merges — and says
   so when none does (:doc:`plots`).
-- **eQUAL's radius**: eQUAL is given no k but a radius, and finds as many
+- **eQual's radius**: eQual is given no k but a radius, and finds as many
   clusters as that radius makes; ``vmdance elbow -algorithm equal -radii
   {0.5 1 2 4}`` (or the Scans tab's range of radii) scans it, and the
   number of clusters each radius gives (a plateau over several radii: a k
