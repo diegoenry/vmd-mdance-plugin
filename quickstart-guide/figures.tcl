@@ -1,10 +1,10 @@
 # The quick-start guide's figures. Runs the guide's own script
 # (quickstart.tcl) in VMD with its window, then writes, in figures/:
 #   gallery_<plot>.pdf   the 13 plots of the clustering, for the guide's
-#                        gallery: ten half a page wide (120 mm x 160 points,
-#                        10-point text, printed at two thirds), the Timeline,
-#                        the Tree and the Elbow the
-#                        page's width (178 mm, 9-point text)
+#                        gallery: ten half a page wide (120 x 90 mm, 10-point
+#                        text, printed at two thirds), the Timeline, the
+#                        Sweep and the Elbow the page's width (178 mm,
+#                        9-point text)
 #   main_3d.png          the representatives in VMD's 3D window
 #   window.png           the VMDance window (macOS only: screencapture), and
 #   window_parts.txt     where its parts are, for annotate.py
@@ -70,17 +70,18 @@ if {[catch {
     vmdance run 1
     vmdance select clear
     foreach key [dict keys $::VMDance::GUI::tabs] {
-        # (the Sweep's values do not fit its cells at half the page's width,
-        # and only some would be written: its colours alone, and their bar)
+        # (the page's width: the Timeline, whose note is cut at half of it;
+        # the Sweep, whose values fit its cells only there; the Elbow, its two
+        # axes, its legend and its stability strip)
         # (the halves are the Make-up's: the Map and the Profiles show the
         # clusters, as they do without groups)
         switch -- $key {
-            timeline - tree { set size {-width 178mm -height 60mm -text 9} }
+            timeline        { set size {-width 178mm -height 65mm -text 9} }
+            sweep           { set size {-width 178mm -height 75mm -text 9} }
             elbow           { set size {-size two-columns} }
-            sweep           { set size {-width 120mm -height 160 -text 10 -options {mx_values 0}} }
-            map             { set size {-width 120mm -height 160 -text 10 -options {mp_colour cluster}} }
-            profiles        { set size {-width 120mm -height 160 -text 10 -options {pf_show clusters}} }
-            default         { set size {-width 120mm -height 160 -text 10} }
+            map             { set size {-width 120mm -height 90mm -text 10 -options {mp_colour cluster}} }
+            profiles        { set size {-width 120mm -height 90mm -text 10 -options {pf_show clusters}} }
+            default         { set size {-width 120mm -height 90mm -text 10} }
         }
         vmdance figures $figs -plots $key -formats pdf -prefix gallery {*}$size
         log "gallery: $key"

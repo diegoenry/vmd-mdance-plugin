@@ -25,6 +25,7 @@
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{multicol}
+\usepackage{tikz}
 \usepackage[hyphens]{url}
 \usepackage[colorlinks,linkcolor=accent,urlcolor=accent,citecolor=accent,
             pdftitle={VMDance quick-start guide},
@@ -323,7 +324,7 @@ for {set f 0} {$f < [molinfo top get numframes]} {incr f} {
   12, tick \ui{Stability}, and press \ui{Scan}. The scan clusters at every k.
   It does so again from NANI's four seedings that draw no random number, to
   see whether the clusters depend on the seeding.
-\item \textbf{Read the scan} (the Elbow plot, Figure~\ref{fig:gallery2}m). It
+\item \textbf{Read the scan} (the Elbow plot, Figure~\ref{fig:gallery}M). It
   rings the values the scores point to, and the Scans box says them in words.
   Section~\ref{sec:reading} reads them. Double-click k~\qsK\ in the plot: it
   becomes the clustering, a run of its own.
@@ -387,7 +388,7 @@ The script leaves two things in the folder:
 \begin{table}[H]
 \centering
 \small
-\caption{The elbow scan (Listing~\ref{lst:script}, step 4; Figure~\ref{fig:gallery2}m). The stability is
+\caption{The elbow scan (Listing~\ref{lst:script}, step 4; Figure~\ref{fig:gallery}M). The stability is
   the mean adjusted Rand index of every two of NANI's four deterministic
   seedings (1: the same clusters, whatever the seeding).}
 \label{tab:elbow}
@@ -428,17 +429,17 @@ stability is \qsKStability: the highest above k~\qsStable, but the four
 seedings do not make quite the same six clusters. Say so when you report them.
 
 \textbf{The clusters.} At k~\qsK, the clusters hold \qsSizes\ frames
-(\qsPcts\%; Figure~\ref{fig:gallery1}a). Their mean silhouette is
+(\qsPcts\%; Figure~\ref{fig:gallery}A). Their mean silhouette is
 \qsSilCentroid\ from the clusters' mean structures, and \qsSilPairs\ from
-every frame (Figure~\ref{fig:gallery1}g). By the second, \qsSilNegative\
+every frame (Figure~\ref{fig:gallery}G). By the second, \qsSilNegative\
 frames (\qsSilNegativePct\%) are nearer another cluster's frames than their
 own's: the clusters are loose. The trajectory stays \qsStayMin\ to
 \qsStayMax\ frames in a cluster on average before it moves on
-(Figure~\ref{fig:gallery1}d): the frames are far apart in time, and the
+(Figure~\ref{fig:gallery}D): the frames are far apart in time, and the
 peptide changes between any two.
 
 \textbf{Has the run converged?} Both halves of the trajectory visit all
-\qsK\ clusters, but not equally (Figure~\ref{fig:gallery1}b):
+\qsK\ clusters, but not equally (Figure~\ref{fig:gallery}B):
 cluster~\qsDiffCluster\ holds \qsDiffFirstPct\% of the first half and
 \qsDiffSecondPct\% of the second. The divergence of their shares is
 \qsDivergence\ (0: the same shares; 0.69: no cluster in common). The halves
@@ -449,7 +450,7 @@ populations.
 top, and HELM, which merges 60 small NANI clusters two by two, agree with
 KMeans NANI in part only (adjusted Rand index \qsDivineAri\ and \qsHelmAri;
 1: the same clusters). The sweep's best configuration, by Davies--Bouldin, is
-\qsSweepBest\ (\qsSweepBestDb; Figure~\ref{fig:gallery1}j). eQual finds as
+\qsSweepBest\ (\qsSweepBestDb; Figure~\ref{fig:gallery}L). eQual finds as
 many clusters as its radius makes: at 8\,\Asq\ (an RMSD of 4\,\AA\ to the
 seed), \qsEqualClusters\ clusters. The three largest hold
 \qsEqualTopThreePct\% of the frames (\qsEqualTopThree).
@@ -474,7 +475,7 @@ and with k~\qsStable\ as the partition the scan supports most firmly.
 \label{sec:gallery}
 
 Every plot draws the current clustering, its selected clusters on top, and
-answers a question of its own. Figure~\ref{fig:gallery1} shows all 13, as
+answers a question of its own. Figure~\ref{fig:gallery} shows all 13, as
 \cmd{vmdance figures} writes them, for this guide's clustering. The Make-up
 shows the trajectory's two halves (\cmd{vmdance groups -blocks 2}); the Map
 and the Profiles show the clusters.
@@ -484,58 +485,72 @@ Hover a plot in the window: the line under it says what the pointer is on.
 they are measured) or as lengths (\AA), and the time per frame, so that the
 Timeline and the Residence read in nanoseconds.
 
-% a panel of the gallery: half the page's width (#1: the plot, #2: its caption)
-\newcommand{\panel}[2]{%
-  \begin{subfigure}[t]{0.49\textwidth}\centering
-    \includegraphics[width=0.86\linewidth]{gallery_#1.pdf}\caption{#2}\end{subfigure}}
-% and the page's whole width
-\newcommand{\widepanel}[2]{%
-  \begin{subfigure}[t]{\textwidth}\centering
-    \includegraphics[width=0.88\textwidth]{gallery_#1.pdf}\caption{#2}\end{subfigure}}
+% a panel of the gallery, its letter at its top left (#1: its width, #2: the
+% plot, #3: the letter); the panels' descriptions are in the figure's caption
+\newcommand{\gpanel}[3]{%
+  \begin{tikzpicture}[baseline=(img.north)]
+    \node[inner sep=0pt, anchor=north west] (img) at (0,0)
+      {\includegraphics[width=#1]{gallery_#2.pdf}};
+    \node[anchor=north west, inner sep=0pt, font=\sffamily\bfseries]
+      at ([xshift=1pt, yshift=-1pt]img.north west) {#3};
+  \end{tikzpicture}}
+\newcommand{\half}{0.49\textwidth}
 
 \begin{figure}[p]
-  \captionsetup[subfigure]{font=footnotesize,justification=raggedright,singlelinecheck=false}
   \centering
-  \panel{populations}{\textbf{Populations}: how many frames each cluster holds.}\hfill
-  \panel{makeup}{\textbf{Make-up}: where each cluster's frames came from; here,
-    the first and the second half of the trajectory.}\\[0.2ex]
-  \panel{transitions}{\textbf{Transitions}: from each cluster (rows), where
-    the trajectory is a frame later.}\hfill
-  \panel{residence}{\textbf{Residence}: how long it stays in a cluster once it
-    enters it (frames: the mean, and the longest).}\\[0.2ex]
-  \panel{compactness}{\textbf{Compactness}: how tight each cluster is
-    (MDANCE's MSD within, \Asq).}\hfill
-  \panel{distances}{\textbf{Distances}: how far apart the clusters' mean
-    structures are (RMSD\textsuperscript{2}, \Asq).}\\[0.2ex]
-  \panel{silhouette}{\textbf{Silhouette}: whether each frame is nearer its own
-    cluster than the next (from the mean structures; dashed: the mean).}\hfill
-  \panel{map}{\textbf{Map}: the frames on their first two principal
-    components, by cluster; the representatives ringed.}\\[0.2ex]
-  \panel{profiles}{\textbf{Profiles}: each cluster's RMSF, residue by residue:
-    where its frames move.}\hfill
-  \panel{sweep}{\textbf{Sweep}: Calinski--Harabasz of three algorithms and two
-    seedings at k 2 to 8 (darker: higher; outlined: the best).}
+  \gpanel{\half}{populations}{A}\hfill\gpanel{\half}{makeup}{B}\\[1.2ex]
+  \gpanel{\half}{transitions}{C}\hfill\gpanel{\half}{residence}{D}\\[1.2ex]
+  \gpanel{\half}{compactness}{E}\hfill\gpanel{\half}{distances}{F}
   \caption{The 13 plots of this guide's clustering, KMeans NANI at k~\qsK\
     (Listing~\ref{lst:script}), as \cmd{vmdance figures} writes them, each
-    cluster in its colour. Continued overleaf.}
-  \label{fig:gallery1}
+    cluster in its colour.
+    (A)~\textbf{Populations}: how many frames each cluster holds.
+    (B)~\textbf{Make-up}: where each cluster's frames came from; here, the
+    first (blue) and the second (green) half of the trajectory.
+    (C)~\textbf{Transitions}: from each cluster (rows), the share of its
+    frames in each cluster one frame later.
+    (D)~\textbf{Residence}: how long the trajectory stays in a cluster once it
+    enters it (the mean, in frames).
+    (E)~\textbf{Compactness}: how tight each cluster is (MDANCE's MSD within,
+    \Asq).
+    (F)~\textbf{Distances}: how far apart the clusters' mean structures are
+    (RMSD\textsuperscript{2}, \Asq). Continued overleaf.}
+  \label{fig:gallery}
 \end{figure}
 
 \begin{figure}[p]
   \ContinuedFloat
-  \captionsetup[subfigure]{font=footnotesize,justification=raggedright,singlelinecheck=false}
   \centering
-  \widepanel{timeline}{\textbf{Timeline}: the cluster of every frame. With more
-    frames than pixels, the darker, the larger the share of the frames there
-    that are in the cluster.}\\[0.4ex]
-  \widepanel{tree}{\textbf{Tree}: how the clusters join: the average linkage
-    of their mean structures (for HELM, its own merges).}\\[0.4ex]
-  \widepanel{elbow}{\textbf{Elbow}: how many clusters. The scan of
+  \gpanel{\half}{silhouette}{G}\hfill\gpanel{\half}{map}{H}\\[1.2ex]
+  \gpanel{\half}{profiles}{I}\hfill\gpanel{\half}{tree}{J}\\[1.2ex]
+  \gpanel{\textwidth}{timeline}{K}
+  \caption{The 13 plots (continued).
+    (G)~\textbf{Silhouette}: whether each frame is nearer its own cluster than
+    the next, from the clusters' mean structures; dashed, the mean.
+    (H)~\textbf{Map}: the frames on their first two principal components, by
+    cluster; the representatives ringed.
+    (I)~\textbf{Profiles}: each cluster's RMSF, residue by residue: where its
+    frames move.
+    (J)~\textbf{Tree}: how the clusters join: the average linkage of their
+    mean structures (for HELM, its own merges).
+    (K)~\textbf{Timeline}: the cluster of every frame. With more frames than
+    pixels, the darker, the larger the share of the frames there that are in
+    the cluster. Continued overleaf.}
+\end{figure}
+
+\begin{figure}[p]
+  \ContinuedFloat
+  \centering
+  \gpanel{\textwidth}{sweep}{L}\\[2ex]
+  \gpanel{\textwidth}{elbow}{M}
+  \caption{The 13 plots (continued).
+    (L)~\textbf{Sweep}: which algorithm, seeding and k score best:
+    Calinski--Harabasz of three algorithms and two seedings at k 2 to 8
+    (darker: higher; outlined: the best).
+    (M)~\textbf{Elbow}: how many clusters. The scan of
     Listing~\ref{lst:script}, step 4: Calinski--Harabasz (blue),
     Davies--Bouldin (red) and the stability across NANI's seedings (bars);
     ringed where they point; dotted, the clustering (Table~\ref{tab:elbow}).}
-  \caption{The 13 plots (continued).}
-  \label{fig:gallery2}
 \end{figure}
 
 % ---------------------------------------------------------------------------
