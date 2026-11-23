@@ -20,8 +20,10 @@
 #        window's lag (figures -options, a session) is test_gui's
 #   F60  the parameters page says "(needed)" only of what the checker refuses
 #        empty (HELM's label file is optional), and is the generator's output
-#   F76  README's and the quick start's scripts delete the PDB's own frame;
-#        README's quoted run is what the command prints on MDANCE's data
+#   F76  the command page's and the quick start's scripts delete the PDB's
+#        own frame; the command page's quoted run is what the command prints
+#        on MDANCE's data (the script was README's until the README was
+#        made an overview)
 #   F77  the guide's tau numbers are those of the trajectory it names
 #   F78  figures in text mode says it needs a display and how to make them,
 #        not "use the command"
@@ -96,13 +98,21 @@ proc deck_has {f png} {
     }
     return 0
 }
-# The lines of README's scripting block.
-proc readme_block {} {
-    set t [read_text [file join $::root README.md]]
-    set i [string first "```tcl\n" $t [string first "## Scripting" $t]]
-    set j [string first "\n```" $t [expr {$i + 7}]]
-    if {$i < 0 || $j < 0} { return {} }
-    split [string range $t [expr {$i + 7}] [expr {$j - 1}]] \n
+# The lines of the command page's whole script (docs/command.rst, "A whole
+# script": its code block, its lines indented by three spaces).
+proc script_block {} {
+    set t [read_text [file join $::root docs command.rst]]
+    set h [string first "\nA whole script\n" $t]
+    if {$h < 0} { return {} }
+    set i [string first ".. code-block:: tcl\n" $t $h]
+    if {$i < 0} { return {} }
+    set out {}
+    foreach l [lrange [split [string range $t $i end] \n] 1 end] {
+        if {[string trim $l] eq ""} { if {[llength $out]} break; continue }
+        if {![string match "   *" $l]} break
+        lappend out [string range $l 3 end]
+    }
+    return $out
 }
 
 if {[catch {
@@ -374,11 +384,11 @@ if {[string match "*needs Tk*" $e]} {
 }
 
 # --- F76, F77: the docs' scripts and numbers -----------------------------------------------------
-set lines [readme_block]
+set lines [script_block]
 set ia [lsearch -glob $lines "mol addfile *"]
 set id [lsearch -glob $lines "animate delete beg 0 end 0*"]
 set ik [lsearch -glob $lines "vmdance -sel *"]
-check "F76 README's script: the PDB's own frame deleted after the trajectory, before the clustering" [expr {$ia >= 0 && $id > $ia && $ik > $id}]
+check "F76 the command page's script: the PDB's own frame deleted after the trajectory, before the clustering" [expr {$ia >= 0 && $id > $ia && $ik > $id}]
 set qs [read_text [file join $::root docs quickstart.rst]]
 # (its first command after the delete a scan or a clustering)
 check "  the quick start's too" [regexp {mol addfile [^\n]*\n\s*animate delete beg 0 end 0[^\n]*\n\s*vmdance (elbow )?-(sel|mol)} $qs]
@@ -388,7 +398,7 @@ if {$data eq "" || [real_cli] eq ""} {
 } else {
     use_cli
     foreach x [molinfo list] { mol delete $x }
-    # the README's lines, as written, in MDANCE's data folder
+    # the script's lines, as written, in MDANCE's data folder
     set here [pwd]
     cd $data
     set ok 1
@@ -409,7 +419,7 @@ if {$data eq "" || [real_cli] eq ""} {
     set ddb [string length [lindex [split $db .] 1]]
     set got none
     if {[dict size $i]} { set got "[dict get $i frames] [dict get $i sizes] [format %.${dch}f [dict get $i ch]] [format %.${ddb}f [dict get $i db]]" }
-    check "F76 README's clustering on MDANCE's data: the frames, sizes and scores its comment quotes ($got)" [expr {
+    check "F76 the command page's clustering on MDANCE's data: the frames, sizes and scores its comment quotes ($got)" [expr {
         $ok && [string match "# -> run 1 *" $c] && $nf == 6001 && $got eq "$nf $sizes $ch $db"}]
     check "  and its HELM line runs (it was refused: 6002 frames)" [expr {$ih > 0 && !$hrc && [dict get $h frames] == 6001}]
     # the guide's walkthrough, on the trajectory it names: the numbers its

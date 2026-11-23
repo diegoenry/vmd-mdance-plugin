@@ -10,7 +10,7 @@ took its place on 2026-10-09; MDANCEView's sessions and preferences are
 still read), following the design of
 DihedralView (`~/.vmd/plugins/noarch/tcl/VMD-Dihedral-view-TEMP`),
 InteractionView (`~/github/myprojects/vmd-plugin-projects/vmd-interactions-v2/InteractionView`)
-and Molywood Studio. README.md (Design, Differences, Layout) and
+and Molywood Studio. docs/design.rst, docs/differences.rst and
 docs/internals.rst describe it.
 
 ## Rules the design keeps
@@ -50,8 +50,8 @@ docs/internals.rst describe it.
 - The backend is the reference: test_reference runs mdance-cli directly on
   the plugin's CSV and compares every label; the library against the
   program; the measures against direct computations; MDANCE's published
-  runs. A deliberate difference gets a comment, a line in README's
-  *Differences*, and a test. A divergence that is CPP-MDANCE's (the
+  runs. A deliberate difference gets a comment, a line in
+  docs/differences.rst, and a test. A divergence that is CPP-MDANCE's (the
   stratified seed's rounding) is recorded (SKIP with the numbers), never
   loosened into a pass. Compare with MDANCE's published runs on the atoms
   they cluster, the Cα: on the backbone, HELM's populations looked like a
@@ -131,7 +131,11 @@ docs/internals.rst describe it.
   Profiles:
   `tests/profile/profile_{core,gui}.tcl` (reports in tests/out/profile).
 - Screenshots: `import -window [wm frame .vmdance] f.png` (ImageMagick)
-  on display :9.
+  on display :9. On Windows, docs/tools/capture.tcl takes them with
+  capture_win.ps1, which copies the window's area from the screen (the
+  window on top, at the screen's top left: a part off the screen is black).
+  PrintWindow asks the window to draw itself and needs Tk's event loop
+  running; a handler waiting in that loop stalled the capture.
 - Icons: `cd vmdance/icons && python3 make_icons.py` (Pillow). The logo
   (docs/_static/logo/) and the application's icon (app_*), from
   `python3 docs/tools/make_logo.py` (fontTools, uharfbuzz, cairosvg, Pillow

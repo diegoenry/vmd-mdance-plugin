@@ -8,21 +8,22 @@ new CPP-MDANCE, or before a release.
 
 ## Platforms not tried yet
 
-- [ ] Another VMD with Tcl/Tk 8.6 (VMD 2.0, a 1.9.4 built with Tcl 8.6):
-      every text-mode suite; the window opens.
+- [ ] Another VMD with Tcl/Tk 8.6 (a 1.9.4 built with Tcl 8.6; VMD 2.0
+      elsewhere than Windows): every text-mode suite; the window opens.
 - [ ] A VMD with Tcl 8.5 (VMD 1.9.3, the Linux 1.9.4 alphas): `package
       require vmdance` fails at once, saying it needs Tcl 8.6.
 - [ ] macOS (aqua): the *macOS native* theme; Command-key shortcuts; the
       menubar; `mdance-cli` found through `MDANCE_CLI` set in `~/.vmdrc`;
       Cancel of a script that runs `mdance-cli` without `exec` (no /proc:
       the processes are found with `ps`), and a job's end seen by `ps`.
-- [ ] Windows: the *Native (Windows)* theme; `mdance-cli.exe`; Cancel
-      (taskkill); figures with `gswin64c`.
+- [ ] Windows (the text-mode suites run on VMD 2.0, and the docs'
+      pictures were taken there): the *Native (Windows)* theme; Cancel
+      (taskkill); a stop from outside.
 - [ ] macOS, Windows: no `/proc/meminfo`, so the library's memory is not
       checked before a call (its 2 GB text still is): a large selection with
       the library.
 - [ ] A path with spaces for the plugin, the backend, sessions and exports.
-- [ ] A CPP-MDANCE built with DIVINE (`BUILD_DIVINE`): DIVINE offered,
+- [ ] A CPP-MDANCE newer than f9adb24 (DIVINE built in): DIVINE offered,
       clustered, and the reference suite's DIVINE checks run (against the
       program, the library and MDANCE's labels; none skipped as missing).
 - [ ] A CPP-MDANCE whose Tcl binding looks for its options after its
@@ -78,5 +79,5 @@ new CPP-MDANCE, or before a release.
 - [ ] HELM from a label file of MDANCE's (its `labels_*.csv`), and PRIME on
       the result: the predicted frame is native-like.
 - [ ] Compare a clustering with MDANCE's Python on the same aligned
-      trajectory (NANI reproduces it, but where a stratified seed falls on a
-      half; HELM does not: see README).
+      trajectory (NANI and HELM merging Inter reproduce it on the atoms
+      MDANCE clusters, but where docs/limits.rst says).

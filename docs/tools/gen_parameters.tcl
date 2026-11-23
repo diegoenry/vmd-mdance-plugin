@@ -28,16 +28,27 @@ proc default_cell {spec} {
     if {$def ne ""} { return "``$def``" }
     expr {[catch {::VMDance::Algo::check_value $spec "" 1}] ? "(needed)" : "(none)"}
 }
+# The parameters the window does not show (the command's only), named
+set hidden {}
+foreach a [${A}::all] {
+    foreach n [${A}::param_names $a] {
+        if {[${A}::window_hides $a $n]} { lappend hidden "[${A}::label $a]'s ``-$n``" }
+    }
+}
+set hid [expr {[llength $hidden] == 1 ? "One is the command's only ([lindex $hidden 0])" :
+    "[llength $hidden] are the command's only ([join $hidden {, }])"}]
 set out {}
 lappend out ".. This page is written by docs/tools/gen_parameters.tcl from the plugin's" \
     "   table of parameters (lib/algorithms.tcl): edit that, and run it again." "" \
     "Parameters" "==========" "" \
     "Every parameter is an option of the command (``-name value``), a field of" \
-    "the window's Setup tab, and — but for the few that are the plugin's own —" \
+    "the window (Setup; PRIME's, the similarity's, the picks', the map's and" \
+    "the profiles' in Tools and Results), and — but for the few that are the" \
+    "plugin's own —" \
     "an option of ``mdance-cli`` of the same name (``--name``). Its default is" \
     "the MDANCE plugin's, but for k (6 for every algorithm given one), HELM's" \
-    "*Merge* (``Intra``) and eQual's radius (2; it had none). A few are the" \
-    "command's only: the window does not show them, and sends their default." \
+    "*Merge* (``Intra``) and eQual's radius (2; it had none). $hid:" \
+    "the window does not show it, and sends its default." \
     "``vmdance parameters algorithm`` lists them in a" \
     "script. A number is 0, or between 1.2e-38 and 3.4e38 in size:" \
     "``mdance-cli`` reads HELM's as C floats, the others as doubles, and fails" \
@@ -59,13 +70,16 @@ foreach a [${A}::all] {
         lassign $p name type def lim label tip
         set local [expr {$name in [${A}::get $a local] ? " (the plugin's own: not passed to the backend)" : ""}]
         if {[${A}::window_hides $a $name]} { append local " (the command's only: the window does not show it, and sends ``$def``)" }
+        # (a parameter the window does not show: its name, not as a field's)
+        set lab [expr {[${A}::window_hides $a $name] ? "$label " : "**$label**: "}]
         lappend out "   * - ``-$name``" "     - [default_cell $p]" "     - [lim $type $def $lim]" \
-            "     - **$label**: $tip$local"
+            "     - $lab$tip$local"
     }
     lappend out ""
 }
 foreach {title specs} [list "PRIME" $::VMDance::Algo::prime_params "Similarity (iSIM)" $::VMDance::Algo::similarity_params \
-                            "Frame picks" $::VMDance::Algo::pick_params] {
+                            "Frame picks" $::VMDance::Algo::pick_params "Map" $::VMDance::Algo::map_params \
+                            "Profiles" $::VMDance::Algo::profiles_params] {
     lappend out $title [string repeat - [string length $title]] ""
     lappend out ".. list-table::" "   :header-rows: 1" "   :widths: 18 12 22 48" "" \
         "   * - Option" "     - Default" "     - Values" "     - Meaning"

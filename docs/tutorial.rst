@@ -4,7 +4,7 @@ A complete analysis
 This tutorial clusters MDANCE's own example from start to end, in the
 window and in a script, and reads what each step says. The trajectory is
 the tau peptide that MDANCE's Python package ships: 6001 frames of a
-flexible seven-residue peptide. Every number here was made with the
+flexible twelve-residue peptide, its ends capped. Every number here was made with the
 ``vmdance`` command (``docs/tools/tutorial_numbers.tcl`` makes them
 again); yours will be the same with the same backend.
 
@@ -13,7 +13,8 @@ again); yours will be the same with the same backend.
    :width: 100%
    :class: diagram
 
-You need VMD 2.1, VMDance and CPP-MDANCE (:doc:`install`), and the data:
+You need a VMD built with Tcl/Tk 8.6 (VMD 2; tested in 2.1), VMDance and
+CPP-MDANCE (:doc:`install`), and the data:
 ``pip install mdance``, then the files ``aligned_tau.pdb`` and
 ``aligned_original_tau_6K.dcd`` of the package's ``mdance/data`` folder
 (``python -c "import mdance, os; print(os.path.dirname(mdance.__file__))"``
@@ -55,12 +56,12 @@ hydrogens, those MDANCE's own tutorial clusters), every frame (6001). The
 atoms decide what "alike" means: the backbone compares the peptide's folds,
 its side chains are left out, and so are the two flexible ends. *Fit to the
 first frame* stays off, and the note under it says why it can: *Not fitted.
-From the first frame: 3.71 Å as they are, 3.30 Å fitted: the frames look
+From the first frame: 3.71 Å as they are, 3.3 Å fitted: the frames look
 superposed.* (A trajectory that was not aligned is far from its first
 frame as it is and near it once fitted: the note then turns red-brown and
-says to tick Fit.) The algorithm:
-KMeans NANI, seeded by ``CompSim`` (complementary similarity: the seeds
-come from the densest frames). These four choices — atoms, superposition,
+says to tick Fit.) The algorithm: KMeans NANI, with **Seeding** set to
+*Complementary similarity* (``CompSim``: the seeds come from the densest
+frames; the default is *Stratified, all frames*). These four choices — atoms, superposition,
 frames, algorithm — shape every number that follows (:doc:`algorithms`).
 
 3. How many clusters?
@@ -123,6 +124,21 @@ the seeding.
      - 2.04
      - 50%
      - 0.59
+   * - 9
+     - 781
+     - 2.03
+     - 51%
+     - 0.63
+   * - 10
+     - 744
+     - 2.03
+     - 53%
+     - 0.65
+   * - 11
+     - 695
+     - 1.89
+     - 54%
+     - 0.67
    * - 12
      - 675
      - 1.84
@@ -205,11 +221,12 @@ trajectory plays; **Representatives** draws them all at once.
 
 Two other algorithms answer "how many" their own way.
 
-**HELM**, from 60 small clusters merged two by two to 3 (Setup ▸ HELM, k 3,
-*initial* 60): the Tree plot's *merges' heights* draws how far apart the
+**HELM**, from 60 small clusters merged two by two to 3 (Setup ▸ HELM,
+*Clusters (k)* 3, *Start from* 60, **Cluster**): the Tree plot's *merges'
+heights* draws how far apart the
 clusters each merge joins. A merge far above the one before marks a
 natural k. Here the heights climb gently — the last eight merges, from 11
-clusters to 4, are all between 13.6 and 16.4 Å² — and the plot says so: *no
+clusters down to 3, are all between 13.6 and 16.4 Å² — and the plot says so: *no
 merge stands out from the one before it*. (The largest step, 1.6 times the
 merge before, is from 57 clusters to 56, among the first, finest merges:
 it says nothing of a small k, and is not marked.)
@@ -223,7 +240,8 @@ it says nothing of a small k, and is not marked.)
 **eQual** finds as many clusters as a radius makes (Scans ▸ Elbow, with
 eQual chosen in Setup: the box then asks for radii, and **Suggest** proposes
 a range from the frames themselves — 3.4 to 10 every 0.73 here, from the
-distances between 147 of them): 194 clusters at a radius of 4 Å², 55 at 6,
+distances between 147 of them). Scanned at 4 to 12 every 2 (typed in the
+box, then **Scan**): 194 clusters at a radius of 4 Å², 55 at 6,
 19 at 8, 9 at 10, 7 at 12 — no plateau, where several radii would give the
 same clusters. (The radius is MDANCE's MSD: 8 Å² is an RMSD of 4 Å to the
 seed, √(2 × 8).)
@@ -236,8 +254,9 @@ between them. Say so when you report it.
 6. Compare groups: has the run converged?
 -----------------------------------------
 
-**Results ▸ Groups**: **Halves** (or type ``first 0-2999 second
-3000-6000`` and **Set**). The two
+First choose the k 3 clustering again (**Results ▸ Run**: HELM's is the
+current run now). **Results ▸ Groups**: **Halves** (or type ``first 0-2999
+second 3000-6000`` and **Set**). The two
 halves of the trajectory are now groups, and the **Make-up** plot shows
 each cluster by half.
 
@@ -263,8 +282,9 @@ most populated one (:doc:`groups`).
 7. Keep it
 ----------
 
-**File ▸ Save session** keeps every run, the scans, the groups, the map and
-the profiles; **File ▸ Export results** writes the tables (each with a
+**File ▸ Save session** keeps every run, the last elbow scan (eQual's
+radii here: step 5 replaced the scan by k) and the last sweep, the groups,
+the map and the profiles; **File ▸ Export results** writes the tables (each with a
 header saying how it was made) and the structures; **File ▸ Create
 figures** writes the plots as PDF, PNG or EPS, at the size and text size
 of a paper's column or a slide (:doc:`files`).
@@ -273,7 +293,9 @@ The same in a script
 --------------------
 
 Every step above is a ``vmdance`` command, in VMD's console or in text-mode
-VMD (``vmd -dispdev text -e tau.tcl``):
+VMD (``vmd -dispdev text -e tau.tcl``), but for its last line: figures need
+VMD's window (``vmd -e tau.tcl``). It keeps the work before the second
+opinion, whose eQual scan would replace the scan by k:
 
 .. code-block:: tcl
 
@@ -296,16 +318,17 @@ VMD (``vmd -dispdev text -e tau.tcl``):
    vmdance groups compare                   ;# pairs {{first second 0.007143 0.1034 1}} words {…}
    vmdance map
    vmdance profiles
+   # keep it
+   vmdance session save tau.vmdance
+   vmdance export results -prefix tau
    # a second opinion: HELM's merges' heights, eQual's radius
    vmdance -mol $m -sel $sel -algorithm helm -k 3 -initial 60
    dict get [vmdance tree] heights
    vmdance radii -mol $m -sel $sel          ;# … from 3.4 to 10 by 0.73
    vmdance elbow -mol $m -sel $sel -algorithm equal -radii {4 6 8 10 12}
-   # keep it
+   # figures of the k 3 run (VMD's window needed; the elbow is eQual's now)
    vmdance run 1
-   vmdance session save tau.vmdance
-   vmdance export results -prefix tau
-   vmdance figures figures -plots {elbow populations makeup map} -formats {pdf png} -size column
+   vmdance figures figures -plots {populations makeup map} -formats {pdf png} -size column
 
 What to report
 --------------

@@ -5,11 +5,13 @@ Parameters
 ==========
 
 Every parameter is an option of the command (``-name value``), a field of
-the window's Setup tab, and — but for the few that are the plugin's own —
+the window (Setup; PRIME's, the similarity's, the picks', the map's and
+the profiles' in Tools and Results), and — but for the few that are the
+plugin's own —
 an option of ``mdance-cli`` of the same name (``--name``). Its default is
 the MDANCE plugin's, but for k (6 for every algorithm given one), HELM's
-*Merge* (``Intra``) and eQual's radius (2; it had none). A few are the
-command's only: the window does not show them, and sends their default.
+*Merge* (``Intra``) and eQual's radius (2; it had none). One is the command's only (DIVINE's ``-end-mode``):
+the window does not show it, and sends its default.
 ``vmdance parameters algorithm`` lists them in a
 script. A number is 0, or between 1.2e-38 and 3.4e38 in size:
 ``mdance-cli`` reads HELM's as C floats, the others as doubles, and fails
@@ -77,7 +79,7 @@ Divisive hierarchical clustering: the trajectory split in two, cluster by cluste
    * - ``-end-mode``
      - ``k``
      - ``k``, ``points``
-     - **Stop when**: k clusters are reached, or (points: k not used) no cluster can be split leaving the smallest share on each side (the command's only: the window does not show it, and sends ``k``)
+     - Stop when k clusters are reached, or (points: k not used) no cluster can be split leaving the smallest share on each side (the command's only: the window does not show it, and sends ``k``)
    * - ``-percentage``
      - ``10``
      - whole number, 1 to 100
@@ -254,4 +256,36 @@ Frame picks
      - ``MSD``
      - ``MSD``, ``BUB``, ``Fai``, ``Gle``, ``Ja``, ``JT``, ``RT``, ``RR``, ``SM``, ``SS1``, ``SS2``
      - **Metric**: The extended similarity index
+
+Map
+---
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 12 22 48
+
+   * - Option
+     - Default
+     - Values
+     - Meaning
+   * - ``-sample``
+     - ``500``
+     - whole number, 2 to 5000
+     - **Axes from**: The number of frames the two axes are found from, evenly spaced (all of them when there are fewer; at most 2000, and fewer with many atoms: the map says how many); every frame is then placed on them
+
+Profiles
+--------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 12 22 48
+
+   * - Option
+     - Default
+     - Values
+     - Meaning
+   * - ``-reference``
+     - ``-1``
+     - whole number, at least -1
+     - **Against**: The cluster whose mean structure the others are measured against (-1: the most populated)
 

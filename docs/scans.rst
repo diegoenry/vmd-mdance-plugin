@@ -114,14 +114,15 @@ the range, and Calinski–Harabasz favours the smallest k. Three more views:
   (in the Scans box; *Suggest a radius* in Setup; ``vmdance radii``)
   measures the distances between about 150 frames, evenly taken, and
   proposes a range, from the distance the nearest 2% of their pairs are
-  within to the one half of them are, in ten steps. Setup's Radius, when
-  empty, gets the distance a tenth of the pairs are within.
+  within to the one half of them are, in ten values (nine steps). Setup's
+  Radius, when empty or at its default (2), gets the distance a tenth of the
+  pairs are within; a radius you typed is kept.
 
 Sweep
 -----
 
-Every combination of algorithms (KMeans NANI, DIVINE, HELM), values of k,
-metrics and seedings, in that order: ``vmdance sweep -algorithms {kmeans
+Every combination of algorithms (KMeans NANI, DIVINE, HELM), metrics,
+seedings and values of k, in that order (k changes fastest): ``vmdance sweep -algorithms {kmeans
 helm} -from 2 -to 10 -metrics MSD -seedings {StratAll CompSim}`` (DIVINE
 with a metric other than MSD is kept as *not run*: it splits by MSD; and
 neither scan takes its ``-end-mode points``, which does not use k). The
@@ -135,6 +136,6 @@ Davies–Bouldin (blue): a failed configuration, or one without scores (one
 cluster, or every cluster a frame alone), is never best, and of equal
 scores the first wins.
 ``vmdance sweep best db`` names it; ``sweep load n`` (or a double-click)
-makes a configuration the clustering. More than 50 configurations are
-confirmed first; Cancel stops the sweep between clusterings or during one
+makes a configuration the clustering. In the window, more than 50
+configurations are confirmed first; Cancel stops the sweep between clusterings or during one
 (with the library, VMD waits for each, and Cancel acts when it ends).

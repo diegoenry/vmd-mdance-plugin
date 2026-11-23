@@ -94,7 +94,9 @@ molecule, which must be loaded (or given with ``-mol``). Its values are
 counted before any list is made of them: a file that holds more than a
 clustering of the frames loaded is refused at once (its selection, which an
 index list can make long, is counted apart, and refused past 200 000
-words: VMD's own parser fails on a few hundred thousand). Its molecule is a
+words: VMD's own parser fails on a few hundred thousand; and one that
+still holds more than 50 000 separate values once its index lists are
+written as ranges is refused where it is handed to VMD). Its molecule is a
 loaded one of that name (any, when the file does not know it) with the
 frames clustered, whose coordinates give the clusters' MSDs the file holds
 (MDANCE's, which its backend computed): those of the number of frames the
@@ -251,12 +253,12 @@ and one ``END`` after the last:
 
 .. code-block:: text
 
-   REMARK     VMDance: cluster 0's representative, frame 1043 (2391 frames)
+   REMARK     VMDance: cluster 0's representative, frame 4646 (2412 frames)
    MODEL        1
    CRYST1 …
    ATOM      1  N   …
    ENDMDL
-   REMARK     VMDance: cluster 1's representative, frame 2679 (1633 frames)
+   REMARK     VMDance: cluster 1's representative, frame 4134 (1508 frames)
    MODEL        2
    …
    ENDMDL
@@ -273,8 +275,9 @@ to 9999.999 Å: a frame beyond them is refused, naming it (a DCD holds it,
 but for the file's first frame, which the PDB beside a DCD has); so is an
 occupancy or a beta beyond them, in either format (leave those atoms out).
 
-**File ▸ Quick export** writes one table: the clusters, or the data of the
-plot shown.
+**File ▸ Quick export** writes one file: the table of clusters or the data
+of the plot shown (CSV), the plot shown (PDF, PNG or EPS), or the 3D view
+(PNG).
 
 Figures
 -------

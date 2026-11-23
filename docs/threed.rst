@@ -51,7 +51,8 @@ the focus again). The key lists the plots' tone and the VMD colour of each
 cluster. There are 29 colours: cluster 29 has cluster 0's again, in the 3D
 window as it is, in the plots lighter (cluster 58's darker).
 
-**Write the clusters to the user field** (``vmdance userfield``) puts
+**Write the clusters to the user field** (the 3D tab's **User field…**;
+``vmdance userfield``) puts
 every clustered frame's cluster in the atoms' user field (-1: noise and the
 frames that were not clustered), for any representation coloured by
 *User*: the one thing that changes the molecule's data, asked for.

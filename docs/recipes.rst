@@ -73,12 +73,16 @@ its own, and how they were made written beside them:
        mol delete $m
    }
 
-Then, with a k chosen for each system (a ``k.csv`` of ``system,k`` lines
-kept with the results, so that the choice is part of the record):
+Then, with a k chosen for each system (a ``k.csv`` with a header line,
+then ``system,k`` lines, kept with the results, so that the choice is part
+of the record):
 
 .. code-block:: tcl
 
-   foreach line [lrange [split [string trim [read [open k.csv]]] \n] 1 end] {
+   set fh [open k.csv]
+   set lines [split [string trim [read $fh]] \n]
+   close $fh
+   foreach line [lrange $lines 1 end] {
        lassign [split $line ,] name k
        set m [mol new systems/$name/system.pdb waitfor all]
        mol addfile systems/$name/traj.dcd waitfor all molid $m
@@ -96,8 +100,9 @@ Figures for a paper or a slide
 ------------------------------
 
 ``figures`` writes the plots as the window draws them, at a size and a text
-size of their own (it needs Tk: VMD with its window, or text-mode VMD on a
-display: ``Xvfb :1 &`` and ``DISPLAY=:1 vmd -dispdev win``):
+size of their own (it needs Tk and a display: VMD with its window; on a
+machine without a screen, a virtual one: ``Xvfb :1 &``, then
+``DISPLAY=:1 vmd -dispdev win``):
 
 .. code-block:: tcl
 

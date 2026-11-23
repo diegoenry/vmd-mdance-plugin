@@ -51,7 +51,7 @@ Each cluster's frames by group (Results ▸ Groups: the method, replica or
 condition each came from), stacked in the groups' colours; or each group's
 frames by cluster. As counts, or as shares (of the cluster, or of the
 group): the shares' axis ends at 100, and each bar's frames are written
-above it there too (*n = 1633*), since a bar of 16 frames is then as tall
+above it there too (*n = 1508*), since a bar of 16 frames is then as tall
 as one of 3000. Noise and frames of no group are left out. The readout
 gives the slice under the pointer first, then the bar's largest. Click a
 bar: select the cluster. Double-click: go to its representative.

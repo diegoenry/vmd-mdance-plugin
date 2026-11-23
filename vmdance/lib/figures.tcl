@@ -42,6 +42,15 @@ proc ::VMDance::Figures::ghostscript {} {
         if {$p ne ""} { lappend cands [lindex $p 0] }
     }
     lappend cands /opt/homebrew/bin/gs /usr/local/bin/gs /opt/local/bin/gs /usr/bin/gs
+    # (Ghostscript's Windows installer puts it in Program Files\gs\gs<version>\bin
+    # and leaves the PATH alone: the newest version there)
+    if {$::tcl_platform(platform) eq "windows"} {
+        foreach {var exe} {ProgramFiles gswin64c.exe ProgramW6432 gswin64c.exe ProgramFiles(x86) gswin32c.exe} {
+            if {![info exists ::env($var)]} continue
+            set dirs [glob -nocomplain -types d -directory [file join $::env($var) gs] gs*]
+            foreach d [lsort -dictionary -decreasing $dirs] { lappend cands [file join $d bin $exe] }
+        }
+    }
     foreach c $cands {
         if {[file executable $c]} { set gs $c; return $gs }
     }

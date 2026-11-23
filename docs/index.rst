@@ -29,16 +29,17 @@ clusters in 13 linked plots and on the structure in VMD's 3D window.
      - A molecule's frames — all, a range, every n-th — by the coordinates
        of the same atoms, with KMeans NANI, DIVINE, HELM (from a first NANI
        clustering or a label file) or eQual (clusters within a radius, and
-       noise); optionally fitted to the first frame, on the values, with a
-       warning when the frames do not look superposed.
+       noise); optionally fitted to the first frame (VMD's coordinates are
+       not moved), with a warning when the frames do not look superposed.
    * - **Choose k**
      - An elbow scan of the Calinski–Harabasz and Davies–Bouldin scores,
-       ringed where they point (MDANCE's two criteria), with the variance
+       ringed where they point (Davies–Bouldin's lowest value and sharpest
+       dip are MDANCE's two criteria), with the variance
        the clusters explain and their **stability** across seedings; HELM's
        merges' heights; eQual's scan by radius, the radii suggested from
        the frames; a sweep over algorithms, k,
-       metrics and seedings. Any of them made the clustering with a
-       double-click.
+       metrics and seedings. A value of the elbow scan or the sweep is made
+       the clustering with a double-click.
    * - **Explore**
      - The populations, the timeline of the clusters and their shares along
        the trajectory, their transitions and
@@ -114,6 +115,7 @@ Where to start
    :caption: Reference
 
    faq
+   limits
    glossary
    differences
    citing

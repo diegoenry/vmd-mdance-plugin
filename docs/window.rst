@@ -46,16 +46,18 @@ with a menu of common ones and the number of atoms they match (a selection
 whose atoms can change with the frame — ``within``, ``nearest``, ``x``,
 ``user`` …, or a macro of them — is
 refused: a clustering compares the same atoms in every frame; a value in
-quotes, ``chain "x"``, is a value); the frames
+quotes, ``chain "x"``, is a value; and so is one that still lists more than
+50 000 separate values once its index lists are written as ranges: VMD
+crashes freeing about 100 000); the frames
 (all, or a range, -1 being the last) and every n-th, with the number of
 frames they give; **Fit to the first frame on** a selection, which
 superposes every frame on the first clustered one before clustering (on the
 values: VMD's coordinates are not moved). It is off unless ticked.
 
 Under the Fit box, a note. With a fit: the atoms it is made on (*Fitted on
-48 atoms*). Without one: how far a sample of the frames (the first and 20
+50 atoms*). Without one: how far a sample of the frames (the first and 20
 others) is from the first, as they are and once fitted on it — *Not
-fitted. From the first frame: 4.15 Å as they are, 3.96 Å fitted: the
+fitted. From the first frame: 3.71 Å as they are, 3.3 Å fitted: the
 frames look superposed.* When they do not look superposed, the note is a
 warning, in a red-brown tone, and says to tick Fit unless the molecule's
 motion is what you cluster. The rule: frames are not superposed when a fit
@@ -79,12 +81,15 @@ says so through it), and that *Automatic* took it, finding no program.
 what was typed in them. Fields that do not apply are greyed: HELM's trim
 values without *Trim first*, its first clustering with a label file,
 DIVINE's seeding with anchors other than NANI and its Refine with NANI (a
-NANI split is a k-means already: :doc:`algorithms`), eQual's minimum size
-and similarity with their options
-off, a seeding share that the seeding does not use. **Metric** is the mean
+NANI split is a k-means already: :doc:`algorithms`), eQual's *Min. size*
+and *Largest MSD* without *Reject small clusters* and *Check similarity*,
+a seeding share that the seeding does not use. DIVINE has no field to stop
+other than at k (``-end-mode points`` is the command's). **Metric** is the mean
 square deviation unless Settings unlock the others (DIVINE's and eQual's
 always: the field says why).
-**Defaults** puts the algorithm's back. Under eQual's **Radius**, the RMSD
+**Defaults** puts the algorithm's back. A number left empty is refused
+(*-threshold is needed (Radius)*), never taken as its default. Under
+eQual's **Radius**, the RMSD
 it stands for: a frame joins a cluster when it is within √(2 × radius) Å
 of its seed (the radius is MDANCE's MSD, Å²; 2 by default). **Suggest a
 radius** proposes one from the frames themselves, in place of the default
@@ -102,8 +107,9 @@ Results
 
 **Run**: every clustering is kept (the last 25); choose one to see it
 again — the Setup tab shows its settings. A run's name says its algorithm,
-its k and its clusters, how many of them have no frames, and whether it
-was fitted (*KMeans NANI, k 10 → 10 clusters (2 empty), fitted*). ▾ renames
+its k (eQual: its radius) and its clusters, how many of them have no
+frames, and whether it was fitted (*KMeans NANI, k 6 → 6 clusters (1
+empty), fitted*). ▾ renames
 or deletes it, clears every run, scan and pick, or **numbers its clusters
 by size**, the largest 0, as a new run: the run it is made of keeps the
 backend's numbers, which are MDANCE's. Under it, the clustering in words:
@@ -152,7 +158,7 @@ every radius from … to … every …, and **Suggest**, which proposes them fro
 the frames). **Stability** is
 the agreement between NANI's four seedings at each k (KMeans NANI's only:
 greyed with the others); the Elbow plot shows
-it. Under them, the last scan and what it points to, in words (where
+it. **Scan** (or the toolbar's Elbow scan) runs it. Under them, the last scan and what it points to, in words (where
 Davies–Bouldin is lowest and where it dips most, where Calinski–Harabasz is
 highest, the k the seedings agree on). A scan cancelled after two values
 or more keeps them as the scan (not HELM's, whose values are scored
@@ -203,13 +209,16 @@ that did not answer within 3 s: not known, every algorithm offered);
 says what it gives "On OK", a job started meanwhile runs on the one in
 use, and Cancel keeps that one; OK while a job runs says to wait for its
 end. **Clustering**: unlock the metrics. **Appearance**: the text size
-(8–24 pt), the window size, the theme (automatic, macOS native where it
-exists, flat, VMD's own). They are kept in ``~/.vmdance.prefs``, which is
+(8–24 pt), the window size, the theme (*Automatic*; the platform's native
+look where VMD has one, *macOS native* or *Native (Windows)*; *Flat*;
+VMD's own). They are kept in ``~/.vmdance.prefs``, which is
 read as data; the command reads the backend chosen there too.
 
 The window sizes are *Compact*, *Medium* and *Large* (980 × 660, 1180 × 740
-and 1380 × 880 at 12 pt, larger with the text), never narrower than the
-panels need. *Medium*, a new user's, and *Large* open tall enough to show
+and 1380 × 880 at 12 pt, larger with the text). *Compact* is never
+narrower than the panels need; *Medium* and *Large* are 200 and 400 pixels
+wider than that (at 12 pt), so that the three differ in width with a large
+text too. *Medium*, a new user's, and *Large* open tall enough to show
 every left page whole, where the screen has room; *Compact* is the small
 one, and its pages scroll.
 

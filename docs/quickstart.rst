@@ -15,14 +15,14 @@ In the window
    (3) the plots' tabs; (4) the plot; (5) its options; (6) what the
    pointer is on; (7) the status line.
 
-1. Load a trajectory in VMD — superposed, as MDANCE expects (or tick *Fit
-   to the first frame* below: the note under it says whether the frames
-   look superposed).
+1. Load a trajectory in VMD — superposed, as MDANCE expects (if it is
+   not, step 3 fits it).
 2. Open **Analysis ▸ VMDance** (VMD 2; in VMD 1.9, **Extensions ▸
    Analysis ▸ VMDance**).
 3. **Setup ▸ What to cluster**: the molecule; the atoms (``name CA`` by
    default; the line under the field says how many); the frames, and every
-   n-th.
+   n-th; *Fit to the first frame* if the frames are not superposed (the
+   note under it says whether they look superposed).
 4. **Setup ▸ Algorithm**: KMeans NANI, with k 6 by default. Press
    **Cluster** (Ctrl+R). It runs in the background, and the ring in the
    toolbar shows how far it is (with the library, VMD waits until it ends).
@@ -39,7 +39,8 @@ In the window
    (:doc:`scans`).
 9. Where did each frame come from? **Results ▸ Groups**: **Halves** for the
    two halves of the run, or name the replicas
-   or conditions by their frames (``first 0-2999 second 3000-6000``), and
+   or conditions by their frames (``first 0-2999 second 3000-6000``, then
+   **Set**), and
    read the **Make-up** plot and the line under the box, which says how
    unlike the groups are (:doc:`groups`).
 10. **File ▸ Save session** keeps it all; **File ▸ Export results** writes
