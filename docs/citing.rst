@@ -1,11 +1,15 @@
 Citing
 ======
 
-The clustering is MDANCE's, run by CPP-MDANCE; VMDance brings it into VMD.
-When you publish clusters made with the plugin, cite the algorithms you
-used, MDANCE, and VMD; and say which backend made them (CPP-MDANCE, and
-its version or commit: the exported tables' headers name the program or
-library file, not its version).
+The clustering is MDANCE's, run by CPP-MDANCE. VMDance brings it into
+VMD.
+
+When you publish clusters made with the plugin:
+
+- cite the algorithms you used, MDANCE, and VMD;
+- say which backend made them: CPP-MDANCE, and its version or commit. The
+  exported tables' headers name the program or library file, not its
+  version.
 
 The algorithms
 --------------
@@ -57,21 +61,25 @@ The software
 The scores
 ----------
 
-Calinski–Harabasz (*Commun. Stat.* **1974**,
-https://doi.org/10.1080/03610927408827101), Davies–Bouldin (*IEEE Trans.
-Pattern Anal. Mach. Intell.* **1979**,
-https://doi.org/10.1109/TPAMI.1979.4766909), the silhouette (*J. Comput.
-Appl. Math.* **1987**, https://doi.org/10.1016/0377-0427(87)90125-7), and,
-for the stability, the adjusted Rand index (L. Hubert, P. Arabie,
-*J. Classif.* **1985**, https://doi.org/10.1007/BF01908075).
+- **Calinski–Harabasz** — *Commun. Stat.* **1974**.
+  https://doi.org/10.1080/03610927408827101
+- **Davies–Bouldin** — *IEEE Trans. Pattern Anal. Mach. Intell.*
+  **1979**. https://doi.org/10.1109/TPAMI.1979.4766909
+- **The silhouette** — *J. Comput. Appl. Math.* **1987**.
+  https://doi.org/10.1016/0377-0427(87)90125-7
+- **The adjusted Rand index**, for the stability — L. Hubert, P. Arabie.
+  *J. Classif.* **1985**. https://doi.org/10.1007/BF01908075
 
 Credits and licences
 --------------------
 
-The clustering is not this plugin's: the algorithms — KMeans NANI, DIVINE,
-HELM, eQual, PRIME and the extended (n-ary) similarity — are
+The clustering is not this plugin's. The algorithms are
 `MDANCE <https://github.com/mqcomplab/MDANCE>`_'s (the Miranda-Quintana
-group, MIT), run by `CPP-MDANCE <https://github.com/mqcomplab/CPP-MDANCE>`_
-(© 2025 Andrey Nikitin, MIT). The host is
-`VMD <https://www.ks.uiuc.edu/Research/vmd/>`_ (Theoretical and
-Computational Biophysics Group, UIUC). VMDance © 2026 Diego Gomes (MIT).
+group, MIT): KMeans NANI, DIVINE, HELM, eQual, PRIME and the extended
+(n-ary) similarity. They are run by
+`CPP-MDANCE <https://github.com/mqcomplab/CPP-MDANCE>`_ (© 2025 Andrey
+Nikitin, MIT).
+
+The host is `VMD <https://www.ks.uiuc.edu/Research/vmd/>`_ (Theoretical
+and Computational Biophysics Group, UIUC). VMDance © 2026 Diego Gomes
+(MIT).

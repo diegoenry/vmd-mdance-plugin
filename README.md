@@ -7,22 +7,28 @@
 
 # VMDance — MDANCE clustering of a trajectory, in VMD
 
-VMD and MDANCE share their MD, molecular dynamics: VMDance is the two in
-one, as its logo draws it. A VMD Tcl/Tk plugin that clusters the frames of a
-trajectory with the algorithms of
-[MDANCE](https://github.com/mqcomplab/MDANCE) — KMeans NANI, DIVINE, HELM
-and eQual, run by their C++ port
-[CPP-MDANCE](https://github.com/mqcomplab/CPP-MDANCE) — and shows the
-clusters: how many frames each holds, when the trajectory visits it, how it
-moves between them, how tight and how far apart they are, how they join, and
-their representative structures in VMD's 3D window.
+VMD and MDANCE share their MD, molecular dynamics. VMDance is the two in
+one: its logo spells VMD in the colours of VMD's own title.
+
+VMDance is a VMD Tcl/Tk plugin. It clusters the frames of a trajectory
+with the algorithms of [MDANCE](https://github.com/mqcomplab/MDANCE):
+KMeans NANI, DIVINE, HELM and eQual, run by their C++ port
+[CPP-MDANCE](https://github.com/mqcomplab/CPP-MDANCE). Then it shows the
+clusters:
+
+- how many frames each holds
+- when the trajectory visits it
+- how it moves between them
+- how tight and how far apart they are
+- how they join
+- their representative structures in VMD's 3D window
 
 ![The VMDance window](docs/_static/figures/window.png)
 
 ## What it does
 
 - **Clusters** a trajectory already loaded in VMD, on the atoms you choose,
-  with KMeans NANI, DIVINE, HELM or eQual; every clustering is kept as a run.
+  with KMeans NANI, DIVINE, HELM or eQual. Every clustering is kept as a run.
 - **Chooses k** with elbow scans (Calinski–Harabasz, Davies–Bouldin, the
   stability across seedings) and sweeps of algorithms, seedings and k.
 - **Shows the clusters** in thirteen plots — populations, timeline,
@@ -40,10 +46,13 @@ their representative structures in VMD's 3D window.
 
 You need:
 
-- **VMD** built with Tcl/Tk 8.6, as VMD 2 is (`info patchlevel` in VMD's
-  console says which; VMD 1.9.3 and the Linux 1.9.4 alphas have Tcl 8.5).
+- **VMD** built with Tcl/Tk 8.6, as VMD 2 is. `info patchlevel` in VMD's
+  console says which. VMD 1.9.3 and the Linux 1.9.4 alphas have Tcl 8.5.
 - **CPP-MDANCE**: its program `mdance-cli`, its library `mdance_tcl`, or both.
 - **Ghostscript**, for figures in PDF and PNG (optional: EPS works without it).
+
+What each platform needs (Linux, macOS, Windows):
+[docs/install.rst](docs/install.rst#requirements).
 
 Build CPP-MDANCE and tell the plugin where it is:
 
@@ -63,19 +72,24 @@ package require vmdance   ;# adds the menu entry Analysis > VMDance
 ```
 
 The plugin needs a VMD built with Tcl/Tk 8.6 and is tested in VMD 2.1
-(Linux). `~/.bashrc` reaches only a VMD started from a shell: `set
-env(MDANCE_CLI) /path/to/mdance-cli` in `~/.vmdrc` reaches every one, and
+(Linux).
+
+`~/.bashrc` reaches only a VMD started from a shell.
+`set env(MDANCE_CLI) /path/to/mdance-cli` in `~/.vmdrc` reaches every one.
 **Settings ▸ Backend** in the window chooses another build and keeps it.
-`make distrib PLUGINDIR=…` copies the plugin into a VMD plugin tree. The
-program or the library, containers, and where the backend is looked for:
-[docs/install.rst](docs/install.rst).
+
+`make distrib PLUGINDIR=…` copies the plugin into a VMD plugin tree.
+
+The program or the library, containers, and where the backend is looked
+for: [docs/install.rst](docs/install.rst).
 
 ## Getting started
 
-Load a trajectory in VMD and open **Analysis ▸ VMDance** (in VMD 1.9:
+Load a trajectory in VMD. Open **Analysis ▸ VMDance** (in VMD 1.9:
 **Extensions ▸ Analysis ▸ VMDance**), or type `vmdance` in VMD's console.
-Choose the atoms in **Setup**, press **Cluster**, and read the plots. The
-same from a script:
+Choose the atoms in **Setup**, press **Cluster**, and read the plots.
+
+The same from a script:
 
 ```tcl
 package require vmdance
@@ -86,8 +100,9 @@ vmdance help                                    ;# every subcommand
 
 ## Documentation
 
-The full documentation is in [`docs/`](docs/) (Sphinx: `cd docs && make
-html`, then open `docs/_build/html/index.html`):
+The full documentation is in [`docs/`](docs/). It is built with Sphinx:
+`cd docs && make html`, then open `docs/_build/html/index.html`. Its
+pages:
 
 - [Quick start](docs/quickstart.rst) and [a complete analysis](docs/tutorial.rst)
   of MDANCE's own example
@@ -102,7 +117,8 @@ html`, then open `docs/_build/html/index.html`):
 ## Citing and licence
 
 The algorithms are MDANCE's (the Miranda-Quintana group), run by
-CPP-MDANCE (Andrey Nikitin); the host is
+CPP-MDANCE (Andrey Nikitin). The host is
 [VMD](https://www.ks.uiuc.edu/Research/vmd/). Cite the algorithms you use,
-MDANCE and VMD: [docs/citing.rst](docs/citing.rst). VMDance © 2026 Diego
-Gomes, MIT licence.
+MDANCE and VMD: [docs/citing.rst](docs/citing.rst).
+
+VMDance © 2026 Diego Gomes, MIT licence.

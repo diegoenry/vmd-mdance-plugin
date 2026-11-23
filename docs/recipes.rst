@@ -1,15 +1,15 @@
 Recipes
 =======
 
-Scripts for common jobs, with the ``vmdance`` command (:doc:`command`). They
-run in VMD's console, or in text-mode VMD: ``vmd -dispdev text -e
-script.tcl < /dev/null``.
+Scripts for common jobs, with the ``vmdance`` command (:doc:`command`).
+They run in VMD's console, or in text-mode VMD:
+``vmd -dispdev text -e script.tcl < /dev/null``.
 
 Replicas or conditions in one molecule, as groups
 --------------------------------------------------
 
-Load each replica into the same molecule, and give its frames a group by
-the frame numbers they took:
+Load each replica into the same molecule. Give its frames a group by the
+frame numbers they took:
 
 .. code-block:: tcl
 
@@ -27,7 +27,7 @@ the frame numbers they took:
    vmdance map
    vmdance profiles
 
-The clusters are of all the frames together: a cluster of one condition
+The clusters are of all the frames together. A cluster of one condition
 only is a state the others did not reach (:doc:`groups`).
 
 Is my run converged?
@@ -44,18 +44,21 @@ in the same shares:
    vmdance timeline -windows 20       ;# each cluster's frames in 20 windows; first_seen
 
 Shares that drift from block to block, or a cluster absent from the first
-blocks, say the populations have not settled. ``groups compare`` puts it
-in numbers: for every two blocks, the Jensen–Shannon divergence of their
-shares of the clusters (0: the same; 0.69: no cluster in common) and the
-cluster whose share differs most. ``timeline`` gives the clusters' frames
-window by window, and the frame each cluster is first seen at: a cluster
-first seen late is one the frames before it never reached.
+blocks, say the populations have not settled.
+
+``groups compare`` puts it in numbers. For every two blocks, it gives the
+Jensen–Shannon divergence of their shares of the clusters (0: the same;
+0.69: no cluster in common), and the cluster whose share differs most.
+
+``timeline`` gives the clusters' frames window by window, and the frame
+each cluster is first seen at. A cluster first seen late is one the frames
+before it never reached.
 
 Many trajectories, the same analysis
 ------------------------------------
 
-The same settings for every system, each system's results in a folder of
-its own, and how they were made written beside them:
+The same settings for every system. Each system's results go in a folder
+of its own, with how they were made written beside them:
 
 .. code-block:: tcl
 
@@ -73,9 +76,9 @@ its own, and how they were made written beside them:
        mol delete $m
    }
 
-Then, with a k chosen for each system (a ``k.csv`` with a header line,
-then ``system,k`` lines, kept with the results, so that the choice is part
-of the record):
+Then cluster each system with a k chosen for it. The choices are in a
+``k.csv``: a header line, then ``system,k`` lines. It is kept with the
+results, so that the choice is part of the record:
 
 .. code-block:: tcl
 
@@ -100,9 +103,9 @@ Figures for a paper or a slide
 ------------------------------
 
 ``figures`` writes the plots as the window draws them, at a size and a text
-size of their own (it needs Tk and a display: VMD with its window; on a
-machine without a screen, a virtual one: ``Xvfb :1 &``, then
-``DISPLAY=:1 vmd -dispdev win``):
+size of their own. It needs Tk and a display: VMD with its window. On a
+machine without a screen, it needs a virtual one: ``Xvfb :1 &``, then
+``DISPLAY=:1 vmd -dispdev win``. For example:
 
 .. code-block:: tcl
 
@@ -118,10 +121,9 @@ machine without a screen, a virtual one: ``Xvfb :1 &``, then
    vmdance figures figs -plots {timeline} -options {tl_view shares plot_time "0.1 ns"}
    vmdance figures figs -plots {compactness distances} -options {plot_len a}
 
-A figure is 160 to 6000 points (56 mm at least) each way, its text 6 to 36
-points. The red line at VMD's current frame is left out (``-cursor 1``
-draws it), and a plot that has nothing but a message to show gets no
-figure.
+A figure is 160 to 6000 points (56 mm at least) each way. Its text is 6 to
+36 points. The red line at VMD's current frame is left out (``-cursor 1``
+draws it). A plot that has nothing but a message to show gets no figure.
 
 The 3D view goes with ``vmdance figures figs -3d 1`` (VMD's renderer).
 
@@ -148,14 +150,16 @@ any representation by it (**Coloring Method ▸ User**):
    vmdance userfield -sel protein
    mol modcolor 0 top User
 
-Or let the plugin draw them: ``vmdance draw -colour 1 -reps 1`` colours the
-structure by the current frame's cluster and draws every representative.
+Or let the plugin draw them. ``vmdance draw -colour 1 -reps 1`` colours
+the structure by the current frame's cluster, and draws every
+representative.
 
 The representatives as structures
 ---------------------------------
 
-The representatives in one PDB, a model each, or each cluster's frames as a
-trajectory of its own, of any selection (the protein with its ligand, say):
+The representatives in one PDB, a model each, or each cluster's frames as
+a trajectory of its own. Either can be of any selection (the protein with
+its ligand, say):
 
 .. code-block:: tcl
 
@@ -163,14 +167,17 @@ trajectory of its own, of any selection (the protein with its ligand, say):
 
 The frames are VMD's as loaded: the fit, when the clustering had one, is
 not applied to them. In a PDB each frame is a model (``MODEL`` …
-``ENDMDL``), and a ``REMARK`` before it names its cluster and frame; VMD
-reads the file back as frames (:doc:`files`).
+``ENDMDL``). A ``REMARK`` before it names its cluster and frame. VMD reads
+the file back as frames (:doc:`files`).
 
 The program or the library
 --------------------------
 
-The plugin runs CPP-MDANCE's program (``mdance-cli``, in the background,
-VMD free meanwhile) or its library (inside VMD: no files, VMD waits):
+The plugin runs CPP-MDANCE's program or its library:
+
+- the program, ``mdance-cli``, runs in the background, and VMD is free
+  meanwhile;
+- the library runs inside VMD: no files, and VMD waits.
 
 .. code-block:: tcl
 
