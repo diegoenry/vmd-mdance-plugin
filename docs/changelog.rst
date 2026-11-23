@@ -4,6 +4,21 @@ Changes
 1.0 alpha 1, as it grew
 -----------------------
 
+**23 November 2026: simpler pages, a new logo.**
+
+- Every page but the parameters (made from the plugin's table) and this
+  changelog: shorter sentences, paragraphs broken up, lists where there
+  were enumerations. Nothing said was dropped.
+- *Coming from the MDANCE plugin* removed.
+- :doc:`install`: a *Requirements* section, for Linux, macOS and Windows
+  (Windows: a MinGW-w64 GCC, its runtime first on the ``PATH``, Tcl's
+  headers from MSYS2 for the library, Ghostscript from Artifex's
+  installer).
+- The logo: VMDance with V, M and D in the colours of VMD's own title
+  (red, green, blue) and "ance" in black; the mark and the window's icon,
+  VMD in those colours on a black tile. ``make_logo.py`` draws its PNGs
+  with Pillow (no cairo).
+
 **23 November 2026: the README an overview.**
 
 - The README says what the plugin does and how to install it, and points

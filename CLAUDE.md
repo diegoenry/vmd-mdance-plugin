@@ -10,8 +10,7 @@ took its place on 2026-10-09; MDANCEView's sessions and preferences are
 still read), following the design of
 DihedralView (`~/.vmd/plugins/noarch/tcl/VMD-Dihedral-view-TEMP`),
 InteractionView (`~/github/myprojects/vmd-plugin-projects/vmd-interactions-v2/InteractionView`)
-and Molywood Studio. docs/design.rst, docs/differences.rst and
-docs/internals.rst describe it.
+and Molywood Studio. docs/design.rst and docs/internals.rst describe it.
 
 ## Rules the design keeps
 
@@ -51,7 +50,7 @@ docs/internals.rst describe it.
   the plugin's CSV and compares every label; the library against the
   program; the measures against direct computations; MDANCE's published
   runs. A deliberate difference gets a comment, a line in
-  docs/differences.rst, and a test. A divergence that is CPP-MDANCE's (the
+  docs/limits.rst, and a test. A divergence that is CPP-MDANCE's (the
   stratified seed's rounding) is recorded (SKIP with the numbers), never
   loosened into a pass. Compare with MDANCE's published runs on the atoms
   they cluster, the Cα: on the backbone, HELM's populations looked like a
@@ -138,9 +137,12 @@ docs/internals.rst describe it.
   running; a handler waiting in that loop stalled the capture.
 - Icons: `cd vmdance/icons && python3 make_icons.py` (Pillow). The logo
   (docs/_static/logo/) and the application's icon (app_*), from
-  `python3 docs/tools/make_logo.py` (fontTools, uharfbuzz, cairosvg, Pillow
-  and the Inter font): VMD and MDANCE share MD, so a blue bracket spans VMD
-  and a rust one MDance; muted tones, as the plots'.
+  `python3 docs/tools/make_logo.py` (fontTools, uharfbuzz, Pillow and the
+  Inter font; its PNGs drawn with Pillow, no cairo): VMDance with V, M and
+  D in VMD's own title colours (#da5050, #50da50, #5050da: the front faces
+  of the letters VMD draws at start, VMDTITLE=on) and "ance" in black
+  (light on dark); the mark and window icon, VMD in those colours on a
+  black tile, as VMD shows its title.
 - Old-plugin session fixtures (tests/fixtures/old_*.mdance) were written by
   the MDANCE plugin itself (its run_clustering, run_one_config and
   save_session, its files read only) with the real mdance-cli:
@@ -446,8 +448,9 @@ docs/internals.rst describe it.
   (`mdance-cli` crashed; every frame in one cluster, published as k).
   eQual's radius by such an index holds every frame (1 − index below 0):
   one cluster whatever the seeds, so eQual takes MSD only. A
-  representative sample's share is one frame at least (the outliers' may
-  be none).
+  representative sample's share is one frame at least (the backend picks
+  one where it holds none); an outliers share that holds no frame is
+  refused (Job::check_pick).
 - Non-finite coordinates: VMD reads "nan" in a PDB's coordinate as NaN;
   `atomselect set x NaN` is refused but `Inf` is taken (the tests make them
   so). A frame's fingerprint is then not a number (`regexp -nocase

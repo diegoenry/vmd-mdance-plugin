@@ -1,22 +1,27 @@
 The command
 ===========
 
-One command, ``vmdance``, does everything the window does, and works in
-text-mode VMD (but ``figures``: Tk draws them, and needs a display, which
-text-mode VMD has not). With no argument it opens the window. Every option is
-checked before anything changes, and an error names the option and what to
-change; a failed, cancelled or refused job keeps what was there. The
-window, when it is open, shows what the command did. The answers are Tcl
-lists and dictionaries (``dict get`` reads them). A *cluster* is its number
-(0, 1 …); a *frame* is VMD's frame number. ``vmdance help`` lists the
-subcommands, a line each, and ``vmdance help subcommand`` gives one's usage
-and what it does (``vmdance help figures``).
+One command, ``vmdance``, does everything the window does. It works in
+text-mode VMD too, except ``figures``: Tk draws the figures, and Tk needs a
+display, which text-mode VMD has not. With no argument the command opens
+the window.
+
+- Every option is checked before anything changes. An error names the
+  option and what to change.
+- A failed, cancelled or refused job keeps what was there.
+- When the window is open, it shows what the command did.
+- The answers are Tcl lists and dictionaries (``dict get`` reads them).
+- A *cluster* is its number (0, 1 …). A *frame* is VMD's frame number.
+
+``vmdance help`` lists the subcommands, a line each.
+``vmdance help subcommand`` gives one's usage and what it does
+(``vmdance help figures``).
 
 A whole script
 --------------
 
-MDANCE's own example, clustered and asked about from start to end (the
-sections below say what each subcommand takes and answers):
+MDANCE's own example, clustered and asked about from start to end. The
+sections below say what each subcommand takes and answers:
 
 .. code-block:: tcl
 
@@ -71,21 +76,24 @@ Clustering
        ?-label text? ?-quiet 0?
 
 The parameters are the algorithm's, named as ``mdance-cli`` names them
-(:doc:`parameters`); ``-k`` is 6 by default (eQual takes none: its
-``-threshold``, the radius, is 2); ``-fit selection`` superposes every
-frame on the first clustered one first. The clustering is published as a new :term:`run`, the
-current one, named ``-label`` (else after its algorithm and clusters, with
-the clusters that have no frames and *fitted* when it was: ``KMeans NANI,
-k 6 → 6 clusters (1 empty), fitted``); the
-command returns ``info``. Progress is printed every 10 % unless ``-quiet 1``.
+(:doc:`parameters`). ``-k`` is 6 by default. eQual takes no k: its
+``-threshold``, the radius, is 2. ``-fit selection`` first superposes
+every frame on the first clustered one.
+
+The clustering is published as a new :term:`run`, the current one, and
+the command returns ``info``. The run is named ``-label``. Without it, the
+name is its algorithm and clusters, with the clusters that have no frames,
+and *fitted* when it was fitted: ``KMeans NANI, k 6 → 6 clusters (1
+empty), fitted``. Progress is printed every 10 % unless ``-quiet 1``.
 
 Without ``-fit`` the frames are clustered as they are. When they do not
-look superposed, the command says so before it clusters, unless ``-quiet
-1`` (``note: not fitted, and the frames are … Å from the first as they
-are, … Å once fitted on these atoms: they do not look superposed (-fit
-<selection> fits them before they are clustered)``), and clusters them all
-the same: the fit stays off unless asked. ``alignment`` returns the
-numbers behind the note, for any input:
+look superposed, the command says so before it clusters, unless
+``-quiet 1``. The note reads ``note: not fitted, and the frames are … Å
+from the first as they are, … Å once fitted on these atoms: they do not
+look superposed (-fit <selection> fits them before they are
+clustered)``. The command then clusters them all the same: the fit stays
+off unless asked. ``alignment`` returns the numbers behind the note, for
+any input:
 
 .. code-block:: tcl
 
@@ -94,17 +102,23 @@ numbers behind the note, for any input:
    vmdance radii ?-mol top? ?-sel "name CA"? ?-fit ""? ?-first 0? ?-last -1? ?-step 1?
        ;# sample 147 pairs 10731 percentiles {2 3.42 5 4.5 10 5.57 25 7.56 50 10.3} from 3.4 to 10 by 0.73
 
-``alignment`` takes a sample of the frames (the first and 20 others at
-most, evenly taken; 300 of the atoms at most) and gives their mean RMSD
-from the first frame (Å), as they are (``as_is``) and once each is fitted
-on it by those atoms (``fitted``). ``superposed`` is 0 when a fit halves
-the distance and takes an ångström off it: such frames were not aligned,
-and clustered as they are they separate by where the molecule is, not by
-its shape. ``radii`` proposes a range to scan eQual's radius over
-(``vmdance elbow -algorithm equal -radii``): it measures MDANCE's MSD (Å²,
-half the RMSD²) of every two of about 150 frames, evenly taken, and gives
-the values that 2, 5, 10, 25 and 50% of the pairs are within, and a range
-``from`` the 2% value ``to`` the 50% one in ten values (``by``: nine steps).
+``alignment`` takes a sample of the frames: the first and 20 others at
+most, evenly taken, and 300 of the atoms at most. It gives their mean RMSD
+from the first frame (Å):
+
+- ``as_is``: as they are;
+- ``fitted``: once each is fitted on the first frame by those atoms.
+
+``superposed`` is 0 when a fit halves the distance and takes an ångström
+off it. Such frames were not aligned. Clustered as they are, they separate
+by where the molecule is, not by its shape.
+
+``radii`` proposes a range to scan eQual's radius over
+(``vmdance elbow -algorithm equal -radii``). It measures MDANCE's MSD (Å²,
+half the RMSD²) of every two of about 150 frames, evenly taken. It gives
+the values that 2, 5, 10, 25 and 50% of the pairs are within. It also
+gives a range in ten values, ``from`` the 2% value ``to`` the 50% one
+(``by``: nine steps).
 
 .. code-block:: tcl
 
@@ -119,31 +133,41 @@ the values that 2, 5, 10, 25 and 50% of the pairs are within, and a range
    vmdance backend try -cli /path/to/mdance-cli   ;# what it would give, the backend kept
    vmdance cancel          ;# stop the job running in the background (the window's)
 
-The command's job runs to its end before the command returns; the
-window's runs in the background, and while it runs the command refuses
+The command's job runs to its end before the command returns. The
+window's job runs in the background. While it runs, the command refuses
 everything that reads or replaces the results ("wait for it or cancel
-it"). While the command waits, VMD's text console reads nothing: a
-backend that hangs is stopped with the window's Cancel, or by ending the
-``mdance-cli`` process (Ctrl+C at VMD's terminal ends it): the whole job
-stops, a scan too, and what was there is kept ("cancelled: mdance-cli was
-stopped (interrupt)"). After the backend, the plugin measures the clusters
-itself (every frame against the clusters' mean structures): with thousands
-of clusters it takes long, and the console says how far it is every 10 s; the window's
-Cancel stops it (ending ``mdance-cli`` does not: it has ended), or a script's
-``vmdance cancel`` from an ``after``. Quitting VMD ends a job of the
-window's; a ``quit``
-run while the command waits takes effect when its job has ended. In
-``backend``, ``note`` says what the program's probe could not tell (it did
-not answer within 3 s: every algorithm is offered). The backend is the one
-chosen in Settings (kept in ``~/.vmdance.prefs``), else found as
-:doc:`install` says; ``backend -mode … -cli … -library …`` chooses over it
-for this VMD (a ``-cli`` alone keeps the mode: give ``-mode cli`` with it),
-and ``backend try`` says what a choice would give without making it, as
-Settings does until OK (a job running is not refused it). Options are given once
-each, and so are the names in a sweep's ``-params`` and figures'
-``-options``; a sweep's seedings are those of ``-seedings`` (none in
-``-params``); a name that is no option of the command nor any algorithm's
-parameter is refused as such.
+it").
+
+While the command waits, VMD's text console reads nothing. A backend that
+hangs is stopped with the window's Cancel, or by ending the
+``mdance-cli`` process (Ctrl+C at VMD's terminal ends it). The whole job
+then stops, a scan too, and what was there is kept ("cancelled:
+mdance-cli was stopped (interrupt)").
+
+After the backend, the plugin measures the clusters itself: every frame
+against the clusters' mean structures. With thousands of clusters this
+takes long, and the console says how far it is every 10 s. The window's
+Cancel stops it, or a script's ``vmdance cancel`` from an ``after``.
+Ending ``mdance-cli`` does not: it has ended.
+
+Quitting VMD ends a job of the window's. A ``quit`` run while the command
+waits takes effect when its job has ended.
+
+The backend:
+
+- It is the one chosen in Settings (kept in ``~/.vmdance.prefs``), else
+  the one found as :doc:`install` says.
+- ``backend -mode … -cli … -library …`` chooses over it for this VMD. A
+  ``-cli`` alone keeps the mode: give ``-mode cli`` with it.
+- ``backend try`` says what a choice would give without making it, as
+  Settings does until OK. It is not refused while a job runs.
+- In ``backend``, ``note`` says what the program's probe could not tell
+  (the program did not answer within 3 s: every algorithm is offered).
+
+Options are given once each. So are the names in a sweep's ``-params``
+and in figures' ``-options``. A sweep's seedings are those of
+``-seedings`` (none in ``-params``). A name that is no option of the
+command, nor any algorithm's parameter, is refused as such.
 
 Reading the clustering
 ----------------------
@@ -166,34 +190,49 @@ Reading the clustering
    vmdance distances       ;# centroids {k × k RMSD²} representatives {k × k RMSD}
    vmdance tree            ;# kind helm|linkage merges {{left right distance count} ...} leaves {...} heights {...}
 
-The tables are the clustering's record, in its own frame numbers: they
-answer whether or not its molecule is loaded. ``distances`` and the average
-linkage ``tree`` are made for 300 clusters or fewer: with more, they say so
-(a smaller k, a larger eQual radius); HELM's tree is its merges, at any
-number. ``heights`` is each merge's height, the Tree plot's heights view:
-HELM's, the MSD (MDANCE's, Å²) of the cluster the merge makes; the
-linkage's, the RMSD² between the mean structures it joins (its distance).
+The tables are the clustering's record, in its own frame numbers. They
+answer whether or not its molecule is loaded.
+
+``distances`` and the average linkage ``tree`` are made for 300 clusters
+or fewer. With more, they say so (a smaller k, a larger eQual radius).
+HELM's tree is its merges, at any number of clusters.
+
+``heights`` is each merge's height, the Tree plot's heights view:
+
+- HELM's: the MSD (MDANCE's, Å²) of the cluster the merge makes;
+- the linkage's: the RMSD² between the mean structures it joins (its
+  distance).
+
 A merge far above the one before joins clusters far apart: the k before it
 is a natural place to stop.
 
-``timeline`` cuts the clustered frames in ``-windows`` windows as equal as
-can be (by default about 120, of 10 frames at least; 1 to the number of
-frames) and counts each cluster's frames in each: ``windows`` are their
-first and last VMD frames, ``counts`` a count a cluster for each window,
-``noise`` the frames in no cluster; ``first_seen`` is the frame each
-cluster is first seen at (empty: never). The Timeline's shares views draw
-them. ``silhouette`` gives every frame's silhouette from the clusters' mean
-structures (``-kind centroid``, the default: the simplified silhouette,
-never below 0 for k-means) or from every frame, of the squared distances
-(``-kind pairs``: the classic one, scikit-learn's
-``silhouette_samples(metric="sqeuclidean")``); a run made before the second
-was measured is refused it, saying to cluster again (:doc:`plots`).
+``timeline`` cuts the clustered frames in ``-windows`` windows, as equal
+as can be. By default there are about 120, of 10 frames at least; there
+can be 1 to the number of frames. It counts each cluster's frames in each
+window:
 
-``frame`` reads VMD's frame
-number as the clustered one, as ``goto``, ``draw``, ``userfield`` and the
-structure exports do: only while the clustered molecule has the frames it
-had (frames added after them change nothing); after frames deleted before
-them, or a trajectory loaded otherwise, it is refused, saying why.
+- ``windows``: their first and last VMD frames;
+- ``counts``: a count a cluster for each window;
+- ``noise``: the frames in no cluster;
+- ``first_seen``: the frame each cluster is first seen at (empty: never).
+
+The Timeline's shares views draw them.
+
+``silhouette`` gives every frame's silhouette in one of two ways:
+
+- ``-kind centroid``, the default: from the clusters' mean structures.
+  This is the simplified silhouette, never below 0 for k-means.
+- ``-kind pairs``: from every frame, of the squared distances. This is the
+  classic one, scikit-learn's ``silhouette_samples(metric="sqeuclidean")``.
+
+A run made before the second was measured is refused it, with a message
+saying to cluster again (:doc:`plots`).
+
+``frame`` reads VMD's frame number as the clustered one, as ``goto``,
+``draw``, ``userfield`` and the structure exports do. It does so only
+while the clustered molecule has the frames it had. Frames added after
+them change nothing. After frames deleted before them, or a trajectory
+loaded otherwise, it is refused, saying why.
 
 Scans
 -----
@@ -214,41 +253,54 @@ Scans
        ;# {index algorithm k metric seeding nclusters ch db sizes status message} ...
    vmdance sweep show | sweep best ?ch|db? | sweep load n | sweep clear
 
-A scan takes its own input and clustering options, as a clustering does:
-an option not given is the command's default (``-mol top -sel "name CA"``,
-no fit, every frame, KMeans NANI with its defaults), never the current
-run's. To scan what a run clustered, give its options again
-(``vmdance elbow -sel $sel -kinit CompSim -from 2 -to 12``). A scan
-says what it reads (unless ``-quiet 1``), and notes when that is not what
-the current run clustered. A record's ``nclusters`` counts the clusters
-with frames. A sweep's seedings are ``-seedings`` (HELM's: its first
-clustering's): ``-params`` with a seeding is refused. HELM from a label file
-and DIVINE with pair anchors use none: one configuration at each k, its
-seeding ``none``.
+A scan takes its own input and clustering options, as a clustering does.
+An option not given is the command's default, never the current run's:
+``-mol top -sel "name CA"``, no fit, every frame, KMeans NANI with its
+defaults. To scan what a run clustered, give its options again
+(``vmdance elbow -sel $sel -kinit CompSim -from 2 -to 12``). A scan says
+what it reads (unless ``-quiet 1``). It notes when that is not what the
+current run clustered.
 
-``-stability 1`` clusters every k again from NANI's four seedings that draw
-no random number (StratAll, StratReduced, CompSim, DivSelect; or the list
-given, two at least), and gives each record the mean adjusted Rand index of
-every two of them (1: the same clusters whatever the seeding; 0: as alike as
-chance); k-means NANI only. A seeding that cannot seed k (StratAll draws k
-seeds from the densest share of the frames) is left out at that k:
-``compared`` says how many were compared, and with fewer than two the
-stability is ``""``. eQual is given no k: its elbow scans its radius
-(``-radii``, MDANCE's MSD, two values at least; each radius is the
-clustering's ``-threshold``, which is not given), and a record's
-``nclusters`` is what that radius gave (:doc:`scans`). ``elbow load`` takes a
-k as a whole number (``010`` is not 8) and a radius as a decimal number.
+A record's ``nclusters`` counts the clusters with frames. A sweep's
+seedings are ``-seedings`` (HELM's: its first clustering's), and
+``-params`` with a seeding is refused. HELM from a label file and DIVINE
+with pair anchors use none: one configuration at each k, its seeding
+``none``.
 
-``elbow suggest`` says where the last scan's scores point, each a k (or a
-radius), empty where the scan does not say: ``db_lowest`` and
-``db_second``, the lowest Davies–Bouldin score and the next; ``db_dip``
-and ``db_dip2``, its local minimum that bends most (the score before plus
-the score after, less twice its own, is largest) and the next — MDANCE's
-two criteria are ``db_lowest`` and ``db_dip``; ``ch_highest`` and
-``ch_peak``, the highest Calinski–Harabasz score and its sharpest peak;
-``stable``, the values whose stability is 0.9 or more, and
-``most_stable``; ``words``, the sentence the window shows. They need not
-agree: the command says each, and leaves the choice (:doc:`scans`).
+``-stability 1`` clusters every k again from NANI's four seedings that
+draw no random number: StratAll, StratReduced, CompSim and DivSelect (or
+the list given, two at least). It gives each record the mean adjusted Rand
+index of every two of them (1: the same clusters whatever the seeding; 0:
+as alike as chance). It is for k-means NANI only.
+
+A seeding that cannot seed k is left out at that k (StratAll draws k seeds
+from the densest share of the frames). ``compared`` says how many were
+compared. With fewer than two, the stability is ``""``.
+
+eQual is given no k: its elbow scans its radius (``-radii``). The radii
+are MDANCE's MSD, two values at least. Each radius is the clustering's
+``-threshold``, which is not given. A record's ``nclusters`` is what that
+radius gave (:doc:`scans`).
+
+``elbow load`` takes a k as a whole number (``010`` is not 8) and a radius
+as a decimal number.
+
+``elbow suggest`` says where the last scan's scores point. Each is a k (or
+a radius), empty where the scan does not say:
+
+- ``db_lowest`` and ``db_second``: the lowest Davies–Bouldin score, and
+  the next;
+- ``db_dip`` and ``db_dip2``: its local minimum that bends most (the score
+  before plus the score after, less twice its own, is largest), and the
+  next;
+- ``ch_highest`` and ``ch_peak``: the highest Calinski–Harabasz score, and
+  its sharpest peak;
+- ``stable``: the values whose stability is 0.9 or more, and
+  ``most_stable``;
+- ``words``: the sentence the window shows.
+
+MDANCE's two criteria are ``db_lowest`` and ``db_dip``. The readings need
+not agree: the command says each, and leaves the choice (:doc:`scans`).
 
 Questions after a clustering
 ----------------------------
@@ -265,16 +317,20 @@ Questions after a clustering
    vmdance pick goto 1234  ;# VMD's frame to a picked one, on the picks' molecule
    vmdance pick save file.pdb ?-format pdb|dcd? ?-sel all?   ;# their structures
 
-PRIME and the similarity read the coordinates again: the clustered
-molecule must be loaded, with the frames that were clustered, and its
-atoms (those the selection held then: ``-sel "beta > 0"`` is read as the
-atoms it selected when it was clustered). The picks need no clustering:
-``pick goto``, ``pick save`` and ``draw -picks 1`` work on their own
-molecule, while it has the frames they were picked from. A pick's
-``-param`` is, for ``diversity``, a whole percentage of the frames (1 to
-100; with ``-metric MSD`` only), for ``outliers`` and ``repsample`` a
-number of frames or a share below 1 (the outliers' holds a frame at least;
-a sample is one frame at least) (:doc:`tools`).
+PRIME and the similarity read the coordinates again. The clustered
+molecule must be loaded, with the frames that were clustered and its
+atoms. These are the atoms the selection held then: ``-sel "beta > 0"``
+is read as the atoms it selected when it was clustered.
+
+The picks need no clustering. ``pick goto``, ``pick save`` and
+``draw -picks 1`` work on their own molecule, while it has the frames
+they were picked from. A pick's ``-param`` is (:doc:`tools`):
+
+- for ``diversity``, a whole percentage of the frames (1 to 100; with
+  ``-metric MSD`` only);
+- for ``outliers`` and ``repsample``, a number of frames or a share
+  below 1. The outliers' share holds a frame at least. A sample is one
+  frame at least.
 
 Groups, map and profiles
 ------------------------
@@ -295,37 +351,56 @@ Groups, map and profiles
    vmdance profiles ?-reference c?       ;# reference c atoms n clusters k groups {...}
    vmdance profiles show                 ;# residues chains clusters groups differences ...
 
-The groups say where each clustered frame came from (the method, replica or
-condition that made it): up to 256, each name 1 to 64 characters; a frame
-given none has none. They are kept with the run, in sessions too, and a new
-clustering of the same frames of the same molecule takes them over. A
-group's colour in the plots is its index's in a muted palette, or the one
-``-colours`` gives its name (``#rrggbb``; ``""``: the palette's again): a
-name the groups do not have is passed over, so that one list colours the
-groups of several molecules alike, and new groups keep the colours of their
-names. ``-blocks n`` cuts the clustered frames in n blocks as equal as can
-be (2 to 256, and no more than the frames), a group each: the halves or
-quarters of a trajectory, to see whether each part visits the same
-clusters. ``makeup`` counts each cluster's frames by group (noise and frames of
-no group left out). ``groups compare`` says how unlike the groups' shares of
-the clusters are: for every two groups with frames, the Jensen–Shannon
-divergence of their shares (0: the same; 0.693, ln 2: no cluster in
-common), the largest difference in a cluster's share between them (0 to 1)
-and that cluster; ``words`` names the two most unlike (:doc:`groups`).
+The groups say where each clustered frame came from: the method, replica
+or condition that made it. There can be up to 256, each name 1 to 64
+characters. A frame given none has none. The groups are kept with the
+run, in sessions too. A new clustering of the same frames of the same
+molecule takes them over.
 
-``map`` places every clustered frame on the first two principal components
-of the clustered coordinates (classical scaling of their squared distances,
-after the clustering's fit; the axes from ``-sample`` frames spread evenly
-over them, 2 to 5000, every frame projected on them), in Å, with each axis's
-share of the variance. ``profiles`` measures, atom by atom of the selection,
-each cluster's and each group's RMSF about its own mean structure, and each
+A group's colour in the plots is its index's in a muted palette, or the
+one ``-colours`` gives its name (``#rrggbb``; ``""``: the palette's
+again). A name the groups do not have is passed over. So one list colours
+the groups of several molecules alike, and new groups keep the colours of
+their names.
+
+``-blocks n`` cuts the clustered frames in n blocks as equal as can be, a
+group each (2 to 256, and no more than the frames). These are the halves
+or quarters of a trajectory, to see whether each part visits the same
+clusters.
+
+``makeup`` counts each cluster's frames by group. Noise and frames of no
+group are left out.
+
+``groups compare`` says how unlike the groups' shares of the clusters are.
+For every two groups with frames, it gives:
+
+- the Jensen–Shannon divergence of their shares (0: the same; 0.693,
+  ln 2: no cluster in common);
+- the largest difference in a cluster's share between them (0 to 1);
+- that cluster.
+
+``words`` names the two most unlike (:doc:`groups`).
+
+``map`` places every clustered frame on the first two principal
+components of the clustered coordinates, in Å, with each axis's share of
+the variance. It uses classical scaling of their squared distances, after
+the clustering's fit. The axes come from ``-sample`` frames spread evenly
+over them (2 to 5000), and every frame is projected on the axes.
+
+``profiles`` measures, atom by atom of the selection, each cluster's and
+each group's RMSF about its own mean structure. It also measures each
 cluster's mean structure's distance from ``-reference``'s (by default the
-most populated cluster). Both read the coordinates again (the molecule
-loaded, with its frames), are kept with the run and in sessions, and are
-made again when asked; profiles made with other groups are dropped when the
-groups change. A new clustering of the same frames and atoms of the same
-molecule, fitted the same, takes the map over: it is of the frames, not of
-their clusters.
+most populated cluster).
+
+Both ``map`` and ``profiles``:
+
+- read the coordinates again (the molecule loaded, with its frames);
+- are kept with the run and in sessions;
+- are made again when asked.
+
+Profiles made with other groups are dropped when the groups change. A new
+clustering of the same frames and atoms of the same molecule, fitted the
+same, takes the map over: it is of the frames, not of their clusters.
 
 The selection and the 3D window
 -------------------------------
@@ -340,15 +415,19 @@ The selection and the 3D window
    vmdance goto -frame 120
    vmdance userfield ?-sel all?   ;# the clusters into the user field: the frames written (-sel of no atom: refused)
 
-``draw`` returns its options, and a ``note`` of what is on but not drawn,
-and why (no clustering, its molecule not loaded or without its frames;
-the picks' the same), and of what is drawn otherwise than asked, said on
-the console too: a ``-sel`` that selects nothing there, or is no selection
-(given with no molecule loaded, it was kept unchecked), is drawn as the
-residues of the atoms clustered, and ``-frames`` past the molecule's last
-are left out. ``-sel`` is checked on the clustered molecule, else on the
-top one. A session that saved such a ``-sel`` or ``-frames`` loses it
-alone when it is opened, with a warning; the rest of its drawing is kept.
+``draw`` returns its options, and a ``note``. The note says what is on
+but not drawn, and why: no clustering, or its molecule not loaded or
+without its frames (the same for the picks). It also says what is drawn
+otherwise than asked, which the console says too:
+
+- a ``-sel`` that selects nothing there, or is no selection, is drawn as
+  the residues of the atoms clustered (a ``-sel`` given with no molecule
+  loaded was kept unchecked);
+- ``-frames`` past the molecule's last are left out.
+
+``-sel`` is checked on the clustered molecule, else on the top one. A
+session that saved such a ``-sel`` or ``-frames`` loses it alone when it
+is opened, with a warning. The rest of its drawing is kept.
 
 Runs
 ----
@@ -363,12 +442,18 @@ Runs
    vmdance renumber        ;# the current clustering, its clusters numbered by size: a new run (info)
 
 The backend numbers the clusters, and the plugin keeps its numbers: every
-label is MDANCE's. ``renumber`` makes a new run of the current clustering
-with its clusters numbered by size, the largest 0 (equal sizes in the order
-they had, those without frames last), named *…, by size*; its table, its
-measures, its similarity, its profiles and its groups follow. The run it
-is made of keeps the backend's numbers. Clusters already in that order are
-refused.
+label is MDANCE's.
+
+``renumber`` makes a new run of the current clustering, named *…, by
+size*, with its clusters numbered by size:
+
+- the largest is 0;
+- equal sizes keep the order they had;
+- those without frames come last.
+
+Its table, its measures, its similarity, its profiles and its groups
+follow. The run it is made of keeps the backend's numbers. Clusters
+already in that order are refused.
 
 Files
 -----
@@ -385,11 +470,19 @@ Files
    vmdance figures dir -plots {} -3d 1   ;# the 3D view alone
 
 :doc:`files` describes them. ``export`` and ``figures`` make their folder
-when it does not exist; an export writes all its files, or none. A
-figure's ``-size`` is where it goes (a paper's column, its two columns, a
-slide; ``screen``, 900 × 560 points with 12-point text, by default);
-``-width`` and ``-height`` are points, or a number with its unit (``85mm``,
-``8.5cm``, ``3.35in``). Without
-``-items``, above 300 clusters, an export leaves out the transitions (k²
-rows: written when named) and the distances and the tree, which are not
-made then.
+when it does not exist. An export writes all its files, or none.
+
+A figure's ``-size`` is where it goes:
+
+- ``column``: a paper's column;
+- ``two-columns``: its two columns;
+- ``slide``: a slide;
+- ``screen``, the default: 900 × 560 points with 12-point text.
+
+``-width`` and ``-height`` are points, or a number with its unit
+(``85mm``, ``8.5cm``, ``3.35in``).
+
+Without ``-items``, above 300 clusters, an export leaves out:
+
+- the transitions (k² rows: written when named);
+- the distances and the tree, which are not made then.
