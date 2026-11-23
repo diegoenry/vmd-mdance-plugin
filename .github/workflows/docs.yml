@@ -1,0 +1,72 @@
+# Builds the documentation (docs/) with Sphinx, warnings as errors, and
+# publishes it on GitHub Pages: https://diegoenry.github.io/vmd-mdance-plugin/
+# A pull request builds it only, to show that it still builds.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "vmdance/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "vmdance/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# one deployment at a time; a newer push does not cancel one under way
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install Sphinx and Tcl
+        run: |
+          python -m pip install -r docs/requirements.txt
+          sudo apt-get update -q
+          sudo apt-get install -y -q tcl
+
+      # the parameters page is written from the plugin's own table
+      - name: Write the parameters page
+        env:
+          LANG: C.UTF-8   # the plugin's files are UTF-8
+        run: tclsh docs/tools/gen_parameters.tcl
+
+      - name: Build the HTML
+        run: python -m sphinx -M html docs docs/_build -W --keep-going
+
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          path: docs/_build/html
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
