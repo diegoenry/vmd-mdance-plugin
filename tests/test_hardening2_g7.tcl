@@ -42,7 +42,7 @@
 #   sessions       a session saved before opens without the backend's
 #                  placeholders (an empty cluster's MSD and iSIM, the scores
 #                  of single frames, a record's count of clusters)
-#   docs           README's listing gives its clustering's scores; the
+#   docs           the command page's script gives its clustering's scores; the
 #                  paper's HELM scores are the program's without a trim; the
 #                  decks and the design figure made again from their sources
 # (The papers and the decks are kept beside the repository, in folders git
@@ -453,7 +453,7 @@ set said [g7_said {vmdance sweep -mol $m -sel all -first 2 -algorithms kmeans -k
 check "  a sweep too" [expr {[string match "sweeping 2 configurations: 22 frames of all (8 atoms)*" [lindex $said 0]] && [string match "note: not what run *" [lindex $said 1]]}]
 # (the listings give the scans the clustering's options)
 set bad {}
-foreach f [list docs/quickstart.rst README.md {*}[g7_papers manuscript.tex] presentation/make_guide.js presentation/make_deck.js] {
+foreach f [list docs/quickstart.rst docs/command.rst README.md {*}[g7_papers manuscript.tex] presentation/make_guide.js presentation/make_deck.js] {
     foreach line [split [g7_text $f] \n] {
         if {[regexp {vmdance elbow -(from|ks)} $line] && ![string match "*-sel *" $line]} { lappend bad "$f: [string trim $line]" }
     }
@@ -509,9 +509,11 @@ if {!$seen} { skip "  the built decks and design figure" "no unzip or pdftotext,
 # atoms MDANCE's tutorial does since the review of 13 November, "resid 3 to
 # 12 and name CA N C O H", whose CompSim scores are 1005.6 and 2.01:
 # test_hardening2_g8 runs it on them)
-set t [g7_text README.md]
-check "review: README's listing gives its CompSim clustering's scores" [expr {
-    [string match "*-kinit CompSim\n# -> run 1 molid 0 sel {resid 3 to 12 and name CA N C O H} fit {} frames 6001 * ch 1005.6 db 2.01 *" $t] && [string first "1139.6" $t] < 0}]
+# (the listing is the command page's since the README was made an overview)
+set t [g7_text docs/command.rst]
+check "review: the command page's script gives its CompSim clustering's scores" [expr {
+    [string match "*-kinit CompSim\n   # -> run 1 molid 0 sel {resid 3 to 12 and name CA N C O H} fit {} frames 6001 * ch 1005.6 db 2.01 *" $t] &&
+    [string first "1139.6" $t] < 0 && [string first "1139.6" [g7_text README.md]] < 0}]
 set ms ""
 foreach f [g7_papers manuscript.tex] { append ms " " [g7_text $f] }
 regsub -all {\s+} $ms " " ms

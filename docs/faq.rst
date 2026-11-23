@@ -101,12 +101,15 @@ radius leaves such frames as noise instead.
 
 **My clusters differ from MDANCE's Python.** Compare the same atoms first:
 MDANCE's published runs cluster the Cα, and on those VMDance reproduces
-their populations exactly (KMeans NANI, HELM); on the backbone they differ
-by up to 0.09. Three things of the backend differ still: a stratified seed's
+their populations exactly (KMeans NANI; HELM with ``-merge-scheme Inter``,
+as MDANCE's runs merge); on the backbone the shares differ by up to 0.009
+(CompSim: 0.086). Four things of the backend differ still: a stratified seed's
 position on a half (50 frames at 10%: 24.5), which CPP-MDANCE rounds away
 from zero and MDANCE to even; scikit-learn's k-means (MDANCE's) stops at its
-tolerance, CPP-MDANCE's at convergence; and CPP-MDANCE leaves an emptied
-cluster empty, where scikit-learn reseeds it. The seeds, and the clusters,
+tolerance, CPP-MDANCE's at convergence; CPP-MDANCE leaves an emptied
+cluster empty, where scikit-learn reseeds it; and DIVINE, refining a pair
+anchors' split, seeds a side of two frames with another medoid
+(:doc:`limits`). The seeds, and the clusters,
 differ then.
 
 **The library froze VMD.** A library call blocks VMD until it returns, and

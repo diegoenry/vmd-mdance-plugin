@@ -56,7 +56,7 @@ In a script:
    vmdance groups -file groups.csv            ;# frame,group lines
    vmdance groups -names $names               ;# a name for each clustered frame
    vmdance groups -colours {first #3d5a80 second #a3483b}
-   vmdance groups                             ;# names sizes none n colours
+   vmdance groups                             ;# names sizes none colours (none: frames of no group)
    vmdance groups compare                     ;# how unlike the groups are
 
 A frame belongs to one group at most; a frame given none is in none. The

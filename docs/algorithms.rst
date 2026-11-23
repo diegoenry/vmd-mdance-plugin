@@ -33,7 +33,7 @@ parameter, with its default and limits, is on :doc:`parameters`.
      - k, the split, the anchors, a smallest share
      - a hierarchy from the top; clusters of very different sizes
    * - HELM
-     - many small NANI clusters, the closest merged until k (or a distance)
+     - many small NANI clusters, merged two by two until k (or a distance)
      - k or ``-eps``, the first clustering, a trim
      - a hierarchy from the bottom; the merges' heights
    * - eQual
@@ -124,7 +124,8 @@ keeps (MDANCE's minimum size of a cluster; 0: no limit), at every split:
 share × frames, cut to a whole number (0.035 of 100 frames: 3). DIVINE
 stops before k when no cluster can be split so, and the summary says so; a
 share that no split can leave on both sides (above 0.5) is refused.
-``-end-mode points`` does not use k: the splits go on until none leaves
+``-end-mode points`` (the command's only: the window always stops at k)
+does not use k: the splits go on until none leaves
 that share on each side, MDANCE's stopping rule. It takes a share of 2
 frames or more (else every frame ends alone; the refusal suggests 0.05, at
 most 20 clusters, as CPP-MDANCE's splits slow with the square of their
@@ -173,9 +174,9 @@ HELM
 Agglomerative: HELM starts from many small clusters — those of a first
 NANI clustering (``-initial`` 50 of them, seeded ``StratAll``), or a label
 file's (``-initial-labels``: one label per clustered frame, or
-``frame,label`` rows as MDANCE writes them) — and merges the most similar
-pair (``Inter``), the pair whose union stays most compact (``Intra``), or a
-mix (``Half``), until k remain (``-eps -1``), or until the closest pair is
+``frame,label`` rows as MDANCE writes them) — and merges the pair whose
+union stays most compact (``Intra``, the default), the most similar pair
+(``Inter``, as MDANCE's published runs do), or a mix (``Half``), until k remain (``-eps -1``), or until the closest pair is
 farther than ``-eps`` (``-k 0``): one of the two. It can first leave out the loosest starting clusters
 (``-trim-start 1`` with ``-trim-k``, a number, or ``-trim-val``, an MSD) and
 those smaller than ``-min-samples``. The starting clusters are counted as

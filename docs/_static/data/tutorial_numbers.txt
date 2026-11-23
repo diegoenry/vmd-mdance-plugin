@@ -2,7 +2,7 @@
 frames	6001	the frames clustered (the DCD's)
 atoms	50	the atoms of "resid 3 to 12 and name CA N C O H"
 alignment	3.711 3.304 1	the frames from the first: Å as they are, Å fitted, superposed (1) or not
-elbow_seconds	112	the elbow scan with the stability, k 2-12
+elbow_seconds	103	the elbow scan with the stability, k 2-12
 elbow_k2	2109 1.652 1.0000	k 2: Calinski-Harabasz, Davies-Bouldin, stability
 explained_k2	26	k 2: % of the variance the clusters explain
 elbow_k3	1525 2.024 0.9836	k 3: Calinski-Harabasz, Davies-Bouldin, stability
@@ -33,11 +33,11 @@ suggest_most_stable	2	elbow suggest: most_stable
 k3_sizes	2412 1508 2081	k 3: the clusters' frames
 k3_silhouette	0.25	k 3: the mean silhouette (from the clusters' mean structures)
 k3_silhouette_pairs	0.27 586	k 3: the mean silhouette from every frame, and the frames below 0
-residence_c0	2.2	cluster 0: its mean stay (frames)
+residence_c0	2.19	cluster 0: its mean stay (frames)
 longest_c0	22	cluster 0: its longest stay (frames)
-residence_c1	1.9	cluster 1: its mean stay (frames)
+residence_c1	1.91	cluster 1: its mean stay (frames)
 longest_c1	12	cluster 1: its longest stay (frames)
-residence_c2	2.2	cluster 2: its mean stay (frames)
+residence_c2	2.17	cluster 2: its mean stay (frames)
 longest_c2	17	cluster 2: its longest stay (frames)
 all_seen_by	30	the frame by which every cluster has been seen
 halves_c0	1123 1289	cluster 0: frames of the first and the second half
@@ -47,7 +47,8 @@ halves_divergence	0.007 1 0.103	the halves: their divergence, the cluster whose 
 map_variance	36 13	the map's two axes: % of the variance
 profiles_reference	0	the profiles' reference: the most populated cluster
 helm_merges	57	HELM's merges, from its starting clusters to 3
+helm_largest_step	1.6 57	HELM: the largest step (times the merge before) and the clusters before it
 helm_last_heights	13.6 13.8 13.9 14.5 15.2 15.2 16.3 16.4	the last eight merges' heights (k 11 to 4)
-readme_k6	699 1093 1223 1292 721 973 1005.6 2.01	README: KMeans NANI, k 6, CompSim: sizes, Calinski-Harabasz, Davies-Bouldin
+script_k6	699 1093 1223 1292 721 973 1005.6 2.01	the command page's script: KMeans NANI, k 6, CompSim: sizes, Calinski-Harabasz, Davies-Bouldin
 radii_suggested	3.4 10 0.73 147	vmdance radii: from, to, by, and the frames sampled
 equal_radii	194 55 19 9 7	eQual's clusters at radius 4, 6, 8, 10, 12

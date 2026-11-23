@@ -49,7 +49,8 @@ Finding the backend
 The program is looked for, in order, as chosen in **Settings ▸ Backend**,
 in ``MDANCE_CLI``, in the plugin's folder (``mdance-cli`` or
 ``bin/mdance-cli``), on the ``PATH``, and in a CPP-MDANCE build beside the
-plugin's folder (``../CPP-MDANCE/build/cli``); the library likewise
+repository's folder (``vmd-mdance-plugin/../CPP-MDANCE/build/cli``, or one
+folder higher); the library likewise
 (``MDANCE_LIB``, ``mdance_tcl…``). Settings shows which is used and what it
 was built with (a program rebuilt at its path is asked again), and keeps a
 program or library chosen there between
@@ -87,8 +88,8 @@ of which CPP-MDANCE's Tcl binding makes a text: a call takes about 180 bytes of
 VMD's memory a coordinate at its peak, of which Tcl keeps 120 until VMD
 quits, and a text past 2 GB (about 110 million coordinates) ends VMD,
 whatever the memory. A library call that cannot fit is refused, saying
-so. *Automatic*, the default, uses the program when there is one, else the
-library (Setup then says so). Both give the same clusters (the tests compare them); for many
+so. *The program if found, else the library*, the default, uses the
+program when there is one, else the library (Setup then says so). Both give the same clusters (the tests compare them); for many
 frames of many atoms, use the program.
 
 Figures in PDF and PNG use Ghostscript (``gs``); EPS works without it.

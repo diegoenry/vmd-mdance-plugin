@@ -12,6 +12,55 @@ lists and dictionaries (``dict get`` reads them). A *cluster* is its number
 subcommands, a line each, and ``vmdance help subcommand`` gives one's usage
 and what it does (``vmdance help figures``).
 
+A whole script
+--------------
+
+MDANCE's own example, clustered and asked about from start to end (the
+sections below say what each subcommand takes and answers):
+
+.. code-block:: tcl
+
+   package require vmdance
+   # MDANCE's example (pip install mdance): mdance/data/aligned_tau.pdb, aligned_original_tau_6K.dcd, labels_60.csv
+   mol new aligned_tau.pdb
+   mol addfile aligned_original_tau_6K.dcd waitfor all
+   animate delete beg 0 end 0             ;# the PDB's own frame: cluster the DCD's 6001 (VMD's frame = MDANCE's)
+   set sel "resid 3 to 12 and name CA N C O H"   ;# the atoms MDANCE's own tutorial clusters (50)
+   vmdance -sel $sel -algorithm kmeans -k 6 -kinit CompSim
+   # -> run 1 molid 0 sel {resid 3 to 12 and name CA N C O H} fit {} frames 6001 ... nclusters 6 sizes {699 1093 1223 1292 721 973} noise 0 ch 1005.6 db 2.01 ...
+   vmdance help                        ;# the subcommands, a line each (vmdance help elbow: its usage)
+   vmdance alignment -sel $sel         ;# do the frames look superposed? as_is 3.711 fitted 3.304 ... superposed 1
+   vmdance clusters                    ;# {cluster frames percent msd msd_to_representative representative_frame} ...
+   vmdance get 2                       ;# frames, share, representative, silhouette, visits, members ...
+   vmdance labels                      ;# {frame cluster ...}
+   vmdance timeline -windows 20        ;# each cluster's frames window by window, and the frame it is first seen at
+   vmdance transitions -lag 10         ;# probabilities, k × k
+   vmdance silhouette -kind pairs      ;# every frame's silhouette from every frame (-kind centroid: from the mean structures)
+   vmdance renumber                    ;# the clusters numbered by size, the largest 0: a new run
+   vmdance -sel $sel -algorithm helm -k 6 -initial-labels labels_60.csv
+   vmdance radii -sel $sel             ;# a range for eQual's radius, from the frames: ... from 3.4 to 10 by 0.73
+   vmdance -sel $sel -algorithm equal -threshold 10
+   vmdance elbow -sel $sel -kinit CompSim -from 2 -to 15   ;# {index k nclusters ch db sizes status message} ...
+   vmdance elbow -sel $sel -kinit CompSim -from 2 -to 15 -stability 1   ;# again, with each k's stability across NANI's seedings (it replaces the last scan)
+   vmdance elbow suggest               ;# where the scores point: db_lowest, db_dip, ch_highest, stable ... and in words
+   vmdance elbow load 6                ;# that k made the clustering
+   vmdance sweep -sel $sel -algorithms {kmeans helm} -from 2 -to 10 -seedings {StratAll CompSim}
+   vmdance sweep best db
+   vmdance prime                       ;# {pairwise frame union frame ... medoidAll frame ...}
+   vmdance similarity                  ;# {isim x clusters {...} least_similar {...}}
+   vmdance groups -ranges {first 0-2999 second 3000-6000}   ;# where each frame came from (or -file, -names, -blocks 2; -colours)
+   vmdance makeup                      ;# each cluster's frames by group
+   vmdance groups compare              ;# how unlike the groups' shares of the clusters are (0: the same; 0.69: none in common)
+   vmdance map                         ;# the frames on their first two principal components
+   vmdance profiles                    ;# atom by atom: each group's and cluster's RMSF (how far each atom moves about its mean position), each cluster against the largest
+   vmdance pick -sel $sel -method diversity -param 10
+   vmdance select 0 3
+   vmdance draw -colour 1 -overlay 1 -top 10
+   vmdance goto 3                      ;# VMD's frame to cluster 3's representative
+   vmdance export results -prefix hepta -items {summary clusters labels representatives trajectories}
+   vmdance session save hepta.vmdance
+   vmdance figures figs -plots {populations elbow} -size column   ;# 85 mm wide, 8-point text (needs VMD's window)
+
 Clustering
 ----------
 
@@ -22,11 +71,12 @@ Clustering
        ?-label text? ?-quiet 0?
 
 The parameters are the algorithm's, named as ``mdance-cli`` names them
-(:doc:`parameters`); ``-fit selection`` superposes every frame on the first
-clustered one first. The clustering is published as a new :term:`run`, the
+(:doc:`parameters`); ``-k`` is 6 by default (eQual takes none: its
+``-threshold``, the radius, is 2); ``-fit selection`` superposes every
+frame on the first clustered one first. The clustering is published as a new :term:`run`, the
 current one, named ``-label`` (else after its algorithm and clusters, with
 the clusters that have no frames and *fitted* when it was: ``KMeans NANI,
-k 10 → 10 clusters (2 empty), fitted``); the
+k 6 → 6 clusters (1 empty), fitted``); the
 command returns ``info``. Progress is printed every 10 % unless ``-quiet 1``.
 
 Without ``-fit`` the frames are clustered as they are. When they do not
@@ -54,7 +104,7 @@ its shape. ``radii`` proposes a range to scan eQual's radius over
 (``vmdance elbow -algorithm equal -radii``): it measures MDANCE's MSD (Å²,
 half the RMSD²) of every two of about 150 frames, evenly taken, and gives
 the values that 2, 5, 10, 25 and 50% of the pairs are within, and a range
-``from`` the 2% value ``to`` the 50% one in ten steps (``by``).
+``from`` the 2% value ``to`` the 50% one in ten values (``by``: nine steps).
 
 .. code-block:: tcl
 

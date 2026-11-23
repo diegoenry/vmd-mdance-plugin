@@ -130,7 +130,7 @@ variable ::VMDance::help_text {
     cancel       {"vmdance cancel" "stop the job that is running"}
     alignment    {"vmdance alignment ?-mol m? ?-sel text? ?-first f? ?-last l? ?-step s?" "whether the frames look superposed: how far a sample is from the first frame as it is, and once fitted"}
     radii        {"vmdance radii ?-mol m? ?-sel text? ?-fit text? ?-first f? ?-last l? ?-step s?" "a range to scan eQual's radius over, from the distances between a sample of the frames"}
-    clusters     {"vmdance clusters" "the table of the clusters: frames, share, MSD, mean RMSD² from the representative, representative frame"}
+    clusters     {"vmdance clusters ?-sort cluster|size|msd?" "the table of the clusters: frames, share, MSD, mean RMSD² from the representative, representative frame"}
     get          {"vmdance get cluster" "a cluster in full: its numbers and its frames"}
     labels       {"vmdance labels" "{frame cluster ...} of every clustered frame (-1: in no cluster)"}
     frame        {"vmdance frame f" "the cluster of VMD frame f"}
@@ -156,11 +156,11 @@ variable ::VMDance::help_text {
     draw         {"vmdance draw ?-colour 0|1? ?-reps 0|1? ?-overlay 0|1? ?-picks 0|1? ?-style s? ?-sel text? ?-top n? ?-frames \"0-100,500\"? ?-material m?" "the clusters in VMD's 3D window"}
     goto         {"vmdance goto cluster | goto -frame f" "show a cluster's representative, or a frame, in VMD"}
     userfield    {"vmdance userfield ?-sel text?" "write each frame's cluster in VMD's user field"}
-    runs         {"vmdance runs" "the runs: {id name current} each"}
+    runs         {"vmdance runs" "the runs: {id label current} each"}
     run          {"vmdance run id | run delete id | run label id text | run clear" "switch to a run, delete it, rename it, or clear them all"}
     renumber     {"vmdance renumber" "the current clustering with its clusters numbered by size, the largest 0, as a new run"}
     export       {"vmdance export dir ?-prefix p? ?-items {...}? ?-top n? ?-lag n? ?-format pdb|dcd? ?-sel text?" "write tables, and the representatives' and clusters' structures, in a folder"}
-    session      {"vmdance session save file | session load file ?-mol auto|load|none|molid? | session import file.mdance ?-mol auto|molid?" "keep everything in a file, or open one"}
+    session      {"vmdance session save file | session load file ?-mol auto|load|none|molid? | session import file.mdance ?-mol auto|molid? ?-label text?" "keep everything in a file, or open one"}
     figures      {"vmdance figures dir ?-plots {...}? ?-formats {pdf png eps}? ?-size screen|column|two-columns|slide? ?-width w? ?-height h? ?-text points? ?-dpi d? ?-prefix p? ?-cursor 0|1? ?-options {setting value ...}? ?-3d 0|1? ?-renderer auto|name?"
                   "the plots as figures (a width or height: points, or with a unit: 85mm, 8.5cm, 3.35in); needs VMD's window"}
 }

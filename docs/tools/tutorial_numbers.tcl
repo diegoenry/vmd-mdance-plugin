@@ -48,7 +48,7 @@ if {[catch {
     foreach v [dict values [dict get $sp frames]] { if {$v < 0} { incr neg } }
     keep k3_silhouette_pairs "[format %.2f [dict get $sp mean]] $neg" "k 3: the mean silhouette from every frame, and the frames below 0"
     foreach r [vmdance residence] {
-        keep residence_c[lindex $r 0] [format %.1f [lindex $r 2]] "cluster [lindex $r 0]: its mean stay (frames)"
+        keep residence_c[lindex $r 0] [format %.2f [lindex $r 2]] "cluster [lindex $r 0]: its mean stay (frames)"
         keep longest_c[lindex $r 0] [lindex $r 4] "cluster [lindex $r 0]: its longest stay (frames)"
     }
     keep all_seen_by [::tcl::mathfunc::max {*}[dict values [dict get [vmdance timeline] first_seen]]] "the frame by which every cluster has been seen"
@@ -70,11 +70,29 @@ if {[catch {
     vmdance -mol $m -sel $sel -algorithm helm -k 3 -initial 60 -quiet 1
     set hs [dict get [vmdance tree] heights]
     keep helm_merges [llength $hs] "HELM's merges, from its starting clusters to 3"
+    # (the largest step from one merge to the next, as the Tree plot reads
+    # (its variables apart from ::rows, the numbers kept)
+    # it: k is the clusters before the merge, the merge before at least 5%
+    # of the highest; the plot marks it only when it stands out)
+    lassign [::VMDance::Results::tree] t_how t_rows leaves t_base
+    set nl [llength $leaves]
+    set pts {}; set j 0
+    foreach h $hs { if {$h ne ""} { lappend pts [list [expr {$nl - $j}] $h] }; incr j }
+    set floor [expr {0.05 * [::tcl::mathfunc::max {*}[lmap p $pts {lindex $p 1}]]}]
+    set best {0 0}
+    foreach p $pts {
+        lassign $p k h
+        set i [lsearch -exact -index 0 $pts [expr {$k + 1}]]
+        if {$i < 0} continue
+        set q [expr {$h / max([lindex $pts $i 1], $floor)}]
+        if {$q > [lindex $best 1]} { set best [list $k $q] }
+    }
+    keep helm_largest_step "[format %.1f [lindex $best 1]] [lindex $best 0]" "HELM: the largest step (times the merge before) and the clusters before it"
     set last [lrange $hs end-7 end]
     keep helm_last_heights [join [lmap h $last {format %.3g $h}] " "] "the last eight merges' heights (k 11 to 4)"
-    # the README's example: KMeans NANI at k 6, seeded by CompSim
+    # the command page's script (docs/command.rst): KMeans NANI at k 6, seeded by CompSim
     vmdance -mol $m -sel $sel -algorithm kmeans -k 6 -kinit CompSim -quiet 1
-    keep readme_k6 "[join [::VMDance::Results::sizes] { }] [format %.1f [::VMDance::Results::get ch]] [format %.2f [::VMDance::Results::get db]]" "README: KMeans NANI, k 6, CompSim: sizes, Calinski-Harabasz, Davies-Bouldin"
+    keep script_k6 "[join [::VMDance::Results::sizes] { }] [format %.1f [::VMDance::Results::get ch]] [format %.2f [::VMDance::Results::get db]]" "the command page's script: KMeans NANI, k 6, CompSim: sizes, Calinski-Harabasz, Davies-Bouldin"
     # eQual's radius: a range from the frames, and the clusters at five radii
     set rd [vmdance radii -mol $m -sel $sel]
     keep radii_suggested "[dict get $rd from] [dict get $rd to] [dict get $rd by] [dict get $rd sample]" "vmdance radii: from, to, by, and the frames sampled"

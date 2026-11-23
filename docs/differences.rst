@@ -2,8 +2,10 @@ Coming from the MDANCE plugin
 =============================
 
 VMDance replaces the MDANCE VMD plugin (``mdance::gui``, **Analysis ▸
-MDANCE Clustering**). It drives the same backend with the same algorithms
-and defaults, and measures the same things; what changed, and why:
+MDANCE Clustering**). It drives the same backend with the same
+algorithms, and measures the same things; its defaults are the MDANCE
+plugin's but for k, HELM's merge and eQual's radius (:doc:`parameters`).
+What changed, and why:
 
 .. list-table::
    :header-rows: 1
@@ -88,11 +90,15 @@ and defaults, and measures the same things; what changed, and why:
      - none (the coordinates as they are)
      - optional: *Fit to the first frame*, on the values; off by default,
        with a note, and a warning when the frames do not look superposed
+   * - Defaults
+     - k 10 (KMeans NANI, HELM), 3 (DIVINE); HELM merges ``Inter``; eQual's
+       radius typed
+     - k 6 for all three; HELM merges ``Intra``; eQual's radius 2
    * - DIVINE
      - *Refine* always live (it changes nothing with NANI's splits);
-       *Threshold*; any metric
+       *Threshold*; any metric; *k* or *points* to stop
      - *Refine* greyed with NANI; *Smallest share*, what a split leaves on
-       each side; MSD
+       each side; MSD; stops at k (``-end-mode points``: the command's only)
    * - Settings
      - lost when VMD quits; the text size could not reach the widgets
      - kept (``~/.vmdance.prefs``); the text size applies to the whole

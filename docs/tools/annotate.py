@@ -17,7 +17,8 @@ COLOUR = (163, 72, 59)
 
 
 def font(size):
-    for f in ("/usr/share/fonts/opentype/inter/Inter-Bold.otf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+    for f in ("/usr/share/fonts/opentype/inter/Inter-Bold.otf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+              "C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/arialbd.ttf"):
         if os.path.exists(f):
             return ImageFont.truetype(f, size)
     return ImageFont.load_default()

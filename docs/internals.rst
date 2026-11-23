@@ -24,7 +24,7 @@ A clustering
    * - ``request``
      - ``mol sel fit first last step algorithm k metric params``
    * - ``molecule``
-     - ``name numatoms numframes files types`` (for sessions)
+     - ``name numatoms numframes files types paths`` (for sessions)
    * - ``frames``, ``natoms``
      - the VMD frames clustered, in order; the atoms per frame
    * - ``nclusters labels sizes representatives msd ch db``
@@ -44,7 +44,8 @@ A clustering
        has no ``silhouette_pairs``), ``rep_msd centroid_msd``
        (k × k; ``{}``, not measured, above ``Measure::maxk``, 300 clusters)
    * - ``extras``
-     - ``prime``, ``similarity``: what was asked of it (``Results::attach``)
+     - ``prime``, ``similarity``, ``map``, ``profiles``: what was asked of it
+       (``Results::attach``); ``groups``
    * - ``backend``, ``seconds``, ``created``
      - ``{cli path}``, ``{library path}`` or ``{imported file}``; the time
        and date
@@ -281,7 +282,9 @@ is looked for in groups of them, nearest first, and one the triangle
 inequality puts farther than the nearest found is not measured; about a
 third of them on states3's 1462 clusters, where the distances in 180
 dimensions are nearly all alike); with a fit, a
-frame's transform costs 250 µs (VMD's ``vectrans``, called per atom). VMD's
+frame's transform costs 250 µs (VMD's ``vectrans``, called per atom), and
+its rotation is the plugin's own (``Coords::fit_matrix``: Horn's
+quaternion, about 0.15 ms a frame for 50 atoms), not ``measure fit``. VMD's
 ``veclength2``, ``vecdot``, ``vecdist`` and ``coordtrans`` are Tcl
 procedures: the plugin calls ``veclength`` and ``vecsub`` directly, and a
 frame's fingerprint uses ``measure center``, ``measure rgyr`` and ``measure
@@ -291,3 +294,79 @@ between frames and a scratch molecule of the mean structures, or moving a
 copy of the coordinates with ``$sel move`` for the fit — makes and deletes
 a molecule at every clustering, which the plugin never does (its exports
 too write VMD's frames from a selection).
+
+Source layout
+-------------
+
+Where each part of the plugin, its tests and its documentation is::
+
+   vmdance/
+     pkgIndex.tcl, vmdance.tcl   package, menu entry, scripting command
+     lib/json.tcl         the backend's JSON, read as data
+     lib/molecule.tcl     reading VMD: selections at the global level (their texts made short, as ranges, or refused), frames, molecule records
+     lib/algorithms.tcl   the algorithms: parameters with defaults and limits, their checks, the backend's arguments, label files
+     lib/prefs.tcl        the preferences kept between sessions of VMD (the window's, the backend chosen in Settings), read as data
+     lib/backend.tcl      finding CPP-MDANCE (the preferences' first), what it was built with, running mdance-cli in the background, private files
+     lib/coords.tcl       the coordinates clustered: the same atoms at every frame, the fit, the rows kept; whether the frames look superposed
+     lib/measures.tcl     the plugin's measures: RMSD² from the representatives, distances, silhouettes (two kinds), runs, transitions, the map's PCA, the profiles, the stability's ARI, HELM's tree,
+                          the clusters' shares window by window, the groups' divergence, linkage
+     lib/analysis.tcl     requests and their checks; the jobs (cluster, elbow, sweep, adopt, import, PRIME, similarity, map, profiles, radii, pick); the backend's output checked
+     lib/results.tcl      the clusterings in memory, runs, scans, picks, the selection, queries
+     lib/session.tcl      session files; the MDANCE plugin's, imported
+     lib/export.tcl       result files: tables, structures
+     lib/viz3d.tcl        the 3D drawing: colour by cluster, representatives, overlay, picks
+     lib/fonts.tcl        one font family and size
+     lib/theme.tcl        the window's looks: native, flat, VMD's own
+     lib/tooltip.tcl, lib/icons.tcl, lib/colormaps.tcl, lib/plotlib.tcl   (InteractionView's)
+     lib/plots.tcl        the plots of the clusters and the scans
+     lib/plots_groups.tcl the plots of the groups and the coordinates: make-up, map, profiles
+     lib/figures.tcl      figures (PostScript, Ghostscript) and the 3D view as a picture
+     lib/gui.tcl          main window: menus, toolbar, the Setup, Results, Scans, Tools and 3D tabs, running jobs
+     lib/gui_opts.tcl     the Plot options panel; showing and hiding the side panels
+     lib/gui_io.tcl       sessions, import, export, figures and render dialogs
+     icons/               icon PNGs; make_icons.py draws them (the application's, app_*: docs/tools/make_logo.py)
+   tests/
+     common.tcl           shared: paths, the systems, the backends, check
+     fake_mdance_cli      a deterministic stand-in for mdance-cli, with hooks for failures
+     fake_mdance_cli.bat  runs it with Python on Windows (Tcl runs no script by its #! line there)
+     fixtures/            small multi-model PDBs; sessions of the MDANCE plugin (make_old_sessions.tcl)
+     test_core.tcl        the JSON reader, parameters and checks, arguments, label files, a result's checks, runs, sessions as data (tclsh or VMD)
+     test_jobs.tcl        the jobs with the fake backend: requests, frames, output checks, failures, Cancel, scans, questions, the coordinates
+     test_results.tcl     the command's questions, runs, the 3D drawing, exports and structures
+     test_session.tcl     sessions with their molecules, hostile files, imported sessions, preferences
+     test_reference.tcl   the real backend: its own labels, program and library, measures by hand, MDANCE's published runs
+     test_hardening.tcl   what the reviews found, kept from coming back: files, inputs, the lifecycle, the science
+     test_hardening2.tcl  sessions' security and limits: molecule files checked, lists counted, saves bounded, no expr ?: on typed strings;
+                          the backend's process: its private folder, Cancel through a launcher, its output, a stop from outside;
+                          what reaches the backend: coordinates that are not numbers, numbers out of its range, the metric with
+                          the diversity selection, the picks' counts; the library's limits; the preferences in a script; Settings' trial;
+                          files and exports; the clustered frames and their molecule: sessions checked against it, frames moved
+                          or deleted under a clustering, the drawing and the picks, a selection's atoms, imports
+     test_hardening2_*.tcl  what the reviews of the second round's fixes found, a suite each (fx_g1 to fx_g5, g6 to g9, h1, oi, h3,
+                          h4: docs/tests.rst says what each keeps); g9's, what the window's fixes ask of the core
+     test_groups.tcl      the groups and their colours, the make-up, the map (numpy's PCA), the profiles, the scans' stability,
+                          eQual's radius scan, HELM's merges' heights, each against a direct computation (the real backend)
+     test_ux.tcl          what the review of the window's use added to the core and the command: alignment, timeline, the silhouette
+                          from every frame, what a scan suggests, the variance explained, blocks and the groups' divergence,
+                          renumber, radii, the structures as models, help (the real backend)
+     test_gui.tcl         windowed: the window, clustering, cancelling, every plot, scans, tools, 3D, files, figures, themes
+     test_ux_gui.tcl      windowed: what the same review changed in the window (Setup's frames and fit note, the tables' colours,
+                          the plots' new views and options, the figures' sizes)
+     test_ux_layout.tcl   windowed: the window's layout at every text and window size, and on small screens
+     run_all.sh           every suite (the text-mode ones through strict.tcl)
+     strict.tcl           runs a suite so that an error at its top level fails it (VMD's -e goes on after one)
+     e2e/                 end to end: four VMD sessions that work, save, quit and reopen (run_e2e.sh)
+     profile/             profile_core.tcl, profile_gui.tcl: each procedure's calls and time (prof.tcl; reports in tests/out/profile)
+   docs/                  Sphinx documentation: quick start, a complete analysis, every pane and plot, choosing k,
+                          groups, the command and recipes, files, the algorithms and parameters, the design
+     _static/logo/        the logo: the wordmark (light and dark backgrounds) and its mark, SVG and PNG
+     _static/figures/     the screenshots; _static/diagrams/: the diagrams (SVG and PNG)
+     diagrams/            the flows' Graphviz sources
+     _static/data/        the tutorial's numbers (tutorial_numbers.txt)
+     tools/make_logo.py   draws the logo, and the window's icon
+     tools/capture.tcl    takes the screenshots (MDANCE's tau peptide); annotate.py numbers the window's parts
+     tools/capture_win.ps1  a window's picture on Windows, for capture.tcl
+     tools/make_diagrams.py  draws the diagrams (matplotlib, and dot for the flows)
+     tools/tutorial_numbers.tcl  the tutorial's numbers; gen_parameters.tcl: the parameters page
+   TESTING.md             what to check by hand
+   Makefile               make distrib: the plugin into a VMD plugin tree

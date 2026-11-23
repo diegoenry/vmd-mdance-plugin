@@ -4,6 +4,23 @@ Changes
 1.0 alpha 1, as it grew
 -----------------------
 
+**23 November 2026: the README an overview.**
+
+- The README says what the plugin does and how to install it, and points
+  to these pages. Its script is the command page's (*A whole script*),
+  its notes and limits a page of their own (:doc:`limits`), its source
+  layout :doc:`internals`'s, its credits :doc:`citing`'s.
+- The documentation reviewed against the code: what the 13 November
+  review changed (k 6, HELM's ``Intra``, eQual's radius 2, DIVINE's stop,
+  the window sizes, the fit), the tutorial's steps (back to the k 3 run
+  before the groups; the script keeps its work before eQual's scan replaces
+  the elbow), field and menu names, the tests' table, the source layout.
+- The documentation's pictures taken again on the tau peptide's atoms
+  (``resid 3 to 12 and name CA N C O H``); ``capture.tcl`` runs on Windows
+  too (``capture_win.ps1``).
+- Figures: Ghostscript is found where its Windows installer puts it
+  (``Program Files\gs``), not only on the ``PATH``.
+
 **22 November 2026: the review of 13 November.**
 
 - Defaults: k is 6 for KMeans NANI, DIVINE and HELM (10, 3 and 10 before);

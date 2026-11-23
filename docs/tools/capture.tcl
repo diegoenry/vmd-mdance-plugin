@@ -7,7 +7,9 @@
 #   cd <VMDance>
 #   MDANCE_DATA=<mdance>/data DISPLAY=:9 vmd -dispdev win -e docs/tools/capture.tcl < <(sleep 900)
 # (standard input must stay open: VMD draws no new geometry once it has
-# read its end, and the renders would show a stale scene)
+# read its end, and the renders would show a stale scene). On Windows the
+# pictures are taken by docs/tools/capture_win.ps1 (PowerShell), the window
+# at the screen's top left; the figures need Ghostscript (gswin64c).
 set ::root [expr {[info exists ::env(VMDANCE_ROOT)] ? $::env(VMDANCE_ROOT) : [pwd]}]
 source [file join $::root tests common.tcl]
 set ::figs [file join $::root docs _static figures]
@@ -17,9 +19,35 @@ fconfigure $::logf -buffering line
 proc log {m} { puts $::logf $m }
 proc bgerror {msg} { log "BGERROR $msg\n$::errorInfo" }
 proc tk_messageBox {args} { log "message: [dict get $args -message]"; return ok }
+# A window's picture: ImageMagick's import on X11; on Windows
+# capture_win.ps1, which copies the window's area from the screen: the
+# window raised and kept on top while it does.
+proc grab {win file} {
+    if {$::tcl_platform(platform) ne "windows"} {
+        exec import -window [wm frame $win] $file
+        return
+    }
+    wm attributes $win -topmost 1
+    raise $win
+    settle 300
+    set ps [file nativename [file join $::root docs tools capture_win.ps1]]
+    try {
+        exec powershell -NoProfile -ExecutionPolicy Bypass -File $ps [wm frame $win] [file nativename $file] 2>@1
+    } finally {
+        wm attributes $win -topmost 0
+    }
+}
+# (the window drawn whole first: its events run for a moment, by update
+# and short sleeps, as the original shot did: no vwait, which a handler
+# that waits in the event loop would hold)
+proc settle {{ms 400}} {
+    set end [expr {[clock milliseconds] + $ms}]
+    update
+    while {[clock milliseconds] < $end} { after 50; update }
+}
 proc shot {name {win .vmdance}} {
-    update; after 400; update
-    exec import -window [wm frame $win] [file join $::figs $name.png]
+    settle
+    grab $win [file join $::figs $name.png]
     log "wrote $name.png"
 }
 proc wait_idle {} {
@@ -47,10 +75,14 @@ set G ::VMDance::GUI
 set S ${G}::S
 set w [vmdance]
 ${G}::set_appearance 12 medium flat
-update
+# (whole on the screen: a part off it is not drawn, and Windows' picture of
+# it is black)
+wm geometry .vmdance +0+0
+settle 1500
 set ${S}(molid) $m
 ${G}::refresh_molecules
-set ${S}(sel) backbone
+# (the atoms MDANCE's tutorial clusters, as the tutorial does)
+set ${S}(sel) "resid 3 to 12 and name CA N C O H"
 set ${S}(algorithm) kmeans
 ${G}::_algorithm_changed
 set ${S}(k_kmeans) 3
@@ -108,7 +140,7 @@ lassign [::VMDance::Plot::area $c] x0 y0 x1 y1
 # wipes the panel)
 ${G}::_hover elbow $c [::VMDance::Plot::X $c 3] [expr {($y0 + $y1) / 2}]
 update idletasks
-exec import -window [wm frame .vmdance] [file join $::figs plot_elbow.png]
+grab .vmdance [file join $::figs plot_elbow.png]
 log "wrote plot_elbow.png ([llength [$c find withtag partition]] items of the panel)"
 set ${S}(eb_stab) 0
 # HELM from 60 starting clusters, and its merges' heights
@@ -174,6 +206,10 @@ foreach c [${G}::_descendants $w.settings] {
     if {[winfo class $c] eq "TLabel" && [string match "In use:*" [$c cget -text]]} {
         $c configure -text "In use: the program /opt/CPP-MDANCE/build/cli/mdance-cli\nAlgorithms: KMeans NANI, DIVINE, HELM, eQual"
     }
+    # (Ghostscript's place on this machine: an example's too)
+    if {[winfo class $c] eq "TLabel" && [string match "Ghostscript:*" [$c cget -text]]} {
+        $c configure -text "Ghostscript: /usr/bin/gs (figures in PDF and PNG)"
+    }
 }
 shot dialog_settings $w.settings
 destroy $w.settings
@@ -200,9 +236,12 @@ if {[catch {::VMDance::Figures::render_3d [file join $::figs 3d.png] $r} err]} {
 # figures of the plots, as the figures dialog makes them
 set ${S}(v3d_reps) 0
 ${G}::draw_changed
-foreach f [vmdance figures $::figs -plots {populations makeup timeline transitions tree silhouette map profiles elbow} \
-        -formats png -width 700 -height 420 -dpi 110 -prefix figure] {
-    log "wrote [file tail $f]"
+# (Ghostscript makes PNG of them: without it, said, and the pictures above kept)
+if {[catch {vmdance figures $::figs -plots {populations makeup timeline transitions tree silhouette map profiles elbow} \
+        -formats png -width 700 -height 420 -dpi 110 -prefix figure} files]} {
+    log "figures: $files"
+} else {
+    foreach f $files { log "wrote [file tail $f]" }
 }
 } err]} { log "ERROR $err\n$::errorInfo" }
 close $::logf

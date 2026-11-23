@@ -34,7 +34,9 @@ core limit to one byte, so that no core is dumped.
        sessions as data (damaged and hostile files), the average linkage
        against a search of every pair, HELM's merges renumbered (trimmed
        starting clusters, numbers that are both a merge's and a starting
-       cluster's)
+       cluster's); selection texts made short or refused (``Mol::compact``,
+       ``vmd_text``), an overlay's frames as ranges, the fit
+       (``Coords::fit_matrix``) against known rotations and Jacobi
    * - ``test_jobs``
      - with the fake backend: requests refused and why, frame subsets, the
        backend's output checked (truncated, too many labels, failures), NaN
@@ -46,7 +48,10 @@ core limit to one byte, so that no core is dumped.
        and the fit
    * - ``test_results``
      - the command's questions, the selection, the runs, the 3D drawing (the
-       user's representations untouched), exports and structures
+       user's representations untouched), exports and structures; a
+       selection of 120 000 values handed to VMD, an overlay's frames
+       counted as VMD draws them, the plugin's fit against VMD's
+       ``measure fit``
    * - ``test_session``
      - sessions with their molecules found, loaded or none; damaged and
        hostile files; atomic saves; the MDANCE plugin's sessions imported
@@ -211,8 +216,8 @@ core limit to one byte, so that no core is dumped.
        ``-options`` or ``-params``, given twice refused; draw's ``-sel``
        checked, and what is drawn otherwise than asked said; quoted values
        and macros in a selection; numbers read as a person writes them
-       (``010``); the parameters page the generator's; README's and the
-       quick start's scripts on MDANCE's data (``MDANCE_DATA``, with the
+       (``010``); the parameters page the generator's; the command page's
+       and the quick start's scripts on MDANCE's data (``MDANCE_DATA``, with the
        real ``mdance-cli``); figures in text mode. A few checks of g7, g8
        and h4 read files kept outside the repository, and skip without
        them
@@ -256,6 +261,11 @@ core limit to one byte, so that no core is dumped.
        (loaded); the distances, tree and clusters tables saying RMSD² where
        it is one, and the number it names; no document or deck claiming VMD
        1.9.4 or later, and a Tcl 8.5 told what the plugin needs
+   * - ``test_groups``
+     - with the real backend: the groups and their colours, the make-up,
+       the map (against numpy's PCA), the profiles, the elbow's stability
+       across seedings, eQual's scan by radius, HELM's merges' heights, each
+       against a direct computation
    * - ``test_ux``
      - what the review of the window's use added to the core and the
        command (the real backend): whether the frames look superposed
@@ -356,6 +366,15 @@ else the build beside the plugin's folder), MDANCE's reference runs
 what is missing is skipped, and says so. Some are skipped on purpose:
 DIVINE's, when the build has none, and what CPP-MDANCE does not reproduce of
 MDANCE — a stratified seed's position on a half (rounded away from zero,
-MDANCE's to even), DIVINE's smallest share (rounded, MDANCE's truncated):
-the numbers are printed, not asserted, and the plugin's labels are checked
+MDANCE's to even): the numbers are printed, not asserted, and the plugin's labels are checked
 against the program's apart.
+
+The windowed suites need a display; on a machine without one, a nested X
+server keeps them off the desktop (``Xephyr :9 -screen 1600x1200x24 -ac &``,
+then ``DISPLAY=:9``). On Windows the fake backend runs through
+``tests/fake_mdance_cli.bat`` (Tcl runs no script by its ``#!`` line there)
+and the text-mode suites are read as UTF-8 (``strict.tcl``, and
+``run_all.sh``'s tclsh; Tcl reads a script in the system encoding, cp1252
+there: the windowed suites' checks of text outside ASCII fail); what needs Unix (file permissions, FIFOs, GNU
+``timeout``) or the shared test systems stops there. What no suite can
+decide is in ``TESTING.md``.
