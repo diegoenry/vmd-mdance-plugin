@@ -1,4 +1,6 @@
-"""The window's picture with its parts numbered, for the guide:
+"""The window's picture with its parts numbered, and the 3D view cropped to
+the molecule, for the guide.
+
 figures/window_annotated.png, from figures.tcl's window.png and
 window_parts.txt (name x y width height, in Tk's points; the first line is
 the window's own size). The picture can be larger than the points (a Retina
@@ -6,12 +8,16 @@ screen's two pixels a point) and taller (the title bar macOS adds above
 Tk's window): both are measured from it. The numbers and their places are
 those of the online documentation's picture (docs/tools/annotate.py).
 
+figures/main_3d.png, VMD's render of the representatives, is cropped to what
+is drawn on its white background, with a margin: the representatives differ
+with every clustering, and so does where they are.
+
     python3 annotate.py figures
 """
 import os
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 ORDER = ["toolbar", "panes", "plots", "plot", "options", "readout", "status"]
 COLOUR = (163, 72, 59)
@@ -29,7 +35,23 @@ def font(size):
     return ImageFont.load_default()
 
 
+def crop_3d(path, margin=20):
+    img = Image.open(path).convert("RGB")
+    box = ImageChops.difference(img, Image.new("RGB", img.size, (255, 255, 255))).getbbox()
+    if box is None:
+        return
+    l, t, r, b = box
+    box = (max(0, l - margin), max(0, t - margin), min(img.width, r + margin), min(img.height, b + margin))
+    if box != (0, 0, img.width, img.height):
+        img.crop(box).save(path, optimize=True)
+        print("cropped", path, "to", box)
+
+
 def main(folder):
+    if os.path.exists(os.path.join(folder, "main_3d.png")):
+        crop_3d(os.path.join(folder, "main_3d.png"))
+    if not os.path.exists(os.path.join(folder, "window_parts.txt")):
+        return
     parts = {}
     with open(os.path.join(folder, "window_parts.txt")) as fh:
         for line in fh:

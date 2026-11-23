@@ -36,6 +36,7 @@
 \newcommand{\file}[1]{\path{#1}}
 \graphicspath{{figures/}{../docs/_static/diagrams/}{../docs/_static/logo/}}
 \input{numbers}
+\input{bench}
 
 % Colours: the documentation's blue; VMD's title colours for the logo's letters
 \definecolor{accent}{HTML}{1F5FAE}
@@ -208,7 +209,7 @@ the first \cmd{cmake} line. The build then downloads Eigen 3.4.0 for itself.
 \textbf{The library} (optional). \cmd{-DBUILD\_TCL=ON} also makes
 \file{build/tcl/mdance_tcl.so} (\cmd{.dylib} on macOS, \cmd{.dll} on
 Windows), which VMD loads. A call then blocks VMD until it returns, and cannot
-be cancelled. Homebrew's \cmd{tcl-tk} is Tcl~9: on macOS, give CMake its Tcl
+be cancelled, and it is not faster (Section~\ref{sec:bench}). Homebrew's \cmd{tcl-tk} is Tcl~9: on macOS, give CMake its Tcl
 8.6.
 
 \begin{lstlisting}[style=sh]
@@ -293,7 +294,7 @@ clusters them too. This guide superposes the frames on one of them, frame
   of Listing~\ref{lst:script}, step 3):
 \begin{lstlisting}[style=tcl]
 set sel "resid 3 to 12 and name N CA C O H"
-set ref [atomselect top $sel frame 1000]
+set ref [atomselect top $sel frame 999]
 set fit [atomselect top $sel]
 set all [atomselect top all]
 for {set f 0} {$f < [molinfo top get numframes]} {incr f} {
@@ -302,7 +303,7 @@ for {set f 0} {$f < [molinfo top get numframes]} {incr f} {
 \end{lstlisting}
   VMD's coordinates move: every frame, whole molecule, is superposed on frame
   \qsFitFrame\ by those atoms. VMD may print \emph{Matrix: Warning: no
-  convergence} for a few frames. Its fit is then still within
+  convergence} for some of them. Its fit is then still within
   \qsFitWorst\,\AA\ of the best one here.
 \item \textbf{Open VMDance}: \ui{Analysis}\then\ui{VMDance} (in VMD 1.9,
   \ui{Extensions}\then\ui{Analysis}\then\ui{VMDance}), or type \cmd{vmdance}
@@ -416,17 +417,18 @@ These are three readings, and they do not agree.
     \qsDbDipBefore\ at k~\qsDbDipBeforeK\ and \qsDbDipAfter\ at
     k~\qsDbDipAfterK. The score bends there. The lowest value and the sharpest
     dip are MDANCE's two criteria.
-  \item The seedings agree only at k~\qsStable\ (stability \qsStableValues).
+  \item The seedings agree at k~\qsStable\ (stability \qsStableValues).
     From k~\qsAboveFrom\ on, the stability is between \qsAboveMin\ and
     \qsAboveMax: there another seeding gives, in part, other clusters.
 \end{itemize}
 
 None of these is wrong: they answer different questions. This guide takes
 k~\qsK, as MDANCE's own tutorial does, for a finer look at the shapes the
-peptide takes than two clusters give. Its scores are not among those the scan
-points to (Calinski--Harabasz \qsKCh, Davies--Bouldin \qsKDb), and its
-stability is \qsKStability: the highest above k~\qsStable, but the four
-seedings do not make quite the same six clusters. Say so when you report them.
+peptide takes than two clusters give. It is where Davies--Bouldin dips most
+sharply (\qsKDb; Calinski--Harabasz \qsKCh). But its stability is
+\qsKStability: the four seedings do not make quite the same six clusters,
+where at k~\qsStableLast\ they nearly do (\qsStableLastValue). Say so when
+you report them.
 
 \textbf{The clusters.} At k~\qsK, the clusters hold \qsSizes\ frames
 (\qsPcts\%; Figure~\ref{fig:gallery}A). Their mean silhouette is
@@ -459,11 +461,12 @@ So the peptide's conformations form a continuum, not six states with
 barriers between them. The k~\qsK\ clusters are a partition of it, useful to
 look at the shapes it takes, and another seeding or algorithm draws their
 borders a little otherwise. Report them with their stability and silhouette,
-and with k~\qsStable\ as the partition the scan supports most firmly.
+and set beside them k~\qsDbLowest, the best scores, and k~\qsStableLast, the
+finest partition the seedings agree on.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.62\textwidth,trim=40 130 30 60,clip]{main_3d.png}
+  \includegraphics[width=0.58\textwidth]{main_3d.png}
   \caption{The \qsK\ clusters' representatives (frames \qsReps), each in its
     cluster's colour: \ui{3D}\then\ui{Representatives}, or \cmd{vmdance draw
     -reps 1}.}
@@ -615,6 +618,70 @@ eQual & clusters within a radius of their seeds; the rest is noise &
     by k, or by radius for eQual. A sweep (\cmd{vmdance sweep}) compares
     algorithms, seedings and k at once.
 \end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{The program or the library}
+\label{sec:bench}
+
+CPP-MDANCE runs as a program, \cmd{mdance-cli}, or as a library loaded into
+VMD, \cmd{mdance\_tcl} (Section~\ref{sec:install}). VMDance gives both the
+same coordinates, and both give the same clusters. They differ in how they
+run:
+
+\begin{itemize}
+  \item The program runs in the background: VMD stays usable, and \ui{Cancel}
+    stops it. The coordinates go to it as a CSV file, and its answer comes
+    back as JSON.
+  \item The library runs inside VMD: VMD waits until it returns, and it cannot
+    be cancelled. The coordinates go to it as one Tcl list, and the CSV file
+    is written all the same.
+\end{itemize}
+
+Table~\ref{tab:bench} times the two on this guide's trajectory (\bnFrames\
+frames, fitted on frame \bnFitFrame), on its \bnAtomsBackbone\ backbone atoms
+and on all \bnAtomsAll\ of its atoms. Each job is timed whole, as you wait
+for it: the coordinates written, CPP-MDANCE, its answer read, and the
+plugin's own measures of the clusters. The time is the median of \bnReps\
+runs, after one not counted.
+
+\begin{table}[H]
+\centering
+\small
+\caption{The program against the library: seconds a job (\bnMachine, VMD
+  \qsVMD, CPP-MDANCE \qsBackendCommit; \cmd{make bench} in the guide's
+  folder). The last column is the program's time over the library's: below
+  1, the program is the faster.}
+\label{tab:bench}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Job & Atoms & Program (s) & Library (s) & Program / library \\
+\midrule
+\bnRows \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{The same clusters.} All \bnCompared\ jobs gave the same answers in
+both modes: the same labels and, for the scans, the same sizes and scores.
+
+\textbf{The library is not faster.} A single clustering took longer with it:
+\bnKmeansLib\ s against \bnKmeansCli\ s for KMeans NANI on the backbone,
+\bnKmeansAllLib\ s against \bnKmeansAllCli\ s on every atom. The library is
+given the coordinates as one Tcl list, which CPP-MDANCE's Tcl binding turns
+into text, and the CSV file is written all the same. The program reads that
+file instead, and starts in a moment. Only the scans, which call CPP-MDANCE
+again and again with the same list, gain a little from the library: the scan
+with stability, 55 clusterings, took \bnStabilityLib\ s against
+\bnStabilityCli\ s. Over all the jobs, the program took \bnGainMin\ to
+\bnGainMax\ times the library's time.
+
+\textbf{The library costs memory.} Over its runs, VMD grew by \bnMemLib\ MB,
+against \bnMemCli\ MB over the program's: Tcl keeps the text of the
+coordinates' list, about 120 bytes a coordinate, until VMD quits.
+
+So use the program: it is as fast, it leaves VMD usable and the job stoppable,
+and VMD's memory hardly grows with it. The library is an option where no program
+can be run beside VMD.
 
 % ---------------------------------------------------------------------------
 \section{The command at a glance}

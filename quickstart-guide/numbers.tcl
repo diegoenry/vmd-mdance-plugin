@@ -86,11 +86,12 @@ if {[catch {
     keep qsFrames $nf
     set s [atomselect $m $sel]
     keep qsAtoms [$s num]
-    keep qsFitFrame 1000
+    # (the frame the script fitted on: its fitframe)
+    keep qsFitFrame $fitframe
     # how far VMD's measure fit (the script's) is from the least RMSD to
-    # frame 1000: each frame as the script moved it, against the plugin's
+    # that frame: each frame as the script moved it, against the plugin's
     # exact fit (Horn's quaternion) of the same coordinates
-    set r [atomselect $m $sel frame 1000]
+    set r [atomselect $m $sel frame $fitframe]
     set Y [$r get {x y z}]
     set R [::VMDance::Coords::fit_ref $Y]
     set worst 0.0; set sum 0.0
@@ -110,7 +111,8 @@ if {[catch {
         if {$gap > $worst} { set worst $gap }
     }
     $r delete; $s delete
-    keep qsFitWorst [format %.0e [expr {max($worst, 1e-6)}]]
+    # (in thousandths of an angstrom, at least one: "within 0.001")
+    keep qsFitWorst [format %.3f [expr {max($worst, 0.001)}]]
     keep qsFitMean [frac [expr {$sum / $nf}] 2]
     set al [vmdance alignment -mol $m -sel $sel]
     keep qsAsIs [frac [dict get $al as_is] 2]
@@ -154,6 +156,8 @@ if {[catch {
     keep qsDbDipStability $stab($dip)
     keep qsStable [and_list $stable]
     keep qsStableValues [and_list [lmap kk $stable {set stab($kk)}]]
+    keep qsStableLast [lindex $stable end]
+    keep qsStableLastValue $stab([lindex $stable end])
     # the stability above the largest stable k
     set above [lmap kk $ks {expr {$kk > [lindex $stable end] && $stab($kk) ne "--" ? $stab($kk) : [continue]}}]
     keep qsAboveFrom [expr {[lindex $stable end] + 1}]

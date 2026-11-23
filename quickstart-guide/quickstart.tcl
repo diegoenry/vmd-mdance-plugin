@@ -15,8 +15,9 @@ animate delete beg 0 end 0 $m          ;# 6001 frames left, the DCD's
 # 2. The atoms: the backbone of residues 3 to 12, N CA C O and H
 set sel "resid 3 to 12 and name N CA C O H"
 
-# 3. Fit every frame to frame 1000 on those atoms (VMD's coordinates move)
-set ref [atomselect $m $sel frame 1000]
+# 3. Fit every frame to frame 999 on those atoms (VMD's coordinates move)
+set fitframe 999
+set ref [atomselect $m $sel frame $fitframe]
 set fit [atomselect $m $sel]
 set all [atomselect $m all]
 for {set f 0} {$f < [molinfo $m get numframes]} {incr f} {

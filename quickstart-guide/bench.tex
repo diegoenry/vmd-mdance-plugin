@@ -1,0 +1,30 @@
+% The quick-start guide's benchmark, made by bench.tcl (make bench): the
+% program against the library, medians of 3 runs. Do not edit.
+\newcommand{\bnFrames}{6001}
+\newcommand{\bnAtomsBackbone}{50}
+\newcommand{\bnAtomsAll}{217}
+\newcommand{\bnReps}{3}
+\newcommand{\bnFitFrame}{999}
+\newcommand{\bnMachine}{Apple M1 Max}
+\newcommand{\bnRows}{KMeans NANI, k 6 & 50 & 1.11 & 1.43 & 0.8\(\times\) \\
+DIVINE, k 6 & 50 & 1.07 & 1.44 & 0.7\(\times\) \\
+HELM, k 6 (from 60) & 50 & 1.59 & 1.94 & 0.8\(\times\) \\
+eQual, radius 8 & 50 & 1.09 & 1.50 & 0.7\(\times\) \\
+Elbow scan, k 2 to 12 & 50 & 2.69 & 2.60 & 1.0\(\times\) \\
+Elbow scan with stability & 50 & 24.3 & 22.2 & 1.1\(\times\) \\
+KMeans NANI, k 6 & 217 & 4.16 & 5.25 & 0.8\(\times\) \\
+DIVINE, k 6 & 217 & 3.97 & 5.38 & 0.7\(\times\) \\
+HELM, k 6 (from 60) & 217 & 6.65 & 7.94 & 0.8\(\times\) \\
+Elbow scan, k 2 to 12 & 217 & 12.1 & 11.7 & 1.0\(\times\)}
+\newcommand{\bnCompared}{10}
+\newcommand{\bnSame}{10}
+\newcommand{\bnGainMin}{0.7}
+\newcommand{\bnGainMax}{1.1}
+\newcommand{\bnKmeansCli}{1.11}
+\newcommand{\bnKmeansLib}{1.43}
+\newcommand{\bnKmeansAllCli}{4.16}
+\newcommand{\bnKmeansAllLib}{5.25}
+\newcommand{\bnStabilityCli}{24.3}
+\newcommand{\bnStabilityLib}{22.2}
+\newcommand{\bnMemCli}{38}
+\newcommand{\bnMemLib}{1206}

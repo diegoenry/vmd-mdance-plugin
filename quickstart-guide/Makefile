@@ -23,15 +23,15 @@ VMD     ?= vmd
 LATEXMK ?= latexmk
 BUILD    = build
 
-export TAU_DATA MDANCE_CLI
+export TAU_DATA MDANCE_CLI MDANCE_LIB BENCH_REPS
 
-.PHONY: all pdf run numbers figures check clean distclean
+.PHONY: all pdf run numbers figures bench check clean distclean
 
 all: pdf
 
 pdf: $(DOC).pdf
 
-$(DOC).pdf: $(DOC).tex numbers.tex quickstart.tcl $(wildcard figures/*)
+$(DOC).pdf: $(DOC).tex numbers.tex bench.tex quickstart.tcl $(wildcard figures/*)
 	mkdir -p $(BUILD)
 	$(LATEXMK) -pdf -interaction=nonstopmode -halt-on-error -outdir=$(BUILD) $(DOC).tex
 	cp $(BUILD)/$(DOC).pdf $@
@@ -48,6 +48,20 @@ run:
 numbers: run
 	cp $(BUILD)/numbers.tex numbers.tex
 
+# The benchmark (bench.tex): the program against the library, every job
+# timed whole, the median of BENCH_REPS runs (3). It needs the library too
+# (MDANCE_LIB, or CPP-MDANCE built with -DBUILD_TCL=ON beside the
+# repository). Run it on a machine otherwise idle: its times are the
+# machine's, and are not compared by make check.
+bench:
+	mkdir -p $(BUILD)
+	: > $(BUILD)/empty.vmdrc
+	rm -f $(BUILD)/bench.tex
+	$(VMD) -dispdev text -startup $(BUILD)/empty.vmdrc -e bench.tcl -args $(BUILD)/bench.tex \
+	    < /dev/null 2>&1 | tee $(BUILD)/bench.log
+	@test -s $(BUILD)/bench.tex || { echo "bench.tcl failed: see $(BUILD)/bench.log"; exit 1; }
+	cp $(BUILD)/bench.tex bench.tex
+
 # The figures (figures/): the script run in VMD with its window, which opens
 # on the screen while they are drawn (a few minutes). VMD's standard input is
 # kept open (a FIFO): VMD draws no new geometry once it has read its end.
@@ -63,7 +77,7 @@ figures:
 	        > $(BUILD)/figures.vmd.log 2>&1; \
 	    kill $$sp 2>/dev/null; rm -f $(BUILD)/stdin
 	@grep -q '^done' $(BUILD)/figures.log || { echo "figures.tcl failed: see $(BUILD)/figures.log"; exit 1; }
-	if [ -f figures/window_parts.txt ]; then python3 annotate.py figures; fi
+	python3 annotate.py figures
 
 # The same run, compared with the numbers the guide quotes. Where it ran
 # (VMD, the platform, the machine, the backend's commit), how long it took

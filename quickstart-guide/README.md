@@ -8,10 +8,11 @@ online documentation: it reads two of that folder's diagrams and the logo,
 and writes nothing there.
 
 The analysis: the PDB as the topology, its own frame deleted after the DCD
-is loaded (6001 frames); every frame fitted on frame 1000 in VMD, on
+is loaded (6001 frames); every frame fitted on frame 999 in VMD, on
 `resid 3 to 12 and name N CA C O H` (50 atoms); an elbow scan with the
 stability of NANI's seedings; KMeans NANI at k 6, as MDANCE's own tutorial
-(the seedings agree only at k 2: the guide says so); the two halves as
+(Davies-Bouldin's sharpest dip; the seedings agree at k 2 and 5: the guide
+says so); the two halves as
 groups; DIVINE, HELM, eQual and a sweep for a second opinion.
 
 | File | What it is |
@@ -20,9 +21,11 @@ groups; DIVINE, HELM, eQual and a sweep for a second opinion.
 | `quickstart.tcl` | the guide's script, printed in it as it is |
 | `numbers.tcl` | runs that script in text-mode VMD, and writes every number the guide quotes |
 | `numbers.tex` | those numbers, as LaTeX macros (made: do not edit) |
+| `bench.tcl` | times the same jobs with CPP-MDANCE's program and with its library |
+| `bench.tex` | those times, as LaTeX macros (made: do not edit) |
 | `figures.tcl` | runs the same script in VMD with its window, and writes `figures/` |
 | `figures/` | the gallery (`gallery_<plot>.pdf`), the representatives (`main_3d.png`), the window (`window*.png`) (made: do not edit) |
-| `annotate.py` | numbers the window's parts (Pillow) |
+| `annotate.py` | numbers the window's parts, and crops the 3D view to the molecule (Pillow) |
 | `macos_windows.swift` | lists VMD's windows, so that `screencapture` takes the VMDance window alone (macOS) |
 | `Makefile` | builds it all |
 
@@ -45,7 +48,14 @@ of BitQT (`git clone https://github.com/LQCT/BitQT.git`), which holds
 make numbers VMD=/path/to/vmd TAU_DATA=/path/to/BitQT/examples   # numbers.tex written again
 make check   VMD=/path/to/vmd TAU_DATA=/path/to/BitQT/examples   # made again, and compared
 make figures VMD=/path/to/vmd TAU_DATA=/path/to/BitQT/examples   # figures/ written again
+make bench   VMD=/path/to/vmd TAU_DATA=/path/to/BitQT/examples   # bench.tex written again
 ```
+
+`make bench` also needs CPP-MDANCE's library (`MDANCE_LIB`, or a build with
+`-DBUILD_TCL=ON` beside the repository). It takes about ten minutes, and its
+times are the machine's: run it on a machine otherwise idle. `make check`
+does not compare them. With the library, VMD's memory grows by about a
+gigabyte during it.
 
 `MDANCE_CLI` names the program; by default it is the CPP-MDANCE build beside
 the repository (`../CPP-MDANCE/build/cli/mdance-cli`). VMD runs with an empty
